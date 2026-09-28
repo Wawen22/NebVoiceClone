@@ -214,11 +214,6 @@ export function App(): React.JSX.Element {
     <main className="main">
       <header className="topbar"><div><span className="eyebrow">NEB / {page.toUpperCase()}</span><h1>{page === 'console' ? 'Write, then speak.' : page === 'settings' ? 'Settings' : 'Diagnostics'}</h1></div><div className="topbar-actions">{page === 'console' && <button className="conversation-trigger" onClick={() => void toggleConversationMode()}>Open conversation <span>↗</span></button>}<div className={gemini.ready ? 'connection ready' : 'connection'}><span className="status-dot" /> {gemini.ready ? 'Gemini online' : 'Gemini unavailable'}</div></div></header>
       {page === 'console' && <div className="content console-content">
-        <div className="signal-strip">
-          <StatusCard title="VOICE" value={settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : `${settings.geminiVoiceId} · prebuilt`} tone="green" />
-          <StatusCard title="OUTPUT" value={routing.label} tone={routing.routed ? 'green' : 'amber'} />
-          <StatusCard title="ROUTE" value={routing.routed ? 'Ready for Edge' : 'Speaker playback'} tone={routing.routed ? 'green' : 'muted'} />
-        </div>
         <section className="workflow-guide" aria-label="How to use NEB Voice Console">
           <div className="guide-title"><span className="eyebrow">QUICK FLOW</span><strong>Edge conversation controls</strong></div>
           <div className="guide-steps"><span><kbd>Ctrl+Alt+V</kbd> focus NEB</span><span><kbd>Ctrl+Enter</kbd> speak</span><span><kbd>Esc</kbd> stop</span><span><kbd>Ctrl+R</kbd> replay</span></div>
