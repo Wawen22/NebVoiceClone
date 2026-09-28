@@ -220,9 +220,9 @@ export function App(): React.JSX.Element {
           <StatusCard title="ROUTE" value={routing.routed ? 'Ready for Edge' : 'Speaker playback'} tone={routing.routed ? 'green' : 'muted'} />
         </div>
         <section className="workflow-guide" aria-label="How to use NEB Voice Console">
-          <div className="guide-title"><span className="eyebrow">QUICK FLOW</span><strong>Use NEB while Edge is listening</strong></div>
-          <div className="guide-steps"><span><b>1</b> Open Conversation</span><span><kbd>Ctrl+Alt+V</kbd> bring NEB forward</span><span><b>2</b> Paste or edit your reply</span><span><kbd>Ctrl+Enter</kbd> speak</span><span><kbd>Esc</kbd> stop</span><span><kbd>Ctrl+R</kbd> replay</span></div>
-          <p><strong>Audio path:</strong> NEB → CABLE Input → Edge microphone: CABLE Output → your headset monitor.</p>
+          <div className="guide-title"><span className="eyebrow">QUICK FLOW</span><strong>Edge conversation controls</strong></div>
+          <div className="guide-steps"><span><kbd>Ctrl+Alt+V</kbd> focus NEB</span><span><kbd>Ctrl+Enter</kbd> speak</span><span><kbd>Esc</kbd> stop</span><span><kbd>Ctrl+R</kbd> replay</span></div>
+          <p><strong>Route:</strong> CABLE Input → Edge microphone: CABLE Output.</p>
         </section>
         <div className="workbench">
           <section className="composer editor-surface">
