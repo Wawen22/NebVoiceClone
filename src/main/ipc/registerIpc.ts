@@ -1,9 +1,12 @@
-import { ipcMain, type WebContents } from 'electron'
+import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
+import { basename } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
 import { readSettings, saveReplicatedVoice, updateSettings } from '../config/settingsStore'
 import { GeminiTtsProvider } from '../providers/gemini'
 import { parseSynthesisRequest } from '../../shared/geminiRequest'
 import type { AppInfo } from '../../shared/contracts'
 import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication'
+import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
 import type { WindowPresentationController } from '../windowPresentation'
 
 export function registerIpc(
@@ -42,6 +45,39 @@ export function registerIpc(
     const request = parseCreateReplicatedVoiceRequest(value)
     const record = await gemini.createReplicatedVoice(request)
     return saveReplicatedVoice(record)
+  })
+  ipcMain.handle('voiceProfile:export', async (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    const voice = (await readSettings()).replicatedVoice
+    if (!voice) throw new Error('Create or import a replicated voice before exporting a profile.')
+    const options = {
+      title: 'Export NEB voice profile',
+      defaultPath: `neb-voice-${voice.displayName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'profile'}.json`,
+      filters: [{ name: 'NEB voice profile', extensions: ['json'] }]
+    }
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, serializeVoiceProfile(voice), { encoding: 'utf8', mode: 0o600 })
+    return { fileName: basename(result.filePath) }
+  })
+  ipcMain.handle('voiceProfile:import', async (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    const options: OpenDialogOptions = {
+      title: 'Import NEB voice profile',
+      properties: ['openFile'],
+      filters: [{ name: 'NEB voice profile', extensions: ['json'] }]
+    }
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) return null
+    let data: unknown
+    try {
+      data = JSON.parse(await readFile(result.filePaths[0], 'utf8'))
+    } catch {
+      throw new Error('The selected profile could not be read.')
+    }
+    return saveReplicatedVoice(parseVoiceProfile(data))
   })
   ipcMain.handle('speech:synthesize', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)

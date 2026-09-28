@@ -88,12 +88,18 @@ export interface ConversationModeStatus {
   globalShortcutAvailable: boolean
 }
 
+export interface VoiceProfileExportResult {
+  fileName: string
+}
+
 export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<AppSettings>
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>
   checkGemini(): Promise<ProviderStatus>
   createReplicatedVoice(request: CreateReplicatedVoiceRequest): Promise<AppSettings>
+  exportVoiceProfile(): Promise<VoiceProfileExportResult | null>
+  importVoiceProfile(): Promise<AppSettings | null>
   synthesize(request: SynthesisRequest): Promise<SynthesizedAudio>
   stopGeneration(): Promise<void>
   setConversationMode(enabled: boolean): Promise<ConversationModeStatus>

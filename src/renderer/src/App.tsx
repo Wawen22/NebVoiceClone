@@ -24,6 +24,8 @@ export function App(): React.JSX.Element {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [conversationMode, setConversationMode] = useState(false)
   const [conversationStatus, setConversationStatus] = useState<ConversationModeStatus | null>(null)
+  const [voiceProfileMessage, setVoiceProfileMessage] = useState('')
+  const [voiceProfileBusy, setVoiceProfileBusy] = useState(false)
   const audio = useRef(new BrowserAudioEngine())
   const requestId = useRef(0)
   const playbackStartedAt = useRef<number | null>(null)
@@ -197,6 +199,29 @@ export function App(): React.JSX.Element {
     }
   }
 
+  async function exportVoiceProfile(): Promise<void> {
+    setVoiceProfileBusy(true)
+    try {
+      const result = await window.neb.exportVoiceProfile()
+      if (result) setVoiceProfileMessage(`Voice profile exported: ${result.fileName}`)
+      setError('')
+    } catch (reason) { setError(`Voice profile export failed: ${message(reason)}`) }
+    finally { setVoiceProfileBusy(false) }
+  }
+
+  async function importVoiceProfile(): Promise<void> {
+    setVoiceProfileBusy(true)
+    try {
+      const next = await window.neb.importVoiceProfile()
+      if (next) {
+        setSettings(next)
+        setVoiceProfileMessage(`${next.replicatedVoice?.displayName || 'Voice'} imported and selected.`)
+      }
+      setError('')
+    } catch (reason) { setError(`Voice profile import failed: ${message(reason)}`) }
+    finally { setVoiceProfileBusy(false) }
+  }
+
   const cable = outputs.some((output) => /CABLE Input/i.test(output.label))
   const routing = routingStatus(outputs, settings.outputDeviceId)
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
@@ -257,7 +282,7 @@ export function App(): React.JSX.Element {
           </aside>
         </div>
       </div>}
-      {page === 'settings' && <div className="content narrow settings-page"><div className="intro"><div><h2>Gemini setup</h2><p>The API key stays in Electron's main process.</p></div></div><section className="panel"><span className="eyebrow">GEMINI API</span><h3>Connection</h3><p>Status: <strong>{gemini.message}</strong></p><p>Key available to this process: <strong>{info?.geminiConfigured ? 'Yes' : 'No'}</strong>. For local development, store it in ignored <code>.env.local</code> as <code>GEMINI_API_KEY</code>. Restart after changing it.</p><button className="text-button" onClick={() => void checkGemini()}>Check connection again</button><p><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer">Google AI Studio API keys <Icon name="external" size={13} /></a></p></section><VoiceReplicationWizard gemini={gemini} settings={settings} onCreated={setSettings} /><section className="panel"><span className="eyebrow">PRIVACY</span><h3>Local history</h3><label className="checkbox"><input type="checkbox" checked={settings.saveScriptHistory} disabled /> Save script history (later phase)</label><p className="hint">Scripts are kept only in memory. SPEAK sends the selected script to Google; voice audio is sent only when you press CREATE VOICE.</p></section></div>}
+      {page === 'settings' && <div className="content narrow settings-page"><div className="intro"><div><h2>Gemini setup</h2><p>The API key stays in Electron's main process.</p></div></div><section className="panel"><span className="eyebrow">GEMINI API</span><h3>Connection</h3><p>Status: <strong>{gemini.message}</strong></p><p>Key available to this process: <strong>{info?.geminiConfigured ? 'Yes' : 'No'}</strong>. For local development, store it in ignored <code>.env.local</code> as <code>GEMINI_API_KEY</code>. Restart after changing it.</p><button className="text-button" onClick={() => void checkGemini()}>Check connection again</button><p><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer">Google AI Studio API keys <Icon name="external" size={13} /></a></p></section><section className="panel voice-profile"><span className="eyebrow">VOICE PROFILE</span><h3>Use your replicated voice on another computer</h3><p>Export contains only the Gemini voice ID, its name, and the selected model. It never includes your API key, recordings, scripts, or audio routing.</p>{settings.replicatedVoice ? <p>Current voice: <strong>{settings.replicatedVoice.displayName}</strong></p> : <p>No replicated voice is saved on this computer yet.</p>}<div className="action-row"><button disabled={!settings.replicatedVoice || voiceProfileBusy} onClick={() => void exportVoiceProfile()}><Icon name="upload" /> Export profile</button><button disabled={voiceProfileBusy} onClick={() => void importVoiceProfile()}><Icon name="copy" /> Import profile</button></div>{voiceProfileMessage && <p className="voice-profile-message"><span className="status-dot green" /> {voiceProfileMessage}</p>}</section><VoiceReplicationWizard gemini={gemini} settings={settings} onCreated={setSettings} /><section className="panel"><span className="eyebrow">PRIVACY</span><h3>Local history</h3><label className="checkbox"><input type="checkbox" checked={settings.saveScriptHistory} disabled /> Save script history (later phase)</label><p className="hint">Scripts are kept only in memory. SPEAK sends the selected script to Google; voice audio is sent only when you press CREATE VOICE.</p></section></div>}
       {page === 'diagnostics' && <div className="content narrow settings-page"><div className="intro"><div><h2>System snapshot</h2><p>Local information to help troubleshoot setup.</p></div></div><section className="panel diagnostics"><Row name="Electron" value={info?.electron || 'Loading'} /><Row name="Node" value={info?.node || 'Loading'} /><Row name="Platform" value={info?.platform || 'Loading'} /><Row name="Gemini key present" value={info?.geminiConfigured ? 'Yes' : 'No'} /><Row name="Gemini API" value={gemini.message} /><Row name="Selected model" value={settings.geminiModel} /><Row name="Selected voice" value={settings.geminiVoiceId} /><Row name="Audio outputs" value={String(outputs.length)} /><Row name="VB-CABLE" value={cable ? 'Detected' : 'Not detected'} /><Row name="Selected output" value={selectedOutputLabel(outputs, settings.outputDeviceId)} /></section></div>}
     </main>
   </div>
