@@ -209,8 +209,7 @@ export function App(): React.JSX.Element {
         <textarea ref={scriptInput} aria-label="Script" value={script} onChange={(event) => setScript(event.target.value)} placeholder="Paste or type the exact words you want to say…" />
         <div className="conversation-script-meta"><span>{script.length} characters</span><span>Exact script · never saved</span></div>
         <div className="action-row compact-actions"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>▶ {busy ? 'GENERATING…' : 'SPEAK'}</button><button onClick={stop}>■ STOP <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}>↻ REPLAY <kbd>Ctrl+R</kbd></button></div>
-        <p className={routing.routed ? 'routing-message ready' : 'routing-message'}>{routing.message}</p>
-        <p className="shortcut-message">{conversationShortcutLabel(conversationStatus)}</p>
+        <div className="conversation-hints"><p className={routing.routed ? 'routing-message ready' : 'routing-message'}>{routing.message}</p><p className="shortcut-message">{conversationShortcutLabel(conversationStatus)}</p></div>
         {metrics && <div className="metrics compact-metrics"><span>Generation <strong>{metrics.generationMs} ms</strong></span><span>Audio <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Playback <strong>{metrics.playbackMs} ms</strong></span>}</div>}
         <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}><span className="status-dot" /> {error || status}</div>
       </section>
