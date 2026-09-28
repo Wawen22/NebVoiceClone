@@ -95,4 +95,5 @@ export interface DesktopApi {
   synthesize(request: SynthesisRequest): Promise<SynthesizedAudio>
   stopGeneration(): Promise<void>
   setConversationMode(enabled: boolean): Promise<ConversationModeStatus>
+  onConversationRequested(callback: () => void): () => void
 }

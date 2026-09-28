@@ -68,6 +68,21 @@ describe('WindowPresentationController', () => {
     expect(window.focus).toHaveBeenCalledOnce()
   })
 
+  it('requests conversation mode after the global focus shortcut is pressed', () => {
+    const requested = vi.fn()
+    let callback: (() => void) | undefined
+    const shortcuts: ShortcutRegistry = {
+      register: vi.fn((_accelerator, nextCallback) => { callback = nextCallback; return true }),
+      unregister: vi.fn()
+    }
+    const controller = new WindowPresentationController(() => createWindow(), shortcuts, requested)
+
+    controller.registerFocusShortcut()
+    callback?.()
+
+    expect(requested).toHaveBeenCalledOnce()
+  })
+
   it('unregisters only the focus shortcut on disposal', () => {
     const shortcuts = createShortcutRegistry()
     const controller = new WindowPresentationController(() => createWindow(), shortcuts)

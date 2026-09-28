@@ -18,7 +18,11 @@ if (instance && instance !== 'dev' && /^[A-Za-z0-9_-]+$/.test(instance)) {
 }
 
 let mainWindow: BrowserWindow | null = null
-const windowPresentation = new WindowPresentationController(() => mainWindow ?? undefined, globalShortcut)
+const windowPresentation = new WindowPresentationController(
+  () => mainWindow ?? undefined,
+  globalShortcut,
+  () => mainWindow?.webContents.send('window:openConversationMode')
+)
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({

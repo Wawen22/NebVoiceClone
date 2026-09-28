@@ -9,7 +9,12 @@ const api: DesktopApi = {
   createReplicatedVoice: (request) => ipcRenderer.invoke('gemini:createReplicatedVoice', request),
   synthesize: (request) => ipcRenderer.invoke('speech:synthesize', request),
   stopGeneration: () => ipcRenderer.invoke('speech:stop'),
-  setConversationMode: (enabled) => ipcRenderer.invoke('window:setConversationMode', enabled)
+  setConversationMode: (enabled) => ipcRenderer.invoke('window:setConversationMode', enabled),
+  onConversationRequested: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('window:openConversationMode', listener)
+    return () => ipcRenderer.removeListener('window:openConversationMode', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('neb', api)

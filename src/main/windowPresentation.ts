@@ -42,7 +42,8 @@ export class WindowPresentationController {
 
   constructor(
     private readonly getWindow: () => PresentationWindow | undefined,
-    private readonly shortcuts: ShortcutRegistry
+    private readonly shortcuts: ShortcutRegistry,
+    private readonly onConversationRequested: () => void = () => undefined
   ) {}
 
   setConversationMode(enabled: boolean): ConversationModeStatus {
@@ -87,7 +88,10 @@ export class WindowPresentationController {
   }
 
   registerFocusShortcut(): boolean {
-    this.globalShortcutAvailable = this.shortcuts.register(FOCUS_WINDOW_SHORTCUT, () => this.focusWindow())
+    this.globalShortcutAvailable = this.shortcuts.register(FOCUS_WINDOW_SHORTCUT, () => {
+      this.focusWindow()
+      this.onConversationRequested()
+    })
     return this.globalShortcutAvailable
   }
 
