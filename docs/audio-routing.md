@@ -26,3 +26,9 @@ This does not change the browser microphone: Edge continues to receive **CABLE O
 Some browser apps may suppress or alter audio they consider noise. If speech is too quiet, leave automatic microphone sensitivity on for the first test. If it sounds distorted in Teams, set Noise suppression to **Background noise only** and turn off Voice isolation for this virtual microphone.
 
 The native Windows app must be used for routing, not the WSL Linux window. Conversation Mode never changes the Windows output device or the microphone selected by Edge; it only shows whether NEB is currently playing through CABLE Input.
+
+## Changing headphones or speakers
+
+NEB continues to send speech into **CABLE Input** even when Windows' normal output changes. To hear that speech through newly connected headphones or speakers, press `Win + R`, enter `mmsys.cpl`, then open **Recording → CABLE Output → Listen**. Leave **Listen to this device** enabled and choose the new device under **Playback through this device**.
+
+The Console's **Output volume** control changes only NEB's generated audio before it enters CABLE Input. Use it to avoid an overly quiet or loud virtual microphone signal; it does not change Windows, headset, or browser volume.

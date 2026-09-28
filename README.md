@@ -60,7 +60,9 @@ Use **Conversation mode** from the Console when an AI conversation is open in Ed
 3. Keep Windows' normal output on the physical headset. To hear NEB while it sends speech into the cable, monitor CABLE Output through that headset as described in [audio routing](docs/audio-routing.md).
 4. Open Conversation mode, paste or edit the exact reply, then press **Speak**.
 
-Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, and `Ctrl+Alt+V` brings NEB forward while Edge is active. If another app owns the last shortcut, Conversation mode reports that it is unavailable and the normal NEB window still works.
+Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, `Ctrl+Shift+M` toggles Conversation Mode while NEB is active, and `Ctrl+Alt+V` opens Conversation Mode from Edge. `Ctrl+Alt+S` is the global emergency stop for generation or playback while Edge is active. If another app owns a global shortcut, NEB continues normally and the normal window still works.
+
+Use **Output volume** under Audio Routing to set the level NEB sends to CABLE Input. It is saved locally and affects SPEAK and Replay only; it never changes the Windows volume, headset volume, or Edge microphone level.
 
 ## Troubleshooting
 
