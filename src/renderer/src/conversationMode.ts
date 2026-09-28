@@ -7,19 +7,22 @@ export interface RoutingStatus {
   message: string
 }
 
-export function routingStatus(outputs: AudioOutput[], selectedDeviceId: string): RoutingStatus {
+export function routingStatus(outputs: AudioOutput[], selectedDeviceId: string, platform = 'win32'): RoutingStatus {
   const selected = outputs.find((output) => output.deviceId === selectedDeviceId)
   const label = selected?.label ?? (selectedDeviceId === 'default' ? 'System default' : 'Saved device unavailable')
-  const routed = /CABLE Input/i.test(label)
+  const linux = platform === 'linux'
+  const virtualOutput = linux ? 'NEB_Voice' : 'CABLE Input'
+  const browserMicrophone = linux ? 'Monitor of NEB Voice' : 'CABLE Output'
+  const routed = linux ? /NEB[ _]Voice/i.test(label) : /CABLE Input/i.test(label)
 
   return {
     routed,
     label,
     message: routed
-      ? 'Browser routing ready: use CABLE Output as the microphone in Edge.'
+      ? `Browser routing ready: use ${browserMicrophone} as the microphone in Edge.`
       : selected
-        ? `Playing on ${label}. Select CABLE Input here to send speech to Edge.`
-        : `${label}. Select CABLE Input here to send speech to Edge.`
+        ? `Playing on ${label}. Select ${virtualOutput} here to send speech to Edge.`
+        : `${label}. Select ${virtualOutput} here to send speech to Edge.`
   }
 }
 

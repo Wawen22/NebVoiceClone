@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { conversationShortcutLabel, routingStatus } from './conversationMode'
 
 const cable = { deviceId: 'cable-input', label: 'CABLE Input (VB-Audio Virtual Cable)' }
+const pipewire = { deviceId: 'neb-voice', label: 'NEB_Voice' }
 const headset = { deviceId: 'headset', label: 'Cuffie (Neb - Jabra Evolve2 65)' }
 
 describe('routingStatus', () => {
@@ -10,6 +11,14 @@ describe('routingStatus', () => {
       routed: true,
       label: cable.label,
       message: 'Browser routing ready: use CABLE Output as the microphone in Edge.'
+    })
+  })
+
+  it('recognizes the PipeWire virtual output on Linux', () => {
+    expect(routingStatus([pipewire], pipewire.deviceId, 'linux')).toEqual({
+      routed: true,
+      label: pipewire.label,
+      message: 'Browser routing ready: use Monitor of NEB Voice as the microphone in Edge.'
     })
   })
 
