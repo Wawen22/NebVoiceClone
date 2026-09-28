@@ -74,6 +74,7 @@ export function App(): React.JSX.Element {
   }, [settings, script, busy, gemini.ready, hasAudio])
 
   useEffect(() => window.neb.onConversationRequested(() => { void enterConversationMode() }), [])
+  useEffect(() => window.neb.onStopRequested(stop), [])
 
   async function checkGemini(): Promise<void> {
     try { setGemini(await window.neb.checkGemini()) }
@@ -239,7 +240,7 @@ export function App(): React.JSX.Element {
       {page === 'console' && <div className="content console-content">
         <section className="workflow-guide" aria-label="How to use NEB Voice Console">
           <div className="guide-title"><span className="eyebrow">QUICK FLOW</span><strong>Edge conversation controls</strong></div>
-          <div className="guide-steps"><span><kbd>Ctrl+Alt+V</kbd> open from Edge</span><span><kbd>Ctrl+Shift+M</kbd> toggle mode</span><span><kbd>Ctrl+Enter</kbd> speak</span><span><kbd>Esc</kbd> stop</span><span><kbd>Ctrl+R</kbd> replay</span></div>
+          <div className="guide-steps"><span><kbd>Ctrl+Alt+V</kbd> open from Edge</span><span><kbd>Ctrl+Alt+S</kbd> stop from Edge</span><span><kbd>Ctrl+Shift+M</kbd> toggle mode</span><span><kbd>Ctrl+Enter</kbd> speak</span><span><kbd>Esc</kbd> stop</span><span><kbd>Ctrl+R</kbd> replay</span></div>
           <p><strong>Route:</strong> CABLE Input → Edge microphone: CABLE Output.</p>
         </section>
         <div className="workbench">

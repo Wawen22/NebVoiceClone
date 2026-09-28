@@ -14,6 +14,11 @@ const api: DesktopApi = {
     const listener = (): void => callback()
     ipcRenderer.on('window:openConversationMode', listener)
     return () => ipcRenderer.removeListener('window:openConversationMode', listener)
+  },
+  onStopRequested: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('window:stopSpeech', listener)
+    return () => ipcRenderer.removeListener('window:stopSpeech', listener)
   }
 }
 

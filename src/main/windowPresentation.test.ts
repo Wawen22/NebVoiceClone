@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CONVERSATION_WINDOW_SIZE,
   FOCUS_WINDOW_SHORTCUT,
+  STOP_SPEECH_SHORTCUT,
   WindowPresentationController,
   type PresentationWindow,
   type ShortcutRegistry
@@ -70,27 +71,43 @@ describe('WindowPresentationController', () => {
 
   it('requests conversation mode after the global focus shortcut is pressed', () => {
     const requested = vi.fn()
-    let callback: (() => void) | undefined
+    const callbacks = new Map<string, () => void>()
     const shortcuts: ShortcutRegistry = {
-      register: vi.fn((_accelerator, nextCallback) => { callback = nextCallback; return true }),
+      register: vi.fn((accelerator, callback) => { callbacks.set(accelerator, callback); return true }),
       unregister: vi.fn()
     }
     const controller = new WindowPresentationController(() => createWindow(), shortcuts, requested)
 
     controller.registerFocusShortcut()
-    callback?.()
+    callbacks.get(FOCUS_WINDOW_SHORTCUT)?.()
 
     expect(requested).toHaveBeenCalledOnce()
   })
 
-  it('unregisters only the focus shortcut on disposal', () => {
+  it('requests speech stop after the global stop shortcut is pressed', () => {
+    const stopRequested = vi.fn()
+    const callbacks = new Map<string, () => void>()
+    const shortcuts: ShortcutRegistry = {
+      register: vi.fn((accelerator, callback) => { callbacks.set(accelerator, callback); return true }),
+      unregister: vi.fn()
+    }
+    const controller = new WindowPresentationController(() => createWindow(), shortcuts, undefined, stopRequested)
+
+    controller.registerFocusShortcut()
+    callbacks.get(STOP_SPEECH_SHORTCUT)?.()
+
+    expect(stopRequested).toHaveBeenCalledOnce()
+  })
+
+  it('unregisters only NEB shortcuts on disposal', () => {
     const shortcuts = createShortcutRegistry()
     const controller = new WindowPresentationController(() => createWindow(), shortcuts)
 
     controller.registerFocusShortcut()
     controller.dispose()
 
-    expect(shortcuts.unregister).toHaveBeenCalledTimes(1)
+    expect(shortcuts.unregister).toHaveBeenCalledTimes(2)
     expect(shortcuts.unregister).toHaveBeenCalledWith(FOCUS_WINDOW_SHORTCUT)
+    expect(shortcuts.unregister).toHaveBeenCalledWith(STOP_SPEECH_SHORTCUT)
   })
 })

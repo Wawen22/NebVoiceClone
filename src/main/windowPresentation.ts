@@ -1,6 +1,7 @@
 import type { ConversationModeStatus } from '../shared/contracts'
 
 export const FOCUS_WINDOW_SHORTCUT = 'Ctrl+Alt+V'
+export const STOP_SPEECH_SHORTCUT = 'Ctrl+Alt+S'
 export const CONVERSATION_WINDOW_SIZE = { width: 560, height: 520 } as const
 
 export interface WindowBounds {
@@ -43,7 +44,8 @@ export class WindowPresentationController {
   constructor(
     private readonly getWindow: () => PresentationWindow | undefined,
     private readonly shortcuts: ShortcutRegistry,
-    private readonly onConversationRequested: () => void = () => undefined
+    private readonly onConversationRequested: () => void = () => undefined,
+    private readonly onStopRequested: () => void = () => undefined
   ) {}
 
   setConversationMode(enabled: boolean): ConversationModeStatus {
@@ -92,11 +94,13 @@ export class WindowPresentationController {
       this.focusWindow()
       this.onConversationRequested()
     })
+    this.shortcuts.register(STOP_SPEECH_SHORTCUT, this.onStopRequested)
     return this.globalShortcutAvailable
   }
 
   dispose(): void {
     this.shortcuts.unregister(FOCUS_WINDOW_SHORTCUT)
+    this.shortcuts.unregister(STOP_SPEECH_SHORTCUT)
   }
 
   private status(enabled: boolean): ConversationModeStatus {

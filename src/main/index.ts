@@ -21,7 +21,8 @@ let mainWindow: BrowserWindow | null = null
 const windowPresentation = new WindowPresentationController(
   () => mainWindow ?? undefined,
   globalShortcut,
-  () => mainWindow?.webContents.send('window:openConversationMode')
+  () => mainWindow?.webContents.send('window:openConversationMode'),
+  () => mainWindow?.webContents.send('window:stopSpeech')
 )
 
 function createWindow(): void {

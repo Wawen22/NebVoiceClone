@@ -98,4 +98,5 @@ export interface DesktopApi {
   stopGeneration(): Promise<void>
   setConversationMode(enabled: boolean): Promise<ConversationModeStatus>
   onConversationRequested(callback: () => void): () => void
+  onStopRequested(callback: () => void): () => void
 }
