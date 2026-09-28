@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
 import { VoiceReplicationWizard } from './VoiceReplicationWizard'
 import { DEFAULT_SETTINGS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppInfo, type AppSettings, type ConversationModeStatus, type ProviderStatus } from '../../shared/contracts'
-import { conversationShortcutLabel } from './conversationMode'
+import { conversationShortcutLabel, routingStatus } from './conversationMode'
 
 type Page = 'console' | 'settings' | 'diagnostics'
 type Metrics = { firstAudioMs: number; generationMs: number; durationSeconds: number; playbackMs?: number }
@@ -176,6 +176,29 @@ export function App(): React.JSX.Element {
   }
 
   const cable = outputs.some((output) => /CABLE Input/i.test(output.label))
+  const routing = routingStatus(outputs, settings.outputDeviceId)
+
+  if (conversationMode) {
+    return <main className="conversation-shell">
+      <header className="conversation-header">
+        <div><span className="eyebrow">NEB · CONVERSATION</span><h1>Voice Console</h1></div>
+        <button className="icon-button" aria-label="Exit conversation mode" title="Exit conversation mode" onClick={() => void toggleConversationMode()}>×</button>
+      </header>
+      <section className="conversation-composer" aria-label="Conversation controls">
+        <div className="conversation-statuses">
+          <StatusCard title="VOICE" value={settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : `${settings.geminiVoiceId} · prebuilt`} tone="green" />
+          <StatusCard title="ROUTING" value={routing.routed ? 'CABLE Input ready' : routing.label} tone={routing.routed ? 'green' : 'amber'} />
+        </div>
+        <textarea ref={scriptInput} aria-label="Script" value={script} onChange={(event) => setScript(event.target.value)} placeholder="Paste or type the exact words you want to say…" />
+        <div className="conversation-script-meta"><span>{script.length} characters</span><span>Exact script · never saved</span></div>
+        <div className="action-row compact-actions"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>▶ {busy ? 'GENERATING…' : 'SPEAK'}</button><button onClick={stop}>■ STOP <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}>↻ REPLAY <kbd>Ctrl+R</kbd></button></div>
+        <p className={routing.routed ? 'routing-message ready' : 'routing-message'}>{routing.message}</p>
+        <p className="shortcut-message">{conversationShortcutLabel(conversationStatus)}</p>
+        {metrics && <div className="metrics compact-metrics"><span>Generation <strong>{metrics.generationMs} ms</strong></span><span>Audio <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Playback <strong>{metrics.playbackMs} ms</strong></span>}</div>}
+        <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}><span className="status-dot" /> {error || status}</div>
+      </section>
+    </main>
+  }
 
   return <div className="app-frame">
     <aside className="sidebar">
@@ -205,7 +228,6 @@ export function App(): React.JSX.Element {
           <div className="action-row"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>▶ &nbsp; {busy ? 'GENERATING…' : 'SPEAK'}</button><button onClick={stop}>■ &nbsp; STOP <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}>↻ &nbsp; REPLAY <kbd>Ctrl+R</kbd></button></div>
           {metrics && <div className="metrics"><span>First audio <strong>{metrics.firstAudioMs} ms</strong></span><span>Generation <strong>{metrics.generationMs} ms</strong></span><span>Duration <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Playback <strong>{metrics.playbackMs} ms</strong></span>}</div>}
           <div className={error ? 'notice error' : 'notice'}><span className="status-dot" /> {error || status}</div>
-          {conversationMode && <div className="notice"><span className="status-dot muted" /> {conversationShortcutLabel(conversationStatus)}</div>}
         </section>
         <div className="lower-grid">
           <section className="panel"><div className="section-heading"><div><span className="eyebrow">PROVIDER</span><h3>Generation setup</h3></div></div>

@@ -13,6 +13,8 @@ export interface WindowBounds {
 export interface PresentationWindow {
   getBounds(): WindowBounds
   setBounds(bounds: WindowBounds): void
+  getMinimumSize(): number[]
+  setMinimumSize(width: number, height: number): void
   isAlwaysOnTop(): boolean
   setAlwaysOnTop(flag: boolean): void
   isMinimized(): boolean
@@ -29,6 +31,7 @@ export interface ShortcutRegistry {
 
 interface PreviousPresentation {
   bounds: WindowBounds
+  minimumSize: number[]
   alwaysOnTop: boolean
 }
 
@@ -49,8 +52,10 @@ export class WindowPresentationController {
     if (enabled && !this.conversationModeEnabled) {
       this.previousPresentation = {
         bounds: window.getBounds(),
+        minimumSize: window.getMinimumSize(),
         alwaysOnTop: window.isAlwaysOnTop()
       }
+      window.setMinimumSize(CONVERSATION_WINDOW_SIZE.width, CONVERSATION_WINDOW_SIZE.height)
       window.setBounds({
         x: this.previousPresentation.bounds.x,
         y: this.previousPresentation.bounds.y,
@@ -63,6 +68,7 @@ export class WindowPresentationController {
     if (!enabled && this.conversationModeEnabled) {
       if (this.previousPresentation) {
         window.setBounds(this.previousPresentation.bounds)
+        window.setMinimumSize(this.previousPresentation.minimumSize[0] ?? 0, this.previousPresentation.minimumSize[1] ?? 0)
         window.setAlwaysOnTop(this.previousPresentation.alwaysOnTop)
       }
       this.previousPresentation = null

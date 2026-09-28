@@ -11,6 +11,8 @@ function createWindow(overrides: Partial<PresentationWindow> = {}): Presentation
   return {
     getBounds: vi.fn(() => ({ x: 80, y: 120, width: 1260, height: 850 })),
     setBounds: vi.fn(),
+    getMinimumSize: vi.fn(() => [980, 680]),
+    setMinimumSize: vi.fn(),
     isAlwaysOnTop: vi.fn(() => false),
     setAlwaysOnTop: vi.fn(),
     isMinimized: vi.fn(() => false),
@@ -35,11 +37,13 @@ describe('WindowPresentationController', () => {
     const controller = new WindowPresentationController(() => window, createShortcutRegistry())
 
     expect(controller.setConversationMode(true)).toEqual({ enabled: true, globalShortcutAvailable: false })
+    expect(window.setMinimumSize).toHaveBeenCalledWith(CONVERSATION_WINDOW_SIZE.width, CONVERSATION_WINDOW_SIZE.height)
     expect(window.setBounds).toHaveBeenCalledWith({ x: 80, y: 120, ...CONVERSATION_WINDOW_SIZE })
     expect(window.setAlwaysOnTop).toHaveBeenCalledWith(true)
 
     expect(controller.setConversationMode(false)).toEqual({ enabled: false, globalShortcutAvailable: false })
     expect(window.setBounds).toHaveBeenLastCalledWith({ x: 80, y: 120, width: 1260, height: 850 })
+    expect(window.setMinimumSize).toHaveBeenLastCalledWith(980, 680)
     expect(window.setAlwaysOnTop).toHaveBeenLastCalledWith(true)
   })
 
