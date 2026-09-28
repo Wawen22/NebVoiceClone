@@ -5,3 +5,4 @@
 .workflow-guide{justify-items:center}.guide-title{display:flex;align-items:center;gap:8px;white-space:nowrap}.guide-title .eyebrow{display:inline;margin:0}.guide-title strong{line-height:1}.guide-steps{justify-content:center;align-items:center}.workflow-guide p{align-self:center}
 .signal-strip .status-card{align-items:center;text-align:center}.signal-strip .status-card strong{justify-content:center;text-align:center}
 .content.console-content{grid-template-rows:46px minmax(0,1fr)}@media(max-height:780px){.content.console-content{grid-template-rows:40px minmax(0,1fr)}}
+.settings-page{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:36px}.settings-page::-webkit-scrollbar{width:10px}.settings-page::-webkit-scrollbar-thumb{border:3px solid #f3f5f7;border-radius:10px;background:#b6c4ce}.settings-page::-webkit-scrollbar-track{background:transparent}@media(max-width:1050px){.settings-page{overflow:visible}}
