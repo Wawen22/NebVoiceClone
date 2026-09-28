@@ -54,6 +54,7 @@ export interface AppSettings {
   geminiVoiceId: string
   replicatedVoice: ReplicatedVoiceRecord | null
   outputDeviceId: string
+  outputVolume: number
   monitorDeviceId: string
   saveScriptHistory: boolean
 }
@@ -65,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiVoiceId: 'Kore',
   replicatedVoice: null,
   outputDeviceId: 'default',
+  outputVolume: 0.85,
   monitorDeviceId: '',
   saveScriptHistory: false
 }
