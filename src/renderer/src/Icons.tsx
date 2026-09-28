@@ -1,9 +1,10 @@
-type IconName = 'console' | 'settings' | 'diagnostics' | 'play' | 'stop' | 'replay' | 'external' | 'speaker' | 'mute' | 'upload' | 'mic' | 'copy' | 'refresh' | 'close'
+type IconName = 'console' | 'settings' | 'diagnostics' | 'book' | 'play' | 'stop' | 'replay' | 'external' | 'speaker' | 'mute' | 'upload' | 'mic' | 'copy' | 'refresh' | 'close'
 
 const paths: Record<IconName, React.ReactNode> = {
   console: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M9 9h12" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-1.86 1.86a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.56V21h-2.64v-1.04a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.88.34l-1.86-1.86A1.7 1.7 0 0 0 7.96 15a1.7 1.7 0 0 0-1.56-1H5v-2.64h1.4a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.88l1.86-1.86a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-1.56V4h2.64v1.4a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.88-.34l1.86 1.86a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1H21V14h-.04a1.7 1.7 0 0 0-1.56 1Z" /></>,
   diagnostics: <path d="M3 12h4l3-7 4 14 3-7h4" />,
+  book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z" /><path d="M4 19a2.5 2.5 0 0 1 2.5-2.5H20M8 7h8m-8 4h8" /></>,
   play: <path d="m8 5 11 7-11 7z" />,
   stop: <rect x="6" y="6" width="12" height="12" rx="1" />,
   replay: <><path d="M3 11a9 9 0 1 1 2 7M3 17v-6h6" /></>,
