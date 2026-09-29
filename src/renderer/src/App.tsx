@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppInfo, 
 import { conversationShortcutLabel, routingStatus } from './conversationMode'
 
 type Page = 'console' | 'settings' | 'guide' | 'diagnostics'
-type Metrics = { firstAudioMs: number; generationMs: number; durationSeconds: number; playbackMs?: number }
+type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number }
 
 export function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('console')
@@ -149,23 +149,38 @@ export function App(): React.JSX.Element {
     setStatus('Generating with Gemini…')
     setError('')
     audio.current.stop()
+    setHasAudio(false)
+    setMetrics(null)
+    let firstChunkMs: number | null = null
+    let streamError: unknown = null
     try {
-      const result = await window.neb.synthesize({
+      await audio.current.beginStream(settings.outputDeviceId)
+      if (current !== requestId.current) return
+      const result = await window.neb.synthesizeStream({
         providerId: 'gemini', modelId: settings.geminiModel, text: script,
         voice: settings.replicatedVoice?.id === settings.geminiVoiceId ? { mode: 'stateful', voiceId: settings.geminiVoiceId } : { mode: 'prebuilt', voiceId: settings.geminiVoiceId }
+      }, (chunk) => {
+        if (current !== requestId.current || streamError) return
+        try {
+          audio.current.appendPcm(chunk)
+          if (firstChunkMs === null) {
+            firstChunkMs = Math.round(performance.now() - started)
+            playbackStartedAt.current = performance.now()
+            setStatus(`Playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)} · generating…`)
+          }
+        } catch (reason) {
+          streamError = reason
+          void window.neb.stopGeneration()
+        }
       })
       if (current !== requestId.current) return
-      const firstAudioMs = Math.round(performance.now() - started)
-      const durationSeconds = await audio.current.loadBytes(result.data, result.mimeType)
-      if (current !== requestId.current) return
+      if (streamError) throw streamError
+      const durationSeconds = audio.current.finishStream()
       setHasAudio(true)
-      setMetrics({ firstAudioMs, generationMs: result.generationMs, durationSeconds })
-      setStatus('Starting playback…')
-      await audio.current.play(settings.outputDeviceId)
-      playbackStartedAt.current = performance.now()
+      setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds })
       setStatus(`Playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)}`)
     } catch (reason) {
-      if (current === requestId.current) { setError(message(reason)); setStatus('Generation failed') }
+      if (current === requestId.current) { audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generation failed') }
     } finally { if (current === requestId.current) setBusy(false) }
   }
 
@@ -276,7 +291,7 @@ export function App(): React.JSX.Element {
             <textarea ref={scriptInput} aria-label="Script" value={script} onChange={(event) => setScript(event.target.value)} placeholder="Paste or write your response…" />
             <div className="composer-footer"><span>{script.length} characters</span><span>~{estimatedSeconds}s audio stimato</span></div>
             <div className="action-row"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Generating…' : 'Speak'} <kbd>Ctrl+Enter</kbd></button><button className="stop-action" onClick={stop}><Icon name="stop" /> Stop <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}><Icon name="replay" /> Replay <kbd>Ctrl+R</kbd></button></div>
-            {metrics && <div className="metrics"><span>First audio <strong>{metrics.firstAudioMs} ms</strong></span><span>Generation <strong>{metrics.generationMs} ms</strong></span><span>Duration <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span><span>Playback <strong>{metrics.playbackMs !== undefined ? `${metrics.playbackMs} ms` : '—'}</strong></span></div>}
+            {metrics && <div className="metrics"><span>Primo blocco <strong>{metrics.firstChunkMs} ms</strong></span><span>Generazione completa <strong>{metrics.generationMs} ms</strong></span><span>Durata <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span><span>Riproduzione <strong>{metrics.playbackMs !== undefined ? `${metrics.playbackMs} ms` : '—'}</strong></span></div>}
             <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}><span className="status-dot" /> {error || status}</div>
           </section>
           <aside className="control-rail">

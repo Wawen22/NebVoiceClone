@@ -41,7 +41,7 @@ This builds an unpackaged Electron application. A Windows installer is later wor
 
 ## Gemini setup
 
-Get a key in [Google AI Studio](https://aistudio.google.com/api-keys). Set `GEMINI_API_KEY` in your Windows user environment or put it in an ignored project `.env.local` for local development, then restart the app. The renderer never receives it. Run `npm run gemini:check` for a read-only model access check. SPEAK sends the script to Gemini using the selected model and voice; Ctrl+Enter speaks, Escape stops, and Ctrl+R replays. See [Gemini setup](docs/gemini-setup.md).
+Get a key in [Google AI Studio](https://aistudio.google.com/api-keys). Set `GEMINI_API_KEY` in your Windows user environment or put it in an ignored project `.env.local` for local development, then restart the app. The renderer never receives it. Run `npm run gemini:check` for a read-only model access check. SPEAK streams PCM audio from Gemini and starts playback when the first chunk arrives; the completed audio remains available for Replay. Ctrl+Enter speaks, Escape stops, and Ctrl+R replays. The metrics distinguish the first audio chunk from total generation time. See [Gemini setup](docs/gemini-setup.md).
 
 ## Gemini voice replication
 

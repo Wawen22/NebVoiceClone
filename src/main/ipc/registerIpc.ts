@@ -92,6 +92,22 @@ export function registerIpc(
       if (activeGeneration === controller) activeGeneration = null
     }
   })
+  ipcMain.handle('speech:synthesizeStream', async (event, value: unknown, streamId: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (!Number.isSafeInteger(streamId) || Number(streamId) < 0) throw new Error('Invalid audio stream.')
+    const request = parseSynthesisRequest(value)
+    if (request.voice.mode === 'stateful' && request.voice.voiceId !== (await readSettings()).replicatedVoice?.id) throw new Error('Select a voice saved in this application.')
+    if (activeGeneration) throw new Error('Generation is already in progress.')
+    const controller = new AbortController()
+    activeGeneration = controller
+    try {
+      return await gemini.synthesizeStream(request, controller.signal, (chunk) => {
+        if (!controller.signal.aborted && !event.sender.isDestroyed()) event.sender.send('speech:chunk', streamId, chunk)
+      })
+    } finally {
+      if (activeGeneration === controller) activeGeneration = null
+    }
+  })
   ipcMain.handle('speech:stop', (event) => {
     assertTrusted(event.sender, event.senderFrame)
     const pending = activeGeneration

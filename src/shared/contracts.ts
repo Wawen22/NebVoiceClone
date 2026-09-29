@@ -39,6 +39,10 @@ export interface SynthesizedAudio {
   generationMs: number
 }
 
+export interface StreamedAudioResult {
+  generationMs: number
+}
+
 export interface TtsProvider {
   readonly id: ProviderId
   readonly displayName: string
@@ -101,6 +105,7 @@ export interface DesktopApi {
   exportVoiceProfile(): Promise<VoiceProfileExportResult | null>
   importVoiceProfile(): Promise<AppSettings | null>
   synthesize(request: SynthesisRequest): Promise<SynthesizedAudio>
+  synthesizeStream(request: SynthesisRequest, onChunk: (chunk: Uint8Array) => void): Promise<StreamedAudioResult>
   stopGeneration(): Promise<void>
   setConversationMode(enabled: boolean): Promise<ConversationModeStatus>
   onConversationRequested(callback: () => void): () => void
