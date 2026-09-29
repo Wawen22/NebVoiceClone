@@ -10,7 +10,7 @@ describe('routingStatus', () => {
     expect(routingStatus([cable, headset], cable.deviceId)).toEqual({
       routed: true,
       label: cable.label,
-      message: 'NEB output selected. Check that Edge uses CABLE Output as its microphone with a test recording.'
+      message: 'Uscita NEB selezionata. Verifica con una registrazione che Edge usi CABLE Output come microfono.'
     })
   })
 
@@ -18,7 +18,7 @@ describe('routingStatus', () => {
     expect(routingStatus([pipewire], pipewire.deviceId, 'linux')).toEqual({
       routed: true,
       label: pipewire.label,
-      message: 'NEB output selected. Check that Edge uses Monitor of NEB Voice as its microphone with a test recording.'
+      message: 'Uscita NEB selezionata. Verifica con una registrazione che Edge usi Monitor of NEB Voice come microfono.'
     })
   })
 
@@ -26,23 +26,23 @@ describe('routingStatus', () => {
     expect(routingStatus([cable, headset], headset.deviceId)).toEqual({
       routed: false,
       label: headset.label,
-      message: 'Playing on Cuffie (Neb - Jabra Evolve2 65). Select CABLE Input here to send speech to Edge.'
+      message: 'Audio su Cuffie (Neb - Jabra Evolve2 65). Seleziona CABLE Input per inviare la voce a Edge.'
     })
   })
 
   it('warns when the saved output is no longer available', () => {
     expect(routingStatus([cable], 'missing-device')).toEqual({
       routed: false,
-      label: 'Saved device unavailable',
-      message: 'Saved output disconnected. Refresh devices, then select CABLE Input to restore Edge routing.'
+      label: 'Dispositivo salvato non disponibile',
+      message: 'L’uscita salvata è scollegata. Aggiorna i dispositivi, poi seleziona CABLE Input per ripristinare il routing.'
     })
   })
 
   it('reports an unavailable system default when the virtual output is present', () => {
     expect(routingStatus([cable], 'default')).toEqual({
       routed: false,
-      label: 'System default',
-      message: 'System default output is unavailable. Refresh devices, then select CABLE Input.'
+      label: 'Predefinito di sistema',
+      message: 'L’uscita predefinita non è disponibile. Aggiorna i dispositivi, poi seleziona CABLE Input.'
     })
   })
 
@@ -50,18 +50,18 @@ describe('routingStatus', () => {
     expect(routingStatus([headset], headset.deviceId)).toEqual({
       routed: false,
       label: headset.label,
-      message: 'CABLE Input not detected. Check the VB-CABLE installation and refresh devices before routing to Edge.'
+      message: 'CABLE Input non rilevato. Controlla l’installazione di VB-CABLE e aggiorna i dispositivi prima di usare Edge.'
     })
   })
 
   it('reports a missing virtual output on Linux', () => {
-    expect(routingStatus([], 'default', 'linux').message).toBe('NEB_Voice not detected. Check the virtual audio setup and refresh devices before routing to Edge.')
+    expect(routingStatus([], 'default', 'linux').message).toBe('NEB_Voice non rilevato. Controlla la configurazione audio virtuale e aggiorna i dispositivi prima di usare Edge.')
   })
 })
 
 describe('conversationShortcutLabel', () => {
   it('distinguishes an available global shortcut from an unavailable one', () => {
-    expect(conversationShortcutLabel({ enabled: true, globalShortcutAvailable: true })).toBe('Ctrl+Alt+V · focus NEB from Edge')
-    expect(conversationShortcutLabel({ enabled: true, globalShortcutAvailable: false })).toBe('Ctrl+Alt+V unavailable · use the NEB window')
+    expect(conversationShortcutLabel({ enabled: true, globalShortcutAvailable: true })).toBe('Ctrl+Alt+V · torna alla Console')
+    expect(conversationShortcutLabel({ enabled: true, globalShortcutAvailable: false })).toBe('Ctrl+Alt+V non disponibile · usa Esci')
   })
 })

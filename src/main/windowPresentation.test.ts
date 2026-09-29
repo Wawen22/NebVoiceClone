@@ -11,12 +11,16 @@ import {
 function createWindow(overrides: Partial<PresentationWindow> = {}): PresentationWindow {
   return {
     getBounds: vi.fn(() => ({ x: 80, y: 120, width: 1260, height: 850 })),
+    getNormalBounds: vi.fn(() => ({ x: 80, y: 120, width: 1260, height: 850 })),
     setBounds: vi.fn(),
     getMinimumSize: vi.fn(() => [980, 680]),
     setMinimumSize: vi.fn(),
     isAlwaysOnTop: vi.fn(() => false),
     setAlwaysOnTop: vi.fn(),
     isMinimized: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
+    unmaximize: vi.fn(),
+    maximize: vi.fn(),
     restore: vi.fn(),
     isVisible: vi.fn(() => true),
     show: vi.fn(),
@@ -56,6 +60,23 @@ describe('WindowPresentationController', () => {
     expect(controller.registerFocusShortcut()).toBe(false)
     expect(shortcuts.register).toHaveBeenCalledWith(FOCUS_WINDOW_SHORTCUT, expect.any(Function))
     expect(controller.setConversationMode(true)).toEqual({ enabled: true, globalShortcutAvailable: false })
+  })
+
+  it('restores maximization after using the compact conversation window', () => {
+    const window = createWindow({
+      isMaximized: vi.fn(() => true),
+      getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1920, height: 1080 })),
+      getNormalBounds: vi.fn(() => ({ x: 80, y: 120, width: 1260, height: 850 }))
+    })
+    const controller = new WindowPresentationController(() => window, createShortcutRegistry())
+
+    controller.setConversationMode(true)
+    expect(window.unmaximize).toHaveBeenCalledOnce()
+    expect(window.setBounds).toHaveBeenCalledWith({ x: 80, y: 120, ...CONVERSATION_WINDOW_SIZE })
+
+    controller.setConversationMode(false)
+    expect(window.setBounds).toHaveBeenLastCalledWith({ x: 80, y: 120, width: 1260, height: 850 })
+    expect(window.maximize).toHaveBeenCalledOnce()
   })
 
   it('restores, shows, and focuses a hidden minimized window', () => {

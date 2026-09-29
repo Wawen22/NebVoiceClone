@@ -9,7 +9,7 @@ export interface RoutingStatus {
 
 export function routingStatus(outputs: AudioOutput[], selectedDeviceId: string, platform = 'win32'): RoutingStatus {
   const selected = outputs.find((output) => output.deviceId === selectedDeviceId)
-  const label = selected?.label ?? (selectedDeviceId === 'default' ? 'System default' : 'Saved device unavailable')
+  const label = selected?.label ?? (selectedDeviceId === 'default' ? 'Predefinito di sistema' : 'Dispositivo salvato non disponibile')
   const linux = platform === 'linux'
   const virtualOutput = linux ? 'NEB_Voice' : 'CABLE Input'
   const browserMicrophone = linux ? 'Monitor of NEB Voice' : 'CABLE Output'
@@ -20,19 +20,19 @@ export function routingStatus(outputs: AudioOutput[], selectedDeviceId: string, 
     routed,
     label,
     message: routed
-      ? `NEB output selected. Check that Edge uses ${browserMicrophone} as its microphone with a test recording.`
+      ? `Uscita NEB selezionata. Verifica con una registrazione che Edge usi ${browserMicrophone} come microfono.`
       : !virtualAvailable
-        ? `${virtualOutput} not detected. ${linux ? 'Check the virtual audio setup' : 'Check the VB-CABLE installation'} and refresh devices before routing to Edge.`
+        ? `${virtualOutput} non rilevato. ${linux ? 'Controlla la configurazione audio virtuale' : 'Controlla l’installazione di VB-CABLE'} e aggiorna i dispositivi prima di usare Edge.`
       : selected
-        ? `Playing on ${label}. Select ${virtualOutput} here to send speech to Edge.`
+        ? `Audio su ${label}. Seleziona ${virtualOutput} per inviare la voce a Edge.`
         : selectedDeviceId === 'default'
-          ? `System default output is unavailable. Refresh devices, then select ${virtualOutput}.`
-          : `Saved output disconnected. Refresh devices, then select ${virtualOutput} to restore Edge routing.`
+          ? `L’uscita predefinita non è disponibile. Aggiorna i dispositivi, poi seleziona ${virtualOutput}.`
+          : `L’uscita salvata è scollegata. Aggiorna i dispositivi, poi seleziona ${virtualOutput} per ripristinare il routing.`
   }
 }
 
 export function conversationShortcutLabel(status: ConversationModeStatus | null): string {
   return status?.globalShortcutAvailable
-    ? 'Ctrl+Alt+V · focus NEB from Edge'
-    : 'Ctrl+Alt+V unavailable · use the NEB window'
+    ? 'Ctrl+Alt+V · torna alla Console'
+    : 'Ctrl+Alt+V non disponibile · usa Esci'
 }

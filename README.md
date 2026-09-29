@@ -41,11 +41,11 @@ This builds an unpackaged Electron application. A Windows installer is later wor
 
 ## Gemini setup
 
-Get a key in [Google AI Studio](https://aistudio.google.com/api-keys). Set `GEMINI_API_KEY` in your Windows user environment or put it in an ignored project `.env.local` for local development, then restart the app. The renderer never receives it. Run `npm run gemini:check` for a read-only model access check. SPEAK streams PCM audio from Gemini and starts playback when the first chunk arrives; the completed audio remains available for Replay. If the next generation fails or is stopped, Replay still plays the last completed clip; a new completed clip replaces it. Ctrl+Enter speaks, Escape stops, and Ctrl+R replays. The metrics distinguish the first audio chunk from total generation time. See [Gemini setup](docs/gemini-setup.md).
+Get a key in [Google AI Studio](https://aistudio.google.com/api-keys). Set `GEMINI_API_KEY` in your Windows user environment or put it in an ignored project `.env.local` for local development, then restart the app. The renderer never receives it. Run `npm run gemini:check` for a read-only model access check. **Pronuncia** streams PCM audio from Gemini and starts playback when the first chunk arrives; the completed audio remains available for **Riascolta**. If the next generation fails or is stopped, Riascolta still plays the last completed clip; a new completed clip replaces it. Ctrl+Enter speaks, Escape stops, and Ctrl+R replays. Generation metrics are available under **Dettagli generazione**. See [Gemini setup](docs/gemini-setup.md).
 
 ## Gemini voice replication
 
-Open **Settings → Gemini Voice Replication**. Record or select a 10–30 second natural speech sample (MP3 or WAV), then provide a separate recording of yourself reading the exact Italian consent phrase shown in the app. Microphone recording waits for speech and stops after a pause, so you can select a wireless headset and move to a quiet room before talking. Preview each clip and discard any attempt with unwanted sound. The app converts clips locally to 24 kHz mono 16-bit PCM WAV, checks them, and uploads both only after you check the consent box and press **CREATE VOICE**. The resulting Google-managed voice ID is saved locally and selected in Console. See [voice replication guide](docs/voice-replication.md).
+Open **Impostazioni → Crea la tua voce**. Record or select a 10–30 second natural speech sample (MP3 or WAV), then provide a separate recording of yourself reading the exact Italian consent phrase shown in the app. Microphone recording waits for speech and stops after a pause, so you can select a wireless headset and move to a quiet room before talking. Preview each clip and discard any attempt with unwanted sound. The app converts clips locally to 24 kHz mono 16-bit PCM WAV, checks them, and uploads both only after you check the consent box and press **CREA VOCE**. The resulting Google-managed voice ID is saved locally and selected in Console. See [voice replication guide](docs/voice-replication.md).
 
 ## Azure setup, MAI-Voice and Personal Voice
 
@@ -53,16 +53,16 @@ Planned as an optional second provider. No Azure credentials or services are use
 
 ## Conversation Mode and browser audio routing
 
-Use **Conversation mode** from the Console when an AI conversation is open in Edge. It reduces NEB to the editable script, voice and routing state, Speak, Stop, Replay, and its current status. The script remains in memory only and is never saved by this mode.
+Use **Modalità conversazione** from the Console when an AI conversation is open in Edge. It reduces NEB to the editable script, voice and routing state, Pronuncia, Stop, Riascolta, and its current status. The script remains in memory only and is never saved by this mode.
 
 1. In NEB, select **CABLE Input** as the output device.
 2. In Edge, choose **CABLE Output** as the microphone for the AI site.
 3. Keep Windows' normal output on the physical headset. To hear NEB while it sends speech into the cable, monitor CABLE Output through that headset as described in [audio routing](docs/audio-routing.md).
-4. Open Conversation mode, paste or edit the exact reply, then press **Speak**.
+4. Open Modalità conversazione, paste or edit the exact reply, then press **Pronuncia**.
 
-Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, and `Ctrl+Alt+V` opens Conversation Mode from Edge. `Ctrl+Alt+S` is the global emergency stop for generation or playback while Edge is active. If another app owns a global shortcut, NEB continues normally and the normal window still works.
+Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, and `Ctrl+Alt+V` toggles Conversation Mode from NEB or Edge. `Ctrl+Alt+S` is the global emergency stop for generation or playback while Edge is active. If another app owns a global shortcut, NEB continues normally and the window controls still work.
 
-Use **Output volume** under Audio Routing to set the level NEB sends to CABLE Input. It is saved locally and affects SPEAK and Replay only; it never changes the Windows volume, headset volume, or Edge microphone level.
+Use **Volume di uscita** under **Dove si sente** to set the level NEB sends to CABLE Input. It is saved locally and affects Pronuncia and Riascolta only; it never changes the Windows volume, headset volume, or Edge microphone level. Open **Test e istruzioni di routing** for a spoken test phrase, local WAV test, and Edge setup steps.
 
 ## Troubleshooting
 
@@ -74,7 +74,7 @@ Use **Output volume** under Audio Routing to set the level NEB sends to CABLE In
 
 ## Security and privacy
 
-Settings live in Electron's user data directory and contain no secrets. Scripts are kept only in memory; pressing SPEAK sends the current script to Google Gemini. Generated and imported audio is played locally and is not retained by the app. The renderer has no Node.js access. Voice clips are uploaded to Google only when the user explicitly creates a voice; this app saves only the returned voice ID and metadata.
+Settings live in Electron's user data directory and contain no secrets. Scripts are kept only in memory; pressing Pronuncia sends the current script to Google Gemini. Generated and imported audio is played locally and is not retained by the app. The renderer has no Node.js access. Voice clips are uploaded to Google only when the user explicitly creates a voice; this app saves only the returned voice ID and metadata.
 
 ## Known limitations
 

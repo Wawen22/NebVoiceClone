@@ -5,12 +5,12 @@ The audio engine plays imported WAV files and Gemini generated WAV through the s
 ## Browser / Edge setup with VB-CABLE
 
 1. Install [VB-Audio VB-CABLE](https://vb-audio.com/Cable/) on Windows and restart Windows if the installer asks.
-2. Reopen NEB Voice Console and press **Refresh devices**. Its output list must contain **CABLE Input (VB-Audio Virtual Cable)**.
+2. Reopen NEB Voice Console and press the refresh icon in **Dove si sente**. Its output list must contain **CABLE Input (VB-Audio Virtual Cable)**.
 3. In NEB, choose **CABLE Input** as the output device. This sends generated speech into the virtual cable instead of speakers.
 4. In the Edge site where the AI conversation runs, open its microphone/device settings and choose **CABLE Output (VB-Audio Virtual Cable)**. Keep Windows speakers on the real headset so you can hear the model.
-5. In NEB, open **Conversation mode**, paste a short sentence and press **SPEAK**. The browser's microphone test or conversation should receive the synthesized voice.
+5. In NEB, open **Modalità conversazione**, paste a short sentence and press **Pronuncia**. The browser's microphone test or conversation should receive the synthesized voice.
 
-For a guided check in the full Console, find **Edge microphone check** under **Audio Routing**. Select CABLE Input in NEB, select CABLE Output as the microphone in Edge, start Edge's microphone test or recording, then press **Speak test phrase** in NEB. Listen to the recording to confirm the phrase arrived. The test phrase does not replace your script. NEB can verify only its selected output; it cannot detect or verify Edge's microphone selection. If a saved output is disconnected, press **Refresh**; when CABLE Input is detected, **Use CABLE Input** selects it again.
+For a guided check in the full Console, open **Test e istruzioni di routing** under **Dove si sente**. Select CABLE Input in NEB, select CABLE Output as the microphone in Edge, start Edge's microphone test or recording, then press **Pronuncia frase di prova** in NEB. Listen to the recording to confirm the phrase arrived. The test phrase does not replace your script. NEB can verify only its selected output; it cannot detect or verify Edge's microphone selection. If a saved output is disconnected, refresh the device list; when CABLE Input is detected, **Usa CABLE Input** selects it again.
 
 Teams uses the same pairing: choose **CABLE Input** in NEB and **CABLE Output** as the Teams microphone.
 
@@ -33,4 +33,4 @@ The native Windows app must be used for routing, not the WSL Linux window. Conve
 
 NEB continues to send speech into **CABLE Input** even when Windows' normal output changes. To hear that speech through newly connected headphones or speakers, press `Win + R`, enter `mmsys.cpl`, then open **Recording → CABLE Output → Listen**. Leave **Listen to this device** enabled and choose the new device under **Playback through this device**.
 
-The Console's **Output volume** control changes only NEB's generated audio before it enters CABLE Input. Use it to avoid an overly quiet or loud virtual microphone signal; it does not change Windows, headset, or browser volume.
+The Console's **Volume di uscita** control changes only NEB's generated audio before it enters CABLE Input. Use it to avoid an overly quiet or loud virtual microphone signal; it does not change Windows, headset, or browser volume.

@@ -13,12 +13,16 @@ export interface WindowBounds {
 
 export interface PresentationWindow {
   getBounds(): WindowBounds
+  getNormalBounds(): WindowBounds
   setBounds(bounds: WindowBounds): void
   getMinimumSize(): number[]
   setMinimumSize(width: number, height: number): void
   isAlwaysOnTop(): boolean
   setAlwaysOnTop(flag: boolean): void
   isMinimized(): boolean
+  isMaximized(): boolean
+  unmaximize(): void
+  maximize(): void
   restore(): void
   isVisible(): boolean
   show(): void
@@ -34,6 +38,7 @@ interface PreviousPresentation {
   bounds: WindowBounds
   minimumSize: number[]
   alwaysOnTop: boolean
+  maximized: boolean
 }
 
 export class WindowPresentationController {
@@ -53,11 +58,14 @@ export class WindowPresentationController {
     if (!window) return this.status(false)
 
     if (enabled && !this.conversationModeEnabled) {
+      const maximized = window.isMaximized()
       this.previousPresentation = {
-        bounds: window.getBounds(),
+        bounds: maximized ? window.getNormalBounds() : window.getBounds(),
         minimumSize: window.getMinimumSize(),
-        alwaysOnTop: window.isAlwaysOnTop()
+        alwaysOnTop: window.isAlwaysOnTop(),
+        maximized
       }
+      if (maximized) window.unmaximize()
       window.setMinimumSize(CONVERSATION_WINDOW_SIZE.width, CONVERSATION_WINDOW_SIZE.height)
       window.setBounds({
         x: this.previousPresentation.bounds.x,
@@ -73,6 +81,7 @@ export class WindowPresentationController {
         window.setBounds(this.previousPresentation.bounds)
         window.setMinimumSize(this.previousPresentation.minimumSize[0] ?? 0, this.previousPresentation.minimumSize[1] ?? 0)
         window.setAlwaysOnTop(this.previousPresentation.alwaysOnTop)
+        if (this.previousPresentation.maximized) window.maximize()
       }
       this.previousPresentation = null
       this.conversationModeEnabled = false
