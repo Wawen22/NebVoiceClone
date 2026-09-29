@@ -10,6 +10,8 @@ The audio engine plays imported WAV files and Gemini generated WAV through the s
 4. In the Edge site where the AI conversation runs, open its microphone/device settings and choose **CABLE Output (VB-Audio Virtual Cable)**. Keep Windows speakers on the real headset so you can hear the model.
 5. In NEB, open **Conversation mode**, paste a short sentence and press **SPEAK**. The browser's microphone test or conversation should receive the synthesized voice.
 
+For a guided check in the full Console, find **Edge microphone check** under **Audio Routing**. Select CABLE Input in NEB, select CABLE Output as the microphone in Edge, start Edge's microphone test or recording, then press **Speak test phrase** in NEB. Listen to the recording to confirm the phrase arrived. The test phrase does not replace your script. NEB can verify only its selected output; it cannot detect or verify Edge's microphone selection. If a saved output is disconnected, press **Refresh**; when CABLE Input is detected, **Use CABLE Input** selects it again.
+
 Teams uses the same pairing: choose **CABLE Input** in NEB and **CABLE Output** as the Teams microphone.
 
 ## Hear the generated voice in headphones

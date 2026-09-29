@@ -6,11 +6,11 @@ const pipewire = { deviceId: 'neb-voice', label: 'NEB_Voice' }
 const headset = { deviceId: 'headset', label: 'Cuffie (Neb - Jabra Evolve2 65)' }
 
 describe('routingStatus', () => {
-  it('recognizes CABLE Input as browser-ready routing', () => {
+  it('recognizes CABLE Input without claiming Edge is verified', () => {
     expect(routingStatus([cable, headset], cable.deviceId)).toEqual({
       routed: true,
       label: cable.label,
-      message: 'Browser routing ready: use CABLE Output as the microphone in Edge.'
+      message: 'NEB output selected. Check that Edge uses CABLE Output as its microphone with a test recording.'
     })
   })
 
@@ -18,7 +18,7 @@ describe('routingStatus', () => {
     expect(routingStatus([pipewire], pipewire.deviceId, 'linux')).toEqual({
       routed: true,
       label: pipewire.label,
-      message: 'Browser routing ready: use Monitor of NEB Voice as the microphone in Edge.'
+      message: 'NEB output selected. Check that Edge uses Monitor of NEB Voice as its microphone with a test recording.'
     })
   })
 
@@ -34,8 +34,28 @@ describe('routingStatus', () => {
     expect(routingStatus([cable], 'missing-device')).toEqual({
       routed: false,
       label: 'Saved device unavailable',
-      message: 'Saved device unavailable. Select CABLE Input here to send speech to Edge.'
+      message: 'Saved output disconnected. Refresh devices, then select CABLE Input to restore Edge routing.'
     })
+  })
+
+  it('reports an unavailable system default when the virtual output is present', () => {
+    expect(routingStatus([cable], 'default')).toEqual({
+      routed: false,
+      label: 'System default',
+      message: 'System default output is unavailable. Refresh devices, then select CABLE Input.'
+    })
+  })
+
+  it('explains how to restore missing VB-CABLE instead of suggesting an unavailable device', () => {
+    expect(routingStatus([headset], headset.deviceId)).toEqual({
+      routed: false,
+      label: headset.label,
+      message: 'CABLE Input not detected. Check the VB-CABLE installation and refresh devices before routing to Edge.'
+    })
+  })
+
+  it('reports a missing virtual output on Linux', () => {
+    expect(routingStatus([], 'default', 'linux').message).toBe('NEB_Voice not detected. Check the virtual audio setup and refresh devices before routing to Edge.')
   })
 })
 

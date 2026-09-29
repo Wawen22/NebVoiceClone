@@ -14,15 +14,20 @@ export function routingStatus(outputs: AudioOutput[], selectedDeviceId: string, 
   const virtualOutput = linux ? 'NEB_Voice' : 'CABLE Input'
   const browserMicrophone = linux ? 'Monitor of NEB Voice' : 'CABLE Output'
   const routed = linux ? /NEB[ _]Voice/i.test(label) : /CABLE Input/i.test(label)
+  const virtualAvailable = outputs.some((output) => linux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
 
   return {
     routed,
     label,
     message: routed
-      ? `Browser routing ready: use ${browserMicrophone} as the microphone in Edge.`
+      ? `NEB output selected. Check that Edge uses ${browserMicrophone} as its microphone with a test recording.`
+      : !virtualAvailable
+        ? `${virtualOutput} not detected. ${linux ? 'Check the virtual audio setup' : 'Check the VB-CABLE installation'} and refresh devices before routing to Edge.`
       : selected
         ? `Playing on ${label}. Select ${virtualOutput} here to send speech to Edge.`
-        : `${label}. Select ${virtualOutput} here to send speech to Edge.`
+        : selectedDeviceId === 'default'
+          ? `System default output is unavailable. Refresh devices, then select ${virtualOutput}.`
+          : `Saved output disconnected. Refresh devices, then select ${virtualOutput} to restore Edge routing.`
   }
 }
 

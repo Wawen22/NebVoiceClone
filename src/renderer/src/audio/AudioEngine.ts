@@ -55,10 +55,6 @@ export class BrowserAudioEngine implements AudioEngine {
 
   async beginStream(deviceId: string): Promise<void> {
     this.stop()
-    if (this.url) URL.revokeObjectURL(this.url)
-    this.url = null
-    this.element.removeAttribute('src')
-    this.element.load()
     const context = new AudioContext({ sampleRate: 24000 })
     this.streamContext = context
     const output = context.createMediaStreamDestination()

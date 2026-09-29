@@ -30,6 +30,9 @@ export function App(): React.JSX.Element {
   const audio = useRef(new BrowserAudioEngine())
   const requestId = useRef(0)
   const playbackStartedAt = useRef<number | null>(null)
+  const playbackMs = useRef<number | null>(null)
+  const playbackActive = useRef(false)
+  const generationInProgress = useRef(false)
   const scriptInput = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -39,10 +42,12 @@ export function App(): React.JSX.Element {
     void refreshOutputs()
     void checkGemini()
     audio.current.onEnded(() => {
-      setStatus('Playback finished')
+      playbackActive.current = false
+      setStatus(generationInProgress.current ? 'Audio finished · generation continuing…' : 'Playback finished')
       if (playbackStartedAt.current !== null) {
-        const playbackMs = Math.round(performance.now() - playbackStartedAt.current)
-        setMetrics((previous) => previous ? { ...previous, playbackMs } : null)
+        playbackMs.current = Math.round(performance.now() - playbackStartedAt.current)
+        playbackStartedAt.current = null
+        setMetrics((previous) => previous ? { ...previous, playbackMs: playbackMs.current ?? undefined } : null)
       }
     })
     const onDeviceChange = (): void => { void refreshOutputs() }
@@ -121,6 +126,7 @@ export function App(): React.JSX.Element {
   async function play(): Promise<void> {
     try {
       await audio.current.play(settings.outputDeviceId)
+      playbackActive.current = true
       playbackStartedAt.current = performance.now()
       setStatus(`Playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)}`)
       setError('')
@@ -128,28 +134,32 @@ export function App(): React.JSX.Element {
   }
 
   async function replay(): Promise<void> {
-    if (!hasAudio) return
+    if (!hasAudio || busy) return
     try {
       await audio.current.replay(settings.outputDeviceId)
+      playbackActive.current = true
       playbackStartedAt.current = performance.now()
       setStatus('Replaying local WAV')
       setError('')
     } catch (reason) { setError(`Replay failed: ${message(reason)}`) }
   }
 
-  async function speak(): Promise<void> {
-    if (busy || !gemini.ready || !script.trim()) return
+  async function speak(text: string = script): Promise<void> {
+    if (busy || !gemini.ready || !text.trim()) return
     if (outputs.length === 0) {
       setError('No audio output device is available here. Open the native Windows app before generating speech.')
       return
     }
     const current = ++requestId.current
     const started = performance.now()
+    generationInProgress.current = true
+    playbackActive.current = false
+    playbackStartedAt.current = null
+    playbackMs.current = null
     setBusy(true)
     setStatus('Generating with Gemini…')
     setError('')
     audio.current.stop()
-    setHasAudio(false)
     setMetrics(null)
     let firstChunkMs: number | null = null
     let streamError: unknown = null
@@ -157,7 +167,7 @@ export function App(): React.JSX.Element {
       await audio.current.beginStream(settings.outputDeviceId)
       if (current !== requestId.current) return
       const result = await window.neb.synthesizeStream({
-        providerId: 'gemini', modelId: settings.geminiModel, text: script,
+        providerId: 'gemini', modelId: settings.geminiModel, text,
         voice: settings.replicatedVoice?.id === settings.geminiVoiceId ? { mode: 'stateful', voiceId: settings.geminiVoiceId } : { mode: 'prebuilt', voiceId: settings.geminiVoiceId }
       }, (chunk) => {
         if (current !== requestId.current || streamError) return
@@ -165,8 +175,9 @@ export function App(): React.JSX.Element {
           audio.current.appendPcm(chunk)
           if (firstChunkMs === null) {
             firstChunkMs = Math.round(performance.now() - started)
+            playbackActive.current = true
             playbackStartedAt.current = performance.now()
-            setStatus(`Playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)} · generating…`)
+            setStatus(`Audio playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)} · generation continuing…`)
           }
         } catch (reason) {
           streamError = reason
@@ -176,17 +187,20 @@ export function App(): React.JSX.Element {
       if (current !== requestId.current) return
       if (streamError) throw streamError
       const durationSeconds = audio.current.finishStream()
+      generationInProgress.current = false
       setHasAudio(true)
-      setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds })
-      setStatus(`Playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)}`)
+      setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined })
+      setStatus(playbackActive.current ? `Audio playing on ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : 'Playback finished')
     } catch (reason) {
-      if (current === requestId.current) { audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generation failed') }
+      if (current === requestId.current) { generationInProgress.current = false; playbackActive.current = false; audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generation failed') }
     } finally { if (current === requestId.current) setBusy(false) }
   }
 
   function stop(): void {
     requestId.current++
     audio.current.stop()
+    generationInProgress.current = false
+    playbackActive.current = false
     playbackStartedAt.current = null
     setBusy(false)
     setStatus('Stopped')
@@ -239,7 +253,8 @@ export function App(): React.JSX.Element {
   }
 
   const isLinux = info?.platform === 'linux'
-  const virtualCable = outputs.some((output) => isLinux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
+  const virtualOutput = outputs.find((output) => isLinux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
+  const virtualCable = Boolean(virtualOutput)
   const routing = routingStatus(outputs, settings.outputDeviceId, info?.platform)
   const routeGuide = isLinux ? 'NEB_Voice → Edge microphone: Monitor of NEB Voice.' : 'CABLE Input → Edge microphone: CABLE Output.'
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
@@ -253,11 +268,11 @@ export function App(): React.JSX.Element {
       <section className="conversation-composer" aria-label="Conversation controls">
         <div className="conversation-statuses">
           <StatusCard title="VOICE" value={settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : `${settings.geminiVoiceId} · prebuilt`} tone="green" />
-          <StatusCard title="ROUTING" value={routing.routed ? isLinux ? 'NEB Voice ready' : 'CABLE Input ready' : routing.label} tone={routing.routed ? 'green' : 'amber'} />
+          <StatusCard title="NEB OUTPUT" value={routing.routed ? isLinux ? 'NEB Voice selected' : 'CABLE Input selected' : routing.label} tone={routing.routed ? 'green' : 'amber'} />
         </div>
         <textarea ref={scriptInput} aria-label="Script" value={script} onChange={(event) => setScript(event.target.value)} placeholder="Paste or type the exact words you want to say…" />
         <div className="conversation-script-meta"><span>{script.length} characters · ~{estimatedSeconds}s audio stimato</span><span>Exact script · never saved</span></div>
-        <div className="action-row compact-actions"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Generating…' : 'Speak'} <kbd>Ctrl+Enter</kbd></button><button className="stop-action" onClick={stop}><Icon name="stop" /> Stop <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}><Icon name="replay" /> Replay <kbd>Ctrl+R</kbd></button></div>
+        <div className="action-row compact-actions"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Generating…' : 'Speak'} <kbd>Ctrl+Enter</kbd></button><button className="stop-action" onClick={stop}><Icon name="stop" /> Stop <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio || busy}><Icon name="replay" /> Replay <kbd>Ctrl+R</kbd></button></div>
         <div className="conversation-hints"><p className={routing.routed ? 'routing-message ready' : 'routing-message'}>{routing.message}</p><p className="shortcut-message">{conversationShortcutLabel(conversationStatus)}</p></div>
         {metrics && <div className="metrics compact-metrics"><span>Generation <strong>{metrics.generationMs} ms</strong></span><span>Audio <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Playback <strong>{metrics.playbackMs} ms</strong></span>}</div>}
         <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}><span className="status-dot" /> {error || status}</div>
@@ -290,18 +305,19 @@ export function App(): React.JSX.Element {
             <div className="section-heading"><div><span className="eyebrow">MESSAGE</span><h2>What do you want to say?</h2></div><span className="chip">Exact words</span></div>
             <textarea ref={scriptInput} aria-label="Script" value={script} onChange={(event) => setScript(event.target.value)} placeholder="Paste or write your response…" />
             <div className="composer-footer"><span>{script.length} characters</span><span>~{estimatedSeconds}s audio stimato</span></div>
-            <div className="action-row"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Generating…' : 'Speak'} <kbd>Ctrl+Enter</kbd></button><button className="stop-action" onClick={stop}><Icon name="stop" /> Stop <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio}><Icon name="replay" /> Replay <kbd>Ctrl+R</kbd></button></div>
+            <div className="action-row"><button className="primary" disabled={!gemini.ready || !script.trim() || busy} onClick={() => void speak()}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Generating…' : 'Speak'} <kbd>Ctrl+Enter</kbd></button><button className="stop-action" onClick={stop}><Icon name="stop" /> Stop <kbd>Esc</kbd></button><button onClick={() => void replay()} disabled={!hasAudio || busy}><Icon name="replay" /> Replay <kbd>Ctrl+R</kbd></button></div>
             {metrics && <div className="metrics"><span>Primo blocco <strong>{metrics.firstChunkMs} ms</strong></span><span>Generazione completa <strong>{metrics.generationMs} ms</strong></span><span>Durata <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span><span>Riproduzione <strong>{metrics.playbackMs !== undefined ? `${metrics.playbackMs} ms` : '—'}</strong></span></div>}
             <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}><span className="status-dot" /> {error || status}</div>
           </section>
           <aside className="control-rail">
             <section><span className="eyebrow">VOICE</span><label>Generation voice<select value={settings.geminiVoiceId} onChange={(event) => void update({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · prebuilt</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · replicated</option>}</select></label><span className="voice-type">{settings.replicatedVoice?.id === settings.geminiVoiceId ? 'Replicated voice' : 'Prebuilt voice'}</span><label>Model<select value={settings.geminiModel} onChange={(event) => void update({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select></label></section>
             <section><div className="rail-heading"><span className="eyebrow">AUDIO ROUTING</span><button className="text-button" onClick={() => void refreshOutputs()}><Icon name="refresh" /> Refresh</button></div><label>Output device<select value={settings.outputDeviceId} onChange={(event) => void update({ outputDeviceId: event.target.value })}>{!outputs.some((output) => output.deviceId === settings.outputDeviceId) && <option value={settings.outputDeviceId}>{selectedOutputLabel(outputs, settings.outputDeviceId)}</option>}{outputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}</select></label><label className="volume-control"><span className="volume-label">{settings.outputVolume === 0 ? <Icon name="mute" /> : <Icon name="speaker" />} Output volume</span><span>{Math.round(settings.outputVolume * 100)}%</span><input aria-label="Output volume" type="range" min="0" max="1" step="0.05" value={settings.outputVolume} style={{ '--volume-fill': `${settings.outputVolume * 100}%` } as React.CSSProperties} onChange={(event) => previewOutputVolume(Number(event.target.value))} onPointerUp={(event) => void update({ outputVolume: Number(event.currentTarget.value) })} onBlur={(event) => void update({ outputVolume: Number(event.currentTarget.value) })} /></label><p className={routing.routed ? 'routing-message ready' : 'routing-message'}><span className="status-dot" />{routing.message}</p><details className="routing-help"><summary>Changed headphones, speakers, or microphone?</summary>{isLinux ? <><p>Keep Ubuntu’s normal output on your headphones or speakers. The NEB Voice monitor is routed there automatically for this session.</p><p>For Edge, set its <strong>System default</strong> microphone to NEB Voice, then restart Edge:</p><code>pactl set-default-source neb_voice.monitor</code><p>To return to your physical microphone, first note its ID with <code>pactl get-default-source</code>, then run <code>pactl set-default-source &lt;microphone-id&gt;</code>.</p></> : <p>Press <kbd>Win</kbd> + <kbd>R</kbd>, enter <code>mmsys.cpl</code>, then open <strong>Recording → CABLE Output → Listen</strong>. Keep “Listen to this device” enabled and choose the new headphones or speakers under “Playback through this device”.</p>}</details></section>
+            {!outputs.some((output) => output.deviceId === settings.outputDeviceId) && settings.outputDeviceId !== 'default' && virtualOutput && <section><button onClick={() => void update({ outputDeviceId: virtualOutput.deviceId })}><Icon name="refresh" /> Use {isLinux ? 'NEB Voice' : 'CABLE Input'}</button></section>}
+            <section className="edge-route-check"><span className="eyebrow">EDGE MICROPHONE CHECK</span><button className="primary" disabled={!gemini.ready || busy || !routing.routed} onClick={() => void speak('Questa è una prova audio di NEB Voice Console.')}><Icon name="play" /> Speak test phrase</button><details className="routing-help"><summary>How to verify in Edge</summary><p>1. Select {isLinux ? 'NEB Voice' : 'CABLE Input'} as the output device in NEB.</p><p>2. In Edge, select {isLinux ? 'Monitor of NEB Voice' : 'CABLE Output'} as the microphone and start a microphone test or recording.</p><p>3. Speak the test phrase above, then listen to the recording. NEB cannot detect Edge's microphone selection.</p></details></section>
             <section className="route-test"><span className="eyebrow">TEST OUTPUT</span><div className="file-row"><label className="file-button"><Icon name="upload" /> Choose WAV<input type="file" accept=".wav,audio/wav" onChange={(event) => void loadFile(event.target.files?.[0])} /></label><button onClick={() => void play()} disabled={!hasAudio}><Icon name="play" /> Play</button></div><span className="file-name">{fileName || 'No local test clip'}{duration !== null ? ` · ${duration.toFixed(1)} s` : ''}</span></section>
           </aside>
         </div>
       </div>}
-      {page === 'settings' && <div className="content narrow settings-page"><div className="intro"><div><h2>Gemini setup</h2><p>The API key stays in Electron's main process.</p></div></div><section className="panel"><span className="eyebrow">GEMINI API</span><h3>Connection</h3><p>Status: <strong>{gemini.message}</strong></p><p>Key available to this process: <strong>{info?.geminiConfigured ? 'Yes' : 'No'}</strong>. For local development, store it in ignored <code>.env.local</code> as <code>GEMINI_API_KEY</code>. Restart after changing it.</p><button className="text-button" onClick={() => void checkGemini()}>Check connection again</button><p><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer">Google AI Studio API keys <Icon name="external" size={13} /></a></p></section><section className="panel voice-profile"><span className="eyebrow">VOICE PROFILE</span><h3>Use your replicated voice on another computer</h3><p>Export contains only the Gemini voice ID, its name, and the selected model. It never includes your API key, recordings, scripts, or audio routing.</p>{settings.replicatedVoice ? <p>Current voice: <strong>{settings.replicatedVoice.displayName}</strong></p> : <p>No replicated voice is saved on this computer yet.</p>}<div className="action-row"><button disabled={!settings.replicatedVoice || voiceProfileBusy} onClick={() => void exportVoiceProfile()}><Icon name="upload" /> Export profile</button><button disabled={voiceProfileBusy} onClick={() => void importVoiceProfile()}><Icon name="copy" /> Import profile</button></div>{voiceProfileMessage && <p className="voice-profile-message"><span className="status-dot green" /> {voiceProfileMessage}</p>}</section><VoiceReplicationWizard gemini={gemini} settings={settings} onCreated={setSettings} /><section className="panel"><span className="eyebrow">PRIVACY</span><h3>Local history</h3><label className="checkbox"><input type="checkbox" checked={settings.saveScriptHistory} disabled /> Save script history (later phase)</label><p className="hint">Scripts are kept only in memory. SPEAK sends the selected script to Google; voice audio is sent only when you press CREATE VOICE.</p></section></div>}
       {page === 'settings' && <div className="content narrow settings-page"><div className="intro"><div><h2>Gemini setup</h2><p>The API key stays in Electron's main process.</p></div></div><section className="panel"><span className="eyebrow">GEMINI API</span><h3>Connection</h3><p>Status: <strong>{gemini.message}</strong></p><p>Key available to this process: <strong>{info?.geminiConfigured ? 'Yes' : 'No'}</strong>. For local development, store it in ignored <code>.env.local</code> as <code>GEMINI_API_KEY</code>. Restart after changing it.</p><button className="text-button" onClick={() => void checkGemini()}>Check connection again</button><p><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer">Google AI Studio API keys <Icon name="external" size={13} /></a></p></section><section className="panel voice-profile"><span className="eyebrow">VOICE PROFILE</span><h3>Use your replicated voice on another computer</h3><p>Export contains only the Gemini voice ID, its name, and the selected model. It never includes your API key, recordings, scripts, or audio routing.</p>{settings.replicatedVoice ? <p>Current voice: <strong>{settings.replicatedVoice.displayName}</strong></p> : <p>No replicated voice is saved on this computer yet.</p>}<div className="action-row"><button disabled={!settings.replicatedVoice || voiceProfileBusy} onClick={() => void exportVoiceProfile()}><Icon name="upload" /> Export profile</button><button disabled={voiceProfileBusy} onClick={() => void importVoiceProfile()}><Icon name="copy" /> Import profile</button></div>{voiceProfileMessage && <p className="voice-profile-message"><span className="status-dot green" /> {voiceProfileMessage}</p>}</section><VoiceReplicationWizard gemini={gemini} settings={settings} onCreated={setSettings} /><section className="panel"><span className="eyebrow">PRIVACY</span><h3>Local history</h3><label className="checkbox"><input type="checkbox" checked={settings.saveScriptHistory} disabled /> Save script history (later phase)</label><p className="hint">Scripts are kept only in memory. SPEAK sends the selected script to Google; voice audio is sent only when you press CREATE VOICE.</p></section></div>}
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <div className="content narrow settings-page"><div className="intro"><div><h2>System snapshot</h2><p>Local information to help troubleshoot setup.</p></div></div><section className="panel diagnostics"><Row name="Electron" value={info?.electron || 'Loading'} /><Row name="Node" value={info?.node || 'Loading'} /><Row name="Platform" value={info?.platform || 'Loading'} /><Row name="Gemini key present" value={info?.geminiConfigured ? 'Yes' : 'No'} /><Row name="Gemini API" value={gemini.message} /><Row name="Selected model" value={settings.geminiModel} /><Row name="Selected voice" value={settings.geminiVoiceId} /><Row name="Audio outputs" value={String(outputs.length)} /><Row name={isLinux ? 'PipeWire virtual output' : 'VB-CABLE'} value={virtualCable ? 'Detected' : 'Not detected'} /><Row name="Selected output" value={selectedOutputLabel(outputs, settings.outputDeviceId)} /></section></div>}
