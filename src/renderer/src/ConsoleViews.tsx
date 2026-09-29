@@ -9,6 +9,7 @@ export type Metrics = { firstChunkMs: number; generationMs: number; durationSeco
 
 interface ConsoleProps {
   settings: AppSettings
+  activeKeyName: string
   gemini: ProviderStatus
   script: string
   onScriptChange: (value: string) => void
@@ -39,7 +40,7 @@ interface ConsoleProps {
 const testPhrase = 'Questa è una prova audio di NEB Voice Console.'
 
 export function ConsoleView(props: ConsoleProps): React.JSX.Element {
-  const { settings, gemini, script, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
+  const { settings, activeKeyName, gemini, script, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
   const selectedVoice = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
@@ -64,8 +65,9 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
         <section className="control-card">
           <span className="eyebrow">02 / VOCE</span><h3>Come suona</h3>
           <label className="field">Voce<select value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></label>
-          <p className="field-note">Voce attiva: <strong>{selectedVoice}</strong></p>
+          <p className="field-note">Solo {activeKeyName}: <strong>{selectedVoice}</strong></p>
           <label className="field">Modello<select value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
+          <p className="field-note">Modello condiviso tra le chiavi.</p>
         </section>
 
         <section className="control-card routing-card">
@@ -73,6 +75,7 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
           <div className={routing.routed ? 'route-status ready' : 'route-status'}><span className="status-dot" /><div><strong>{routing.routed ? `${virtualName} selezionato` : 'Routing da verificare'}</strong><p>{routing.message}</p></div></div>
           <label className="field">Dispositivo di uscita<select value={settings.outputDeviceId} onChange={(event) => onUpdate({ outputDeviceId: event.target.value })}>{!outputs.some((output) => output.deviceId === settings.outputDeviceId) && <option value={settings.outputDeviceId}>{outputLabel(outputs, settings.outputDeviceId)}</option>}{outputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}</select></label>
           <label className="field volume-field"><span><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> Volume di uscita <strong>{Math.round(settings.outputVolume * 100)}%</strong></span><input aria-label="Volume di uscita" type="range" min="0" max="1" step="0.05" value={settings.outputVolume} onChange={(event) => onPreviewVolume(Number(event.target.value))} onPointerUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onKeyUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onBlur={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} /></label>
+          <p className="field-note">Uscita e volume condivisi tra le chiavi.</p>
           {!outputs.some((output) => output.deviceId === settings.outputDeviceId) && settings.outputDeviceId !== 'default' && virtualOutput && <button className="secondary-button" onClick={() => onUpdate({ outputDeviceId: virtualOutput.deviceId })}>Usa {virtualName}</button>}
           <details className="support-details"><summary>Test e istruzioni di routing</summary>
             <p>NEB può verificare il dispositivo selezionato. Controlla il microfono di Edge con una registrazione di prova.</p>
@@ -88,7 +91,7 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   </div>
 }
 
-interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'gemini' | 'script' | 'onScriptChange' | 'scriptInput' | 'routing' | 'isLinux' | 'busy' | 'playing' | 'hasAudio' | 'status' | 'error' | 'metrics' | 'onSpeak' | 'onStop' | 'onReplay'> {
+interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'activeKeyName' | 'gemini' | 'script' | 'onScriptChange' | 'scriptInput' | 'routing' | 'isLinux' | 'busy' | 'playing' | 'hasAudio' | 'status' | 'error' | 'metrics' | 'onSpeak' | 'onStop' | 'onReplay'> {
   conversationStatus: ConversationModeStatus | null
   onClose: () => void
 }

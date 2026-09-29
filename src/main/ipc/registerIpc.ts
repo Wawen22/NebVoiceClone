@@ -1,10 +1,11 @@
 import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
 import { basename } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
-import { readSettings, saveReplicatedVoice, updateSettings } from '../config/settingsStore'
+import { clearGeminiVoiceProfile, readSettings, saveReplicatedVoice, setGeminiKeySource, updateSettings } from '../config/settingsStore'
+import { getGeminiKeyStatus, removeSavedGeminiKey, resolveGeminiApiKey, saveGeminiKey } from '../config/geminiKeyStore'
 import { GeminiTtsProvider } from '../providers/gemini'
 import { parseSynthesisRequest } from '../../shared/geminiRequest'
-import type { AppInfo } from '../../shared/contracts'
+import type { AppInfo, GeminiKeySource } from '../../shared/contracts'
 import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication'
 import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
 import type { WindowPresentationController } from '../windowPresentation'
@@ -13,19 +14,21 @@ export function registerIpc(
   getWebContents: () => WebContents | undefined,
   windowPresentation: WindowPresentationController
 ): void {
-  const gemini = new GeminiTtsProvider()
+  const gemini = new GeminiTtsProvider(resolveGeminiApiKey)
   let activeGeneration: AbortController | null = null
+  let activeVoiceCreation = false
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
 
-  ipcMain.handle('app:getInfo', (event): AppInfo => {
+  ipcMain.handle('app:getInfo', async (event): Promise<AppInfo> => {
     assertTrusted(event.sender, event.senderFrame)
+    const keys = await getGeminiKeyStatus()
     return {
       electron: process.versions.electron,
       node: process.versions.node,
       platform: process.platform,
-      geminiConfigured: Boolean(process.env.GEMINI_API_KEY?.trim())
+      geminiConfigured: keys.activeSource === 'environment' ? keys.environmentConfigured : keys.activeSource === 'project' ? keys.projectConfigured : Boolean(keys.savedLabel && keys.secureStorageAvailable)
     }
   })
   ipcMain.handle('settings:get', (event) => {
@@ -36,15 +39,51 @@ export function registerIpc(
     assertTrusted(event.sender, event.senderFrame)
     return updateSettings(patch)
   })
+  ipcMain.handle('geminiKey:getStatus', (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return getGeminiKeyStatus()
+  })
+  ipcMain.handle('geminiKey:save', async (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
+    const status = await saveGeminiKey(value)
+    await clearGeminiVoiceProfile('saved')
+    return status
+  })
+  ipcMain.handle('geminiKey:select', async (event, source: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (source !== 'environment' && source !== 'project' && source !== 'saved') throw new Error('Selezione della chiave Gemini non valida.')
+    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
+    if ((source as GeminiKeySource) === 'saved') {
+      const status = await getGeminiKeyStatus()
+      if (!status.savedLabel) throw new Error('Salva prima la chiave Gemini aggiuntiva.')
+      if (!status.secureStorageAvailable) throw new Error('L’archiviazione cifrata non è disponibile su questo sistema.')
+    }
+    if (source === 'project' && !process.env.GEMINI_API_KEY_NEBVOICCLONE?.trim()) throw new Error('La seconda chiave Gemini non è configurata in questo ambiente.')
+    return setGeminiKeySource(source as GeminiKeySource)
+  })
+  ipcMain.handle('geminiKey:remove', async (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di rimuovere la chiave Gemini.')
+    const settings = await setGeminiKeySource('environment')
+    await removeSavedGeminiKey()
+    await clearGeminiVoiceProfile('saved')
+    return settings
+  })
   ipcMain.handle('gemini:check', (event) => {
     assertTrusted(event.sender, event.senderFrame)
     return gemini.validateConfiguration()
   })
   ipcMain.handle('gemini:createReplicatedVoice', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
+    if (activeVoiceCreation) throw new Error('La creazione della voce è già in corso.')
     const request = parseCreateReplicatedVoiceRequest(value)
-    const record = await gemini.createReplicatedVoice(request)
-    return saveReplicatedVoice(record)
+    activeVoiceCreation = true
+    try {
+      const source = (await readSettings()).geminiKeySource
+      const record = await gemini.createReplicatedVoice(request)
+      return await saveReplicatedVoice(record, source)
+    } finally { activeVoiceCreation = false }
   })
   ipcMain.handle('voiceProfile:export', async (event) => {
     assertTrusted(event.sender, event.senderFrame)
@@ -77,7 +116,9 @@ export function registerIpc(
     } catch {
       throw new Error('The selected profile could not be read.')
     }
-    return saveReplicatedVoice(parseVoiceProfile(data))
+    const voice = parseVoiceProfile(data)
+    await gemini.verifyReplicatedVoice(voice.id)
+    return saveReplicatedVoice(voice)
   })
   ipcMain.handle('speech:synthesize', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)

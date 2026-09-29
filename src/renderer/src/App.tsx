@@ -4,8 +4,9 @@ import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
 import { SetupGuide } from './SetupGuide'
-import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type ProviderStatus } from '../../shared/contracts'
+import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type GeminiKeySource, type GeminiKeyStatus, type ProviderStatus, type SaveGeminiKeyRequest } from '../../shared/contracts'
 import { routingStatus } from './conversationMode'
+import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
 
 type Page = 'console' | 'settings' | 'guide' | 'diagnostics'
 
@@ -29,8 +30,13 @@ export function App(): React.JSX.Element {
   const [voiceProfileMessage, setVoiceProfileMessage] = useState('')
   const [voiceProfileError, setVoiceProfileError] = useState('')
   const [voiceProfileBusy, setVoiceProfileBusy] = useState(false)
+  const [keyStatus, setKeyStatus] = useState<GeminiKeyStatus | null>(null)
+  const [keyBusy, setKeyBusy] = useState(false)
+  const [keyMessage, setKeyMessage] = useState('')
+  const [keyError, setKeyError] = useState('')
   const audio = useRef(new BrowserAudioEngine())
   const requestId = useRef(0)
+  const geminiCheckId = useRef(0)
   const playbackStartedAt = useRef<number | null>(null)
   const playbackMs = useRef<number | null>(null)
   const playbackActive = useRef(false)
@@ -38,9 +44,11 @@ export function App(): React.JSX.Element {
   const scriptInput = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    void Promise.all([window.neb.getAppInfo(), window.neb.getSettings()])
-      .then(([nextInfo, nextSettings]) => { setInfo(nextInfo); audio.current.setVolume(nextSettings.outputVolume); setSettings(nextSettings) })
+    void window.neb.getAppInfo().then(setInfo).catch((reason: unknown) => setError(message(reason)))
+    void window.neb.getSettings()
+      .then((nextSettings) => { audio.current.setVolume(nextSettings.outputVolume); setSettings(nextSettings) })
       .catch((reason: unknown) => setError(message(reason)))
+    void window.neb.getGeminiKeyStatus().then(setKeyStatus).catch((reason: unknown) => setKeyError(message(reason)))
     void refreshOutputs()
     void checkGemini()
     audio.current.onEnded(() => {
@@ -85,8 +93,58 @@ export function App(): React.JSX.Element {
   useEffect(() => window.neb.onStopRequested(stop), [])
 
   async function checkGemini(): Promise<void> {
-    try { setGemini(await window.neb.checkGemini()) }
-    catch (reason) { setGemini({ ready: false, message: message(reason) }) }
+    const current = ++geminiCheckId.current
+    try { const status = await window.neb.checkGemini(); if (current === geminiCheckId.current) setGemini(status) }
+    catch (reason) { if (current === geminiCheckId.current) setGemini({ ready: false, message: message(reason) }) }
+  }
+
+  async function saveGeminiKey(request: SaveGeminiKeyRequest): Promise<boolean> {
+    setKeyBusy(true)
+    setKeyError('')
+    setKeyMessage('')
+    try {
+      const status = await window.neb.saveGeminiKey(request)
+      setKeyStatus(status)
+      setSettings(await window.neb.getSettings())
+      if (status.activeSource === 'saved') await checkGemini()
+      setKeyMessage(status.activeSource === 'saved' ? 'Chiave aggiuntiva aggiornata e attiva.' : 'Chiave aggiuntiva salvata. Selezionala qui sopra per usarla.')
+      return true
+    } catch (reason) {
+      setKeyError(message(reason))
+      return false
+    } finally { setKeyBusy(false) }
+  }
+
+  async function selectGeminiKey(source: GeminiKeySource): Promise<void> {
+    setKeyBusy(true)
+    setKeyError('')
+    setKeyMessage('')
+    try {
+      const next = await window.neb.selectGeminiKey(source)
+      setSettings(next)
+      const [status, appInfo] = await Promise.all([window.neb.getGeminiKeyStatus(), window.neb.getAppInfo()])
+      setKeyStatus(status)
+      setInfo(appInfo)
+      await checkGemini()
+      setKeyMessage(`${geminiKeyLabel(source, status)} selezionata.`)
+    } catch (reason) { setKeyError(message(reason)) }
+    finally { setKeyBusy(false) }
+  }
+
+  async function removeGeminiKey(): Promise<void> {
+    setKeyBusy(true)
+    setKeyError('')
+    setKeyMessage('')
+    try {
+      const next = await window.neb.removeGeminiKey()
+      setSettings(next)
+      const [status, appInfo] = await Promise.all([window.neb.getGeminiKeyStatus(), window.neb.getAppInfo()])
+      setKeyStatus(status)
+      setInfo(appInfo)
+      await checkGemini()
+      setKeyMessage(`Chiave aggiuntiva rimossa. Ora è selezionata ${geminiKeyLabel('environment', status)}.`)
+    } catch (reason) { setKeyError(message(reason)) }
+    finally { setKeyBusy(false) }
   }
 
   async function refreshOutputs(): Promise<void> {
@@ -266,8 +324,9 @@ export function App(): React.JSX.Element {
   const virtualOutput = outputs.find((output) => isLinux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
   const routing = routingStatus(outputs, settings.outputDeviceId, info?.platform)
   const geminiMessage = gemini.message === 'Gemini connected' ? 'Connesso a Gemini' : gemini.message.startsWith('Gemini API key is missing') ? 'Chiave API Gemini assente' : gemini.message
+  const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
   const common = {
-    settings, gemini, script, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics,
+    settings, gemini, script, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, activeKeyName,
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
 
@@ -283,13 +342,13 @@ export function App(): React.JSX.Element {
         <button className={page === 'guide' ? 'nav active' : 'nav'} aria-current={page === 'guide' ? 'page' : undefined} onClick={() => setPage('guide')}><Icon name="book" /> Guida audio</button>
         <button className={page === 'diagnostics' ? 'nav active' : 'nav'} aria-current={page === 'diagnostics' ? 'page' : undefined} onClick={() => setPage('diagnostics')}><Icon name="diagnostics" /> Diagnostica</button>
       </nav>
-      <div className="sidebar-bottom"><span className={gemini.ready ? 'status-dot green' : 'status-dot amber'} />{gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</div>
+      <div className="sidebar-bottom"><span className={gemini.ready && !keyBusy ? 'status-dot green' : 'status-dot amber'} /><span>API: {activeKeyName}</span></div>
     </aside>
 
     <main className="main">
-      <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready ? 'connection ready' : 'connection'}><span className="status-dot" />{gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</div></header>
+      <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready && !keyBusy ? 'connection ready' : 'connection'} aria-live="polite"><span className="status-dot" /><span className="connection-copy"><strong title={activeKeyName}>API in uso: {activeKeyName}</strong><small>{keyBusy ? 'Verifica in corso…' : gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</small></span></div></header>
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
-      {page === 'settings' && <SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} voiceProfileBusy={voiceProfileBusy} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} />}
+      {page === 'settings' && <SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} />}
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
     </main>

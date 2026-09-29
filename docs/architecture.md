@@ -15,7 +15,7 @@ The layout follows the requested separation. `preload` has its own directory so 
 ## Decisions
 
 - Renderer: sandboxed, context isolation enabled, Node integration disabled.
-- Main: settings, Gemini SDK calls, and local key loading. API keys stay outside renderer and settings JSON.
+- Main: settings, Gemini SDK calls, two optional environment keys, and encrypted storage for one additional key entered through the app. Environment keys stay outside the renderer. The user-entered key passes through the renderer only when entered; settings JSON stores only the active key source.
 - IPC: individual named operations, sender/frame check, runtime settings and speech request validation. No generic invoke bridge.
 - AudioEngine: browser media playback using `HTMLAudioElement.setSinkId` for local WAV output selection, including the Windows VB-CABLE route.
 - Provider: `TtsProvider` contract and Gemini adapter using the official `@google/genai` SDK. Azure remains a later adapter.

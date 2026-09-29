@@ -4,6 +4,7 @@ import { buildGeminiTtsRequest } from '../../shared/geminiRequest'
 import { isReplicatedVoiceId } from '../../shared/voiceReplication'
 
 export function normalizeGeminiError(error: unknown): Error {
+  if (error instanceof Error && (error.message.startsWith('Gemini API key is missing') || error.message.startsWith('La chiave Gemini') || error.message.startsWith('L’archiviazione cifrata'))) return error
   if (error instanceof Error && error.name === 'AbortError') return new Error('Generation cancelled.')
   if (error instanceof Error && error.message === 'Unexpected audio response') return new Error('Gemini returned no playable WAV audio. Try a shorter script or another voice.')
   const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : 0
@@ -28,15 +29,17 @@ export class GeminiTtsProvider implements TtsProvider {
   readonly id = 'gemini'
   readonly displayName = 'Google Gemini'
 
-  private client(): GoogleGenAI {
-    const apiKey = process.env.GEMINI_API_KEY?.trim()
+  constructor(private readonly resolveApiKey: () => Promise<string> = async () => process.env.GEMINI_API_KEY ?? '') {}
+
+  private async client(): Promise<GoogleGenAI> {
+    const apiKey = (await this.resolveApiKey()).trim()
     if (!apiKey) throw new Error('Gemini API key is missing. Set GEMINI_API_KEY in your local environment.')
     return new GoogleGenAI({ apiKey })
   }
 
   async validateConfiguration(): Promise<ProviderStatus> {
     try {
-      await this.client().models.get({ model: 'gemini-3.8-flash-tts' })
+      await (await this.client()).models.get({ model: 'gemini-3.8-flash-tts' })
       return { ready: true, message: 'Gemini connected' }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('Gemini API key is missing')) return { ready: false, message: error.message }
@@ -48,9 +51,20 @@ export class GeminiTtsProvider implements TtsProvider {
     return [{ mode: 'prebuilt', voiceId: 'Kore' }, { mode: 'prebuilt', voiceId: 'Puck' }]
   }
 
+  async verifyReplicatedVoice(voiceId: string): Promise<void> {
+    try {
+      await (await this.client()).voices.get(voiceId)
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'status' in error && Number(error.status) === 404) {
+        throw new Error('Questa voce non è disponibile nel progetto della chiave Gemini attiva. Seleziona la chiave corretta prima di importarla.')
+      }
+      throw normalizeGeminiError(error)
+    }
+  }
+
   async createReplicatedVoice(request: CreateReplicatedVoiceRequest): Promise<ReplicatedVoiceRecord> {
     try {
-      const voice = await this.client().voices.create({
+      const voice = await (await this.client()).voices.create({
         store: true,
         voice: {
           model: 'gemini-3.8-flash-tts',
@@ -71,7 +85,7 @@ export class GeminiTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: SynthesisRequest, signal: AbortSignal): Promise<SynthesizedAudio> {
-    const client = this.client()
+    const client = await this.client()
     const started = performance.now()
     try {
       const interaction = await client.interactions.create(buildGeminiTtsRequest(request), { signal })
@@ -85,6 +99,7 @@ export class GeminiTtsProvider implements TtsProvider {
       }
     } catch (error) {
       if (signal.aborted) throw new Error('Generation cancelled.')
+      if (request.voice.mode === 'stateful' && typeof error === 'object' && error !== null && 'status' in error && Number(error.status) === 404) throw new Error('La voce personale non è disponibile per la chiave Gemini attiva. Controlla la voce associata nelle Impostazioni.')
       throw normalizeGeminiError(error)
     }
   }
@@ -93,7 +108,7 @@ export class GeminiTtsProvider implements TtsProvider {
     const started = performance.now()
     let receivedAudio = false
     try {
-      const stream = await this.client().interactions.create({ ...buildGeminiTtsRequest(request), stream: true }, { signal })
+      const stream = await (await this.client()).interactions.create({ ...buildGeminiTtsRequest(request), stream: true }, { signal })
       for await (const event of stream) {
         if (signal.aborted) throw new DOMException('Generation cancelled', 'AbortError')
         if (event.event_type === 'error') throw new Error('Gemini stopped the audio stream.')
@@ -110,6 +125,7 @@ export class GeminiTtsProvider implements TtsProvider {
       return { generationMs: Math.round(performance.now() - started) }
     } catch (error) {
       if (signal.aborted) throw new Error('Generation cancelled.')
+      if (request.voice.mode === 'stateful' && typeof error === 'object' && error !== null && 'status' in error && Number(error.status) === 404) throw new Error('La voce personale non è disponibile per la chiave Gemini attiva. Controlla la voce associata nelle Impostazioni.')
       throw normalizeGeminiError(error)
     }
   }

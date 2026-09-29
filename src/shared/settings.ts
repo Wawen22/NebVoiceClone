@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppSettings, type ReplicatedVoiceRecord } from './contracts'
+import { DEFAULT_SETTINGS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppSettings, type GeminiKeySource, type GeminiVoiceProfiles, type ReplicatedVoiceRecord } from './contracts'
 import { isReplicatedVoiceId } from './voiceReplication'
 
 function parseReplicatedVoice(value: unknown): ReplicatedVoiceRecord | null {
@@ -11,15 +11,27 @@ function parseReplicatedVoice(value: unknown): ReplicatedVoiceRecord | null {
 export function parseSettings(value: unknown): AppSettings {
   if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS }
   const candidate = value as Record<string, unknown>
-  const replicatedVoice = parseReplicatedVoice(candidate.replicatedVoice)
-  const geminiVoiceId = GEMINI_PREBUILT_VOICES.find((voice) => voice === candidate.geminiVoiceId)
-    ?? (replicatedVoice && replicatedVoice.id === candidate.geminiVoiceId ? replicatedVoice.id : DEFAULT_SETTINGS.geminiVoiceId)
+  const geminiKeySource: GeminiKeySource = candidate.geminiKeySource === 'saved' || candidate.geminiKeySource === 'project' ? candidate.geminiKeySource : 'environment'
+  const persistedProfiles = typeof candidate.voiceProfiles === 'object' && candidate.voiceProfiles !== null && !Array.isArray(candidate.voiceProfiles) ? candidate.voiceProfiles as Record<string, unknown> : null
+  const voiceProfiles = {} as GeminiVoiceProfiles
+  for (const source of ['environment', 'project', 'saved'] as const) {
+    const raw = persistedProfiles?.[source]
+    const profile = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : null
+    const replicatedVoice = parseReplicatedVoice(profile?.replicatedVoice ?? (!persistedProfiles && source === geminiKeySource ? candidate.replicatedVoice : null))
+    const requestedVoiceId = profile?.selectedVoiceId ?? (!persistedProfiles && source === geminiKeySource ? candidate.geminiVoiceId : null)
+    const selectedVoiceId = GEMINI_PREBUILT_VOICES.find((voice) => voice === requestedVoiceId)
+      ?? (replicatedVoice && replicatedVoice.id === requestedVoiceId ? replicatedVoice.id : DEFAULT_SETTINGS.geminiVoiceId)
+    voiceProfiles[source] = { replicatedVoice, selectedVoiceId }
+  }
+  const { replicatedVoice, selectedVoiceId: geminiVoiceId } = voiceProfiles[geminiKeySource]
   return {
     schemaVersion: 1,
     providerId: candidate.providerId === 'azure' ? 'azure' : 'gemini',
     geminiModel: GEMINI_MODELS.find((model) => model === candidate.geminiModel) ?? DEFAULT_SETTINGS.geminiModel,
+    geminiKeySource,
     geminiVoiceId,
     replicatedVoice,
+    voiceProfiles,
     outputDeviceId: typeof candidate.outputDeviceId === 'string' ? candidate.outputDeviceId : 'default',
     outputVolume: typeof candidate.outputVolume === 'number' && candidate.outputVolume >= 0 && candidate.outputVolume <= 1 ? candidate.outputVolume : DEFAULT_SETTINGS.outputVolume,
     monitorDeviceId: typeof candidate.monitorDeviceId === 'string' ? candidate.monitorDeviceId : '',

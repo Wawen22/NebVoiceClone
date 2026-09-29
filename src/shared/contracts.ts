@@ -3,6 +3,22 @@ export const GEMINI_PREBUILT_VOICES = ['Kore', 'Puck'] as const
 export type GeminiModel = (typeof GEMINI_MODELS)[number]
 export type GeminiPrebuiltVoice = (typeof GEMINI_PREBUILT_VOICES)[number]
 export type ProviderId = 'gemini' | 'azure'
+export type GeminiKeySource = 'environment' | 'project' | 'saved'
+
+export interface GeminiKeyStatus {
+  activeSource: GeminiKeySource
+  environmentConfigured: boolean
+  projectConfigured: boolean
+  environmentLabel: string
+  projectLabel: string
+  savedLabel: string | null
+  secureStorageAvailable: boolean
+}
+
+export interface SaveGeminiKeyRequest {
+  label: string
+  apiKey: string
+}
 
 export interface ReplicatedVoiceRecord {
   id: string
@@ -11,6 +27,13 @@ export interface ReplicatedVoiceRecord {
   createdAt: string
   expiresAt?: string
 }
+
+export interface GeminiVoiceProfile {
+  replicatedVoice: ReplicatedVoiceRecord | null
+  selectedVoiceId: string
+}
+
+export type GeminiVoiceProfiles = Record<GeminiKeySource, GeminiVoiceProfile>
 
 export interface CreateReplicatedVoiceRequest {
   displayName: string
@@ -55,8 +78,10 @@ export interface AppSettings {
   schemaVersion: 1
   providerId: ProviderId
   geminiModel: GeminiModel
+  geminiKeySource: GeminiKeySource
   geminiVoiceId: string
   replicatedVoice: ReplicatedVoiceRecord | null
+  voiceProfiles: GeminiVoiceProfiles
   outputDeviceId: string
   outputVolume: number
   monitorDeviceId: string
@@ -67,8 +92,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   providerId: 'gemini',
   geminiModel: 'gemini-3.8-flash-tts',
+  geminiKeySource: 'environment',
   geminiVoiceId: 'Kore',
   replicatedVoice: null,
+  voiceProfiles: {
+    environment: { replicatedVoice: null, selectedVoiceId: 'Kore' },
+    project: { replicatedVoice: null, selectedVoiceId: 'Kore' },
+    saved: { replicatedVoice: null, selectedVoiceId: 'Kore' }
+  },
   outputDeviceId: 'default',
   outputVolume: 0.85,
   monitorDeviceId: '',
@@ -100,6 +131,10 @@ export interface DesktopApi {
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<AppSettings>
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>
+  getGeminiKeyStatus(): Promise<GeminiKeyStatus>
+  saveGeminiKey(request: SaveGeminiKeyRequest): Promise<GeminiKeyStatus>
+  selectGeminiKey(source: GeminiKeySource): Promise<AppSettings>
+  removeGeminiKey(): Promise<AppSettings>
   checkGemini(): Promise<ProviderStatus>
   createReplicatedVoice(request: CreateReplicatedVoiceRequest): Promise<AppSettings>
   exportVoiceProfile(): Promise<VoiceProfileExportResult | null>

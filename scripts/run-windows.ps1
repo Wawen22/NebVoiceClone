@@ -32,6 +32,24 @@ if (-not $env:GEMINI_API_KEY) {
   }
 }
 
+if (-not $env:GEMINI_API_KEY_NEBVOICCLONE) {
+  $localEnv = Join-Path $repo '.env.local'
+  if (Test-Path $localEnv) {
+    $entry = Get-Content -LiteralPath $localEnv | Where-Object { $_ -match '^GEMINI_API_KEY_NEBVOICCLONE=' } | Select-Object -First 1
+    if ($entry) { $env:GEMINI_API_KEY_NEBVOICCLONE = $entry.Substring('GEMINI_API_KEY_NEBVOICCLONE='.Length).Trim() }
+  }
+}
+
+$localEnv = Join-Path $repo '.env.local'
+if (Test-Path $localEnv) {
+  foreach ($name in @('NEB_GEMINI_LABEL_ORIGINAL', 'NEB_GEMINI_LABEL_PROJECT')) {
+    if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
+      $entry = Get-Content -LiteralPath $localEnv | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+      if ($entry) { [Environment]::SetEnvironmentVariable($name, $entry.Substring($name.Length + 1).Trim(), 'Process') }
+    }
+  }
+}
+
 Push-Location $destination
 try {
   if (-not (Test-Path (Join-Path $destination 'node_modules')) -or

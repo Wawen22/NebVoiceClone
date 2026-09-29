@@ -9,7 +9,7 @@ type Kind = 'reference' | 'consent'
 type Capture = { kind: Kind; phase: VoiceActivityPhase }
 type CaptureSession = { kind: Kind; recorder: MediaRecorder; stream: MediaStream; context: AudioContext; timer: ReturnType<typeof setInterval>; detector: VoiceActivityDetector; startedAt: number; clip: VoiceClipRange | null; cancelled: boolean }
 
-export function VoiceReplicationWizard({ gemini, settings, onCreated }: { gemini: ProviderStatus; settings: AppSettings; onCreated: (next: AppSettings) => void }): React.JSX.Element {
+export function VoiceReplicationWizard({ gemini, settings, activeKeyName, onCreated }: { gemini: ProviderStatus; settings: AppSettings; activeKeyName: string; onCreated: (next: AppSettings) => void }): React.JSX.Element {
   const [name, setName] = useState('La mia voce')
   const [reference, setReference] = useState<PreparedVoiceAudio | null>(null)
   const [consent, setConsent] = useState<PreparedVoiceAudio | null>(null)
@@ -173,13 +173,14 @@ export function VoiceReplicationWizard({ gemini, settings, onCreated }: { gemini
       setReference(null)
       setConsent(null)
       setConfirmed(false)
-      setResult('Voce creata e selezionata. Apri la Console e prova una breve frase.')
+      setResult(`Voce creata per ${activeKeyName} e selezionata. Apri la Console e prova una breve frase.`)
     } catch (reason) { setError(message(reason)) }
     finally { setBusy(false) }
   }
 
   return <section className="panel voice-wizard">
-    <span className="eyebrow">GEMINI / VOCE PERSONALE</span><h3>Crea la tua voce</h3>
+    <span className="eyebrow">GEMINI / VOCE PERSONALE · SOLO {activeKeyName.toLocaleUpperCase('it-IT')}</span><h3>Crea la tua voce per {activeKeyName}</h3>
+    <p>Questa azione crea una voce per {activeKeyName}. Se ne hai già una, la nuova voce sostituirà solo il profilo locale di questa chiave. Le altre chiavi manterranno le proprie voci.</p>
     <p>Usa solo la tua voce adulta. Le registrazioni vengono inviate a Google quando premi Crea voce. L’audio resta in memoria durante questa sessione; viene salvato solo l’ID della voce creata.</p>
     <div className="wizard-step"><strong><span className="step-number">1</span> Stato API</strong><span className={gemini.ready ? 'wizard-ready' : 'wizard-warning'}>{gemini.message}</span></div>
     <div className="wizard-step"><strong><span className="step-number">2</span> Voce di riferimento</strong><p>Parla naturalmente per 10–30 secondi in una stanza tranquilla. Usa lo stesso microfono per entrambe le clip. La registrazione inizia quando viene rilevata la voce e termina dopo una pausa. Ascolta l’anteprima prima di continuare.</p>
