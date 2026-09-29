@@ -64,6 +64,14 @@ Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, and `Ctrl+Alt+
 
 Use **Volume di uscita** under **Dove si sente** to set the level NEB sends to CABLE Input. It is saved locally and affects Pronuncia and Riascolta only; it never changes the Windows volume, headset volume, or Edge microphone level. Open **Test e istruzioni di routing** for a spoken test phrase, local WAV test, and Edge setup steps.
 
+## Battute pronte
+
+Open **Battute pronte** in Console or **Battute** in Conversation Mode to prepare as many lines as needed (including 30 or more). Use **Nuova battuta** to write one, or **Aggiungi testo corrente** to copy the current script without removing it from the editor. Each line has its own Play button: it sends only that exact text to Gemini using the currently selected voice, model, and output. The panel stays open, displays activity waves on the speaking line and offers Stop on that line. Mark a line **Fatta** manually; playback never marks or deletes it automatically. Move and edit lines in the panel; delete one with an Undo option, or use **Elimina tutte** with confirmation. The list lives only in memory and disappears when the application closes. While the panel is open, Ctrl+Enter and Ctrl+R do not act on the main script; Escape remains the emergency stop.
+
+While a line is generating or speaking, it stays highlighted and a cue above the scrolling list shows its number and text. **Vai alla battuta** returns to that line without changing the order or starting another one.
+
+Hover over a shortened line or focus its text with the keyboard to expand the complete script inside the list. Very long scripts scroll within the expanded line.
+
 ## Troubleshooting
 
 - Missing output devices: refresh the device list after connecting/installing the device, then restart the app if needed.

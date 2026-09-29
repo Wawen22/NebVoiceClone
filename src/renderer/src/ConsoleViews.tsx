@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import { Icon } from './Icons'
+import { ListMusic } from 'lucide-react'
 import type { AudioOutput } from './audio/AudioEngine'
 import type { AppSettings, ConversationModeStatus, ProviderStatus } from '../../shared/contracts'
 import { GEMINI_MODELS, GEMINI_PREBUILT_VOICES } from '../../shared/contracts'
@@ -12,6 +13,8 @@ interface ConsoleProps {
   activeKeyName: string
   gemini: ProviderStatus
   script: string
+  readyLinesCount: number
+  onOpenReadyLines: () => void
   onScriptChange: (value: string) => void
   scriptInput: RefObject<HTMLTextAreaElement | null>
   outputs: AudioOutput[]
@@ -40,7 +43,7 @@ interface ConsoleProps {
 const testPhrase = 'Questa è una prova audio di NEB Voice Console.'
 
 export function ConsoleView(props: ConsoleProps): React.JSX.Element {
-  const { settings, activeKeyName, gemini, script, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
+  const { settings, activeKeyName, gemini, script, readyLinesCount, onOpenReadyLines, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
   const selectedVoice = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
@@ -48,7 +51,7 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   return <div className="console-page">
     <div className="console-heading">
       <div><span className="eyebrow">CONSOLE / GENERAZIONE</span><h2>Dai voce alle tue parole.</h2><p>Scrivi esattamente ciò che vuoi dire. La voce parte sul dispositivo selezionato.</p></div>
-      <button className="conversation-trigger" aria-keyshortcuts="Control+Alt+V" onClick={onOpenConversation}><Icon name="external" /> Modalità conversazione <kbd>Ctrl+Alt+V</kbd></button>
+      <div className="console-heading-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={16} /> Battute pronte <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-trigger" aria-keyshortcuts="Control+Alt+V" onClick={onOpenConversation}><Icon name="external" /> Modalità conversazione <kbd>Ctrl+Alt+V</kbd></button></div>
     </div>
 
     <div className="console-grid">
@@ -91,16 +94,16 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   </div>
 }
 
-interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'activeKeyName' | 'gemini' | 'script' | 'onScriptChange' | 'scriptInput' | 'routing' | 'isLinux' | 'busy' | 'playing' | 'hasAudio' | 'status' | 'error' | 'metrics' | 'onSpeak' | 'onStop' | 'onReplay'> {
+interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'activeKeyName' | 'gemini' | 'script' | 'readyLinesCount' | 'onOpenReadyLines' | 'onScriptChange' | 'scriptInput' | 'routing' | 'isLinux' | 'busy' | 'playing' | 'hasAudio' | 'status' | 'error' | 'metrics' | 'onSpeak' | 'onStop' | 'onReplay'> {
   conversationStatus: ConversationModeStatus | null
   onClose: () => void
 }
 
 export function ConversationView(props: ConversationProps): React.JSX.Element {
-  const { settings, gemini, script, onScriptChange, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, onSpeak, onStop, onReplay, conversationStatus, onClose } = props
+  const { settings, gemini, script, readyLinesCount, onOpenReadyLines, onScriptChange, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, onSpeak, onStop, onReplay, conversationStatus, onClose } = props
   const voice = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
   return <main className="conversation-shell">
-    <header className="conversation-header"><div><span className="eyebrow">NEB VOICE / CONVERSAZIONE</span><h1>Scrivi. Pronuncia.</h1></div><button className="conversation-exit" aria-label="Esci dalla modalità conversazione, Ctrl+Alt+V" aria-keyshortcuts="Control+Alt+V" onClick={onClose}><Icon name="close" /> Esci <kbd>Ctrl+Alt+V</kbd></button></header>
+    <header className="conversation-header"><div><span className="eyebrow">NEB VOICE / CONVERSAZIONE</span><h1>Scrivi. Pronuncia.</h1></div><div className="conversation-header-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={15} /> Battute <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-exit" aria-label="Esci dalla modalità conversazione, Ctrl+Alt+V" aria-keyshortcuts="Control+Alt+V" onClick={onClose}><Icon name="close" /> Esci <kbd>Ctrl+Alt+V</kbd></button></div></header>
     <div className="conversation-statuses"><div><span>VOCE</span><strong>{voice}</strong></div><div><span>USCITA</span><strong><i className={routing.routed ? 'status-dot green' : 'status-dot amber'} />{routing.routed ? isLinux ? 'NEB Voice' : 'CABLE Input' : routing.label}</strong></div></div>
     <label className="conversation-label" htmlFor="conversation-script">Messaggio</label>
     <textarea id="conversation-script" ref={scriptInput} value={script} onChange={(event) => onScriptChange(event.target.value)} placeholder="Scrivi o incolla la tua risposta…" />

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
 import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
+import { ReadyLinesPanel } from './ReadyLinesPanel'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
 import { SetupGuide } from './SetupGuide'
 import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type GeminiKeySource, type GeminiKeyStatus, type ProviderStatus, type SaveGeminiKeyRequest } from '../../shared/contracts'
 import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
+import { addReadyLine, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine } from './readyLines'
 
 type Page = 'console' | 'settings' | 'guide' | 'diagnostics'
 
@@ -16,6 +18,9 @@ export function App(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [gemini, setGemini] = useState<ProviderStatus>({ ready: false, message: 'Verifica Gemini…' })
   const [script, setScript] = useState('')
+  const [readyLines, setReadyLines] = useState<ReadyLine[]>([])
+  const [readyOpen, setReadyOpen] = useState(false)
+  const [activeReadyLineId, setActiveReadyLineId] = useState<string | null>(null)
   const [outputs, setOutputs] = useState<AudioOutput[]>([])
   const [fileName, setFileName] = useState('')
   const [duration, setDuration] = useState<number | null>(null)
@@ -54,6 +59,7 @@ export function App(): React.JSX.Element {
     audio.current.onEnded(() => {
       playbackActive.current = false
       setPlaying(false)
+      setActiveReadyLineId(null)
       setStatus(generationInProgress.current ? 'Audio terminato · generazione in corso…' : 'Riproduzione terminata')
       if (playbackStartedAt.current !== null) {
         playbackMs.current = Math.round(performance.now() - playbackStartedAt.current)
@@ -76,6 +82,10 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') stop()
+      if (readyOpen && event.ctrlKey && (event.key === 'Enter' || event.key.toLowerCase() === 'r')) {
+        event.preventDefault()
+        return
+      }
       if (event.ctrlKey && event.key === 'Enter') {
         event.preventDefault()
         void speak()
@@ -87,7 +97,7 @@ export function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [settings, script, busy, gemini.ready, hasAudio])
+  }, [settings, script, busy, gemini.ready, hasAudio, readyOpen])
 
   useEffect(() => window.neb.onConversationRequested(() => { void toggleConversationMode() }), [conversationMode])
   useEffect(() => window.neb.onStopRequested(stop), [])
@@ -196,6 +206,7 @@ export function App(): React.JSX.Element {
     if (!fileName || busy) return
     try {
       await audio.current.play(settings.outputDeviceId)
+      setActiveReadyLineId(null)
       playbackActive.current = true
       setPlaying(true)
       playbackStartedAt.current = performance.now()
@@ -208,6 +219,7 @@ export function App(): React.JSX.Element {
     if (!hasAudio || busy) return
     try {
       await audio.current.replay(settings.outputDeviceId)
+      setActiveReadyLineId(null)
       playbackActive.current = true
       setPlaying(true)
       playbackStartedAt.current = performance.now()
@@ -216,7 +228,7 @@ export function App(): React.JSX.Element {
     } catch (reason) { setError(`Riascolto non riuscito: ${message(reason)}`) }
   }
 
-  async function speak(text: string = script): Promise<void> {
+  async function speak(text: string = script, readyLineId: string | null = null): Promise<void> {
     if (busy || !gemini.ready || !text.trim()) return
     if (outputs.length === 0) {
       setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa prima di generare la voce.')
@@ -224,6 +236,7 @@ export function App(): React.JSX.Element {
     }
     const current = ++requestId.current
     const started = performance.now()
+    setActiveReadyLineId(readyLineId)
     generationInProgress.current = true
     playbackActive.current = false
     setPlaying(false)
@@ -268,7 +281,7 @@ export function App(): React.JSX.Element {
       setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined })
       setStatus(playbackActive.current ? `Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : 'Riproduzione terminata')
     } catch (reason) {
-      if (current === requestId.current) { generationInProgress.current = false; playbackActive.current = false; setPlaying(false); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }
+      if (current === requestId.current) { generationInProgress.current = false; playbackActive.current = false; setPlaying(false); setActiveReadyLineId(null); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }
     } finally { if (current === requestId.current) setBusy(false) }
   }
 
@@ -278,6 +291,7 @@ export function App(): React.JSX.Element {
     generationInProgress.current = false
     playbackActive.current = false
     setPlaying(false)
+    setActiveReadyLineId(null)
     playbackStartedAt.current = null
     setBusy(false)
     setStatus('Interrotto')
@@ -327,10 +341,22 @@ export function App(): React.JSX.Element {
   const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
   const common = {
     settings, gemini, script, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, activeKeyName,
+    readyLinesCount: readyLines.length, onOpenReadyLines: () => setReadyOpen(true),
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
+  const readyPanel = readyOpen && <ReadyLinesPanel lines={readyLines} currentScript={script} ready={gemini.ready} busy={busy} playing={playing} activeLineId={activeReadyLineId} status={status} error={error}
+    onAdd={(text) => { const id = crypto.randomUUID(); setReadyLines((current) => addReadyLine(current, text, id)) }}
+    onEdit={(id, text) => setReadyLines((current) => editReadyLine(current, id, text))}
+    onMove={(id, direction) => setReadyLines((current) => moveReadyLine(current, id, direction))}
+    onToggleDone={(id) => setReadyLines((current) => toggleReadyLineDone(current, id))}
+    onRemove={(id) => setReadyLines((current) => removeReadyLine(current, id))}
+    onRestore={(line, index) => setReadyLines((current) => restoreReadyLine(current, line, index))}
+    onClear={() => setReadyLines([])}
+    onSpeak={(line) => { void speak(line.text, line.id) }}
+    onStop={stop}
+    onClose={() => setReadyOpen(false)} />
 
-  if (conversationMode) return <ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />
+  if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}</>
 
   const pageTitle = page === 'console' ? 'Console' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
   return <div className="app-frame">
@@ -352,6 +378,7 @@ export function App(): React.JSX.Element {
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
     </main>
+    {readyPanel}
   </div>
 }
 
