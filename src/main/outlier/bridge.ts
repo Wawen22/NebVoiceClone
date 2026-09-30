@@ -97,11 +97,9 @@ export class NativeBridge implements InsertionDriver {
       const cleanup = (): void => { clearTimeout(timer); signal?.removeEventListener('abort', abort); this.pending.delete(requestId) }
       const fail = (error: Error): void => { cleanup(); reject(error) }
       const abort = (): void => {
-        // Closing the transport also makes the host discard queued native commands.
-        socket.destroy()
         fail(new Error('Inserimento interrotto.'))
       }
-      const timer = setTimeout(() => { socket.destroy(); fail(new Error('Timeout della verifica. Controlla il campo.')) }, 3000)
+      const timer = setTimeout(() => { fail(new Error('Timeout della verifica di Edge (focus perso).')) }, 5000)
       this.pending.set(requestId, { resolve: (value) => { cleanup(); resolve(value) }, reject: fail })
       signal?.addEventListener('abort', abort, { once: true })
       socket.write(encodeFrame({ kind: route, action, requestId, payload, deadline: Date.now() + 2000 }), (error) => { if (error) fail(error) })

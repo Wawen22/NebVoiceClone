@@ -162,20 +162,29 @@ export class InsertionController {
 
     const check = async (action: string, expected: string): Promise<boolean> => {
       signal.throwIfAborted()
-      const snapshot = parseSnapshot(await request('browser', action, { target: operation.target, expected }))
-      if (!sameTarget(snapshot.target, operation.target)) {
-        throw new Error('Scheda, documento o destinazione cambiata. Inserimento fermato.')
+      try {
+        const snapshot = parseSnapshot(await request('browser', action, { target: operation.target, expected }))
+        if (!sameTarget(snapshot.target, operation.target)) {
+          throw new Error('Scheda, documento o destinazione cambiata. Inserimento fermato.')
+        }
+        const val = snapshot.value.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const exp = expected.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        if (val !== exp || snapshot.selectionStart !== exp.length || snapshot.selectionEnd !== exp.length) {
+          throw new Error('Il campo contiene testo o una selezione inattesa. Nessun carattere sarà riscritto.')
+        }
+        if (!snapshot.focused) {
+          this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
+          return false
+        }
+        return true
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        if (/focus|primo piano/i.test(msg)) {
+          this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
+          return false
+        }
+        throw error
       }
-      const val = snapshot.value.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-      const exp = expected.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-      if (val !== exp || snapshot.selectionStart !== exp.length || snapshot.selectionEnd !== exp.length) {
-        throw new Error('Il campo contiene testo o una selezione inattesa. Nessun carattere sarà riscritto.')
-      }
-      if (!snapshot.focused) {
-        this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
-        return false
-      }
-      return true
     }
 
     try {

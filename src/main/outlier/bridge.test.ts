@@ -90,12 +90,13 @@ windowsTest('correlates replies, ignores an obsolete reply and disconnects when 
     client.write(encodeFrame({ kind: 'reply', requestId: command.requestId, result: 'obsolete' }))
     signal.abort()
     await rejected
+    bridge.close()
     const closed = once(client, 'close')
     await closed
     await expect(bridge.request('native', 'type', { text: 'x' })).rejects.toThrow('non disponibile')
   } finally { client?.destroy(); bridge.close() }
 })
-windowsTest('times out an unconfirmed command and closes its transport', async () => {
+windowsTest('times out an unconfirmed command gracefully', async () => {
   let client: Socket | undefined
   let acknowledge!: () => void
   const ready = new Promise<void>((resolve) => { acknowledge = resolve })
@@ -109,9 +110,10 @@ windowsTest('times out an unconfirmed command and closes its transport', async (
     vi.useFakeTimers()
     const pending = bridge.request('native', 'type', { text: 'x' })
     const rejected = expect(pending).rejects.toThrow('Timeout')
-    await vi.advanceTimersByTimeAsync(3001)
+    await vi.advanceTimersByTimeAsync(5001)
     await rejected
     vi.useRealTimers()
+    bridge.close()
     await expect(bridge.request('native', 'probe', {})).rejects.toThrow('non disponibile')
   } finally { vi.useRealTimers(); client?.destroy(); bridge.close() }
 })

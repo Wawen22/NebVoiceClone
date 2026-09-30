@@ -18,7 +18,8 @@ function connect() {
       }
       const tab = await chrome.tabs.get(target.tabId)
       const window = await chrome.windows.get(target.windowId)
-      if (!tab.active || !window.focused || tab.url !== target.url) throw new Error('Scheda o finestra cambiata.')
+      if (!tab.active || tab.url !== target.url) throw new Error('Scheda o destinazione cambiata.')
+      if (!window.focused) throw new Error('Finestra Edge non in primo piano (focus perso).')
       let snapshot = await chrome.tabs.sendMessage(target.tabId, { action: message.action, expected: message.payload.expected, documentId: target.documentId, url: target.url }, { frameId: 0 })
       // Activation may complete asynchronously. Wait only during preparation; never refocus during typing.
       if (message.action === 'prepare' && !snapshot.focused && !snapshot.error) {
