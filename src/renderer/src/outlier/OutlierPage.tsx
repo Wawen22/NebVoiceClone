@@ -234,28 +234,7 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
 
         <div className="outlier-toolbar-right">
           {project && (
-            <>
-              <div className="outlier-model-switch">
-                <span className="outlier-model-label">Conversazione:</span>
-                <div className="outlier-model-pills">
-                  <button
-                    type="button"
-                    className={(w.models[project.id] || 'A') === 'A' ? 'model-pill active' : 'model-pill'}
-                    onClick={() => w.setModels((c) => ({ ...c, [project.id]: 'A' }))}
-                  >
-                    Model A
-                  </button>
-                  <button
-                    type="button"
-                    className={(w.models[project.id] || 'A') === 'B' ? 'model-pill active' : 'model-pill'}
-                    onClick={() => w.setModels((c) => ({ ...c, [project.id]: 'B' }))}
-                  >
-                    Model B
-                  </button>
-                </div>
-              </div>
-
-              <div className="outlier-view-tabs">
+            <div className="outlier-view-tabs">
                 <button
                   type="button"
                   className={w.tab === 'voice' ? 'tab-pill active' : 'tab-pill'}
@@ -271,7 +250,6 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
                   <FileText size={14} /> Rationale
                 </button>
               </div>
-            </>
           )}
 
           <button

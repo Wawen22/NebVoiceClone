@@ -21,7 +21,7 @@ if (Test-Path (Join-Path $repo '.env.local')) {
   Copy-Item -LiteralPath (Join-Path $repo '.env.local') -Destination $destination -Force
 }
 
-foreach ($folder in @('src', 'scripts', 'browser-extension', 'out')) {
+foreach ($folder in @('src', 'scripts', 'browser-extension')) {
   $target = Join-Path $destination $folder
   $resolvedDestination = [IO.Path]::GetFullPath($destination).TrimEnd('\') + '\'
   if (-not ([IO.Path]::GetFullPath($target).StartsWith($resolvedDestination, [StringComparison]::OrdinalIgnoreCase))) { throw 'La destinazione è fuori dalla cartella NEB.' }
