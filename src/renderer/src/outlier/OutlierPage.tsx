@@ -5,6 +5,28 @@ import type { OutlierWorkspace } from './useOutlierWorkspace'
 
 const AVAILABLE_SPEEDS = [450, 600, 650, 700, 750, 800]
 
+function formatStatusMessage(text: string): ReactNode {
+  const parts = text.split(/(Ctrl\+Alt\+[SP]|Riprendi)/g)
+  return parts.map((part, i) => {
+    if (part === 'Ctrl+Alt+S' || part === 'Ctrl+Alt+P' || part === 'Riprendi') {
+      return <kbd key={i} className="outlier-kbd">{part}</kbd>
+    }
+    return part
+  })
+}
+
+function formatPhase(phase: string): string {
+  switch (phase) {
+    case 'typing': return 'in corso'
+    case 'preparing': return 'preparazione'
+    case 'paused': return 'in pausa'
+    case 'completed': return 'completato'
+    case 'interrupted': return 'interrotto'
+    case 'error': return 'errore'
+    default: return phase
+  }
+}
+
 export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspace; voice: ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<OutlierProject | null>(null)
   const [extensionId, setExtensionId] = useState('')
@@ -95,7 +117,8 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
             <div className="control-card outlier-insertion">
               <div className="outlier-heading"><h3>Inserimento nel browser</h3><span className={status?.connected ? 'status-dot green' : 'status-dot amber'} /></div>
               {(() => {
-                const message = status?.message || 'Verifica del servizio…'
+                const rawMessage = status?.message || 'Verifica del servizio…'
+                const message = formatStatusMessage(rawMessage)
                 if (isThinking) {
                   return (
                     <div className="outlier-status-badge thinking" role="status" aria-live="polite">
@@ -179,7 +202,15 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
                   </div>
                 )}
               </div>
-              {status && status.total > 0 && <><progress aria-label="Caratteri confermati nel campo" max={status.total} value={status.confirmed} /><small>{status.confirmed} / {status.total} caratteri confermati · {status.phase}</small></>}
+              {status && status.total > 0 && (
+                <div className="outlier-progress-wrap">
+                  <progress aria-label="Caratteri confermati nel campo" max={status.total} value={status.confirmed} />
+                  <div className="outlier-progress-meta">
+                    <span>{status.confirmed.toLocaleString('it-IT')} / {status.total.toLocaleString('it-IT')} caratteri ({Math.round((status.confirmed / status.total) * 100)}%)</span>
+                    <span className="outlier-phase-tag">{formatPhase(status.phase)}</span>
+                  </div>
+                </div>
+              )}
               <div className="outlier-actions">
                 <button className="primary-button" disabled={!canStart} onClick={() => void w.action(() => window.neb.startInsertion(buildRequest()))}><Play size={16} /> Avvia inserimento</button>
                 <button className="secondary-button" disabled={!isTyping} onClick={() => void w.action(() => window.neb.pauseInsertion())}><Pause size={16} /> Pausa</button>
