@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { loadEnvFile } from 'node:process'
 import { registerIpc } from './ipc/registerIpc'
 import { WindowPresentationController } from './windowPresentation'
+import { registerOutlierIpc } from './outlier/registerOutlierIpc'
 
 const localEnv = join(process.cwd(), '.env.local')
 if (existsSync(localEnv)) loadEnvFile(localEnv)
@@ -18,11 +19,12 @@ if (instance && instance !== 'dev' && /^[A-Za-z0-9_-]+$/.test(instance)) {
 }
 
 let mainWindow: BrowserWindow | null = null
+let outlier: ReturnType<typeof registerOutlierIpc> | null = null
 const windowPresentation = new WindowPresentationController(
   () => mainWindow ?? undefined,
   globalShortcut,
   () => mainWindow?.webContents.send('window:openConversationMode'),
-  () => mainWindow?.webContents.send('window:stopSpeech')
+  () => { outlier?.controller.stop(); mainWindow?.webContents.send('window:stopSpeech') }
 )
 
 function createWindow(): void {
@@ -58,12 +60,16 @@ function createWindow(): void {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  outlier = registerOutlierIpc(() => mainWindow?.webContents)
   registerIpc(() => mainWindow?.webContents, windowPresentation)
   createWindow()
   windowPresentation.registerFocusShortcut()
+  outlier.controller.setStopAvailable(windowPresentation.isStopShortcutAvailable())
+  globalShortcut.register('Ctrl+Alt+P', () => outlier?.controller.pause())
+  try { await outlier.initialize() } catch { outlier.controller.disconnect() }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('will-quit', () => windowPresentation.dispose())
+app.on('will-quit', () => { outlier?.close(); globalShortcut.unregister('Ctrl+Alt+P'); windowPresentation.dispose() })

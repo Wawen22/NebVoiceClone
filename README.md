@@ -72,6 +72,12 @@ While a line is generating or speaking, it stays highlighted and a cue above the
 
 Hover over a shortened line or focus its text with the keyboard to expand the complete script inside the list. Very long scripts scroll within the expanded line.
 
+## Outlier projects and S2S Rationale
+
+Open **Outlier** for reusable projects, personal notes, and the existing Conversation/Battute controls. Projects can be edited, archived and restored. The separate Rationale draft stays in memory and is never sent to an AI provider.
+
+The optional Windows/Edge connector transfers the exact draft into a manually associated, initially empty S2S field. It has explicit start, pause/resume, global stop and final text verification; task submission remains manual. See [setup, controls and verification limits](docs/outlier-s2s.md). Full typing through the installed extension still needs an interactive local demo test.
+
 ## Troubleshooting
 
 - Missing output devices: refresh the device list after connecting/installing the device, then restart the app if needed.

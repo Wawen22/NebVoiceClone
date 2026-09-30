@@ -3,7 +3,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'coverage/**', 'node_modules/**', '.remember/**'] },
+  { ignores: ['out/**', 'dist/**', 'coverage/**', 'node_modules/**', '.remember/**', '.superpowers/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -11,4 +11,5 @@ export default tseslint.config(
       globals: { ...globals.browser, ...globals.node }
     }
   }
+  ,{ files: ['browser-extension/**/*.js'], languageOptions: { globals: { chrome: 'readonly' } } }
 )

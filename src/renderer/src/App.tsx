@@ -4,16 +4,21 @@ import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
+import { PanelLeftClose, PanelLeftOpen, Layers } from 'lucide-react'
+import { OutlierPage } from './outlier/OutlierPage'
+import { useOutlierWorkspace } from './outlier/useOutlierWorkspace'
 import { SetupGuide } from './SetupGuide'
 import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type GeminiKeySource, type GeminiKeyStatus, type ProviderStatus, type SaveGeminiKeyRequest } from '../../shared/contracts'
 import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
 import { addReadyLine, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine } from './readyLines'
 
-type Page = 'console' | 'settings' | 'guide' | 'diagnostics'
+type Page = 'console' | 'outlier' | 'settings' | 'guide' | 'diagnostics'
 
 export function App(): React.JSX.Element {
+  const outlierWorkspace = useOutlierWorkspace()
   const [page, setPage] = useState<Page>('console')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [gemini, setGemini] = useState<ProviderStatus>({ ready: false, message: 'Verifica Gemini…' })
@@ -82,6 +87,10 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') stop()
+      if ((event.target as HTMLElement | null)?.closest('[data-no-speech-shortcuts]') && event.ctrlKey) {
+        if (event.key === 'Enter' || event.key.toLowerCase() === 'r') event.preventDefault()
+        return
+      }
       if (readyOpen && event.ctrlKey && (event.key === 'Enter' || event.key.toLowerCase() === 'r')) {
         event.preventDefault()
         return
@@ -296,6 +305,7 @@ export function App(): React.JSX.Element {
     setBusy(false)
     setStatus('Interrotto')
     void window.neb.stopGeneration().catch((reason: unknown) => setError(message(reason)))
+    void window.neb.stopInsertion().catch((reason: unknown) => setError(message(reason)))
   }
 
   async function toggleConversationMode(): Promise<void> {
@@ -358,15 +368,17 @@ export function App(): React.JSX.Element {
 
   if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}</>
 
-  const pageTitle = page === 'console' ? 'Console' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
-  return <div className="app-frame">
+  const pageTitle = page === 'console' ? 'Console' : page === 'outlier' ? 'Outlier' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
+  return <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame'}>
     <aside className="sidebar">
-      <div className="brand"><span className="brand-icon">N</span><div><strong>NEB VOICE</strong><small>VOICE CONSOLE</small></div></div>
-      <nav aria-label="Navigazione principale">
-        <button className={page === 'console' ? 'nav active' : 'nav'} aria-current={page === 'console' ? 'page' : undefined} onClick={() => setPage('console')}><Icon name="console" /> Console</button>
-        <button className={page === 'settings' ? 'nav active' : 'nav'} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => setPage('settings')}><Icon name="settings" /> Impostazioni</button>
-        <button className={page === 'guide' ? 'nav active' : 'nav'} aria-current={page === 'guide' ? 'page' : undefined} onClick={() => setPage('guide')}><Icon name="book" /> Guida audio</button>
-        <button className={page === 'diagnostics' ? 'nav active' : 'nav'} aria-current={page === 'diagnostics' ? 'page' : undefined} onClick={() => setPage('diagnostics')}><Icon name="diagnostics" /> Diagnostica</button>
+      <button type="button" className="sidebar-toggle" aria-label={sidebarCollapsed ? 'Apri menu' : 'Chiudi menu'} title={sidebarCollapsed ? 'Apri menu' : 'Chiudi menu'} aria-controls="sidebar-nav" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+      <div className="brand"><span className="brand-icon">N</span><div className="brand-copy"><strong>NEB VOICE</strong><small>VOICE CONSOLE</small></div></div>
+      <nav id="sidebar-nav" aria-label="Navigazione principale">
+        <button className={page === 'console' ? 'nav active' : 'nav'} aria-label="Console" title="Console" aria-current={page === 'console' ? 'page' : undefined} onClick={() => setPage('console')}><Icon name="console" /><span className="nav-label">Console</span></button>
+        <button className={page === 'outlier' ? 'nav active' : 'nav'} aria-label="Outlier" title="Outlier" aria-current={page === 'outlier' ? 'page' : undefined} onClick={() => setPage('outlier')}><Layers size={20} /><span className="nav-label">Outlier</span></button>
+        <button className={page === 'settings' ? 'nav active' : 'nav'} aria-label="Impostazioni" title="Impostazioni" aria-current={page === 'settings' ? 'page' : undefined} onClick={() => setPage('settings')}><Icon name="settings" /><span className="nav-label">Impostazioni</span></button>
+        <button className={page === 'guide' ? 'nav active' : 'nav'} aria-label="Guida audio" title="Guida audio" aria-current={page === 'guide' ? 'page' : undefined} onClick={() => setPage('guide')}><Icon name="book" /><span className="nav-label">Guida audio</span></button>
+        <button className={page === 'diagnostics' ? 'nav active' : 'nav'} aria-label="Diagnostica" title="Diagnostica" aria-current={page === 'diagnostics' ? 'page' : undefined} onClick={() => setPage('diagnostics')}><Icon name="diagnostics" /><span className="nav-label">Diagnostica</span></button>
       </nav>
       <div className="sidebar-bottom"><span className={gemini.ready && !keyBusy ? 'status-dot green' : 'status-dot amber'} /><span>API: {activeKeyName}</span></div>
     </aside>
@@ -374,6 +386,7 @@ export function App(): React.JSX.Element {
     <main className="main">
       <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready && !keyBusy ? 'connection ready' : 'connection'} aria-live="polite"><span className="status-dot" /><span className="connection-copy"><strong title={activeKeyName}>API in uso: {activeKeyName}</strong><small>{keyBusy ? 'Verifica in corso…' : gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</small></span></div></header>
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
+      {page === 'outlier' && <OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} />}
       {page === 'settings' && <SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} />}
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}

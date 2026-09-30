@@ -4,7 +4,7 @@
 
 ```text
 src/
-  main/       Electron lifecycle, guarded IPC, settings, Gemini adapter
+  main/       Electron lifecycle, guarded IPC, settings, Gemini adapter, Outlier controller
   preload/    Small typed desktop API
   renderer/   React console, diagnostics, WAV AudioEngine
   shared/     Provider/audio/settings contracts and runtime validation
@@ -23,7 +23,8 @@ The layout follows the requested separation. `preload` has its own directory so 
 - Cancellation: Escape/STOP pauses playback at once, invalidates the current renderer request, and aborts a pending SDK request when possible.
 - Conversation Mode: one renderer script buffer is presented in either the full Console or compact window view. A narrowly scoped main-process presentation controller resizes the existing window, keeps it on top, restores its prior geometry, and registers `Ctrl+Alt+V` to open it from Edge plus `Ctrl+Alt+S` to stop speech globally while the app runs.
 - Output volume: a locally persisted scalar is applied by the renderer AudioEngine before local playback to the selected output. It does not alter Windows or browser device settings.
-- Manual control: the application does not automate Edge, detect turns, save script history, change Windows audio devices, or control a browser microphone.
+- Manual voice control: Conversation Mode does not detect turns, save script history, change Windows audio devices, or control a browser microphone.
+- Outlier: project metadata is stored separately; Rationale drafts stay in memory. An optional, manually associated Edge extension exchanges snapshots through an authenticated local named pipe and Windows Native Messaging host. Only the native host inserts keyboard input, with a verified foreground window and field; the extension never assigns the textarea value. Start, pause/resume and stop are explicit, and the app never submits a task. See [Outlier setup and limits](outlier-s2s.md).
 
 ## Sequence
 

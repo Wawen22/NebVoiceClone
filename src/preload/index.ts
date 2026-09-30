@@ -3,6 +3,21 @@ import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
 const api: DesktopApi = {
+  getOutlierData: () => ipcRenderer.invoke('outlier:get'),
+  saveOutlierData: (value) => ipcRenderer.invoke('outlier:save', value),
+  getInsertionStatus: () => ipcRenderer.invoke('outlier:getStatus'),
+  startInsertion: (request) => ipcRenderer.invoke('outlier:start', request),
+  pauseInsertion: () => ipcRenderer.invoke('outlier:pause'),
+  resumeInsertion: () => ipcRenderer.invoke('outlier:resume'),
+  stopInsertion: () => ipcRenderer.invoke('outlier:stop'),
+  getOutlierSetup: () => ipcRenderer.invoke('outlier:setup'),
+  installOutlierHost: (id) => ipcRenderer.invoke('outlier:install', id),
+  openOutlierExtensionFolder: () => ipcRenderer.invoke('outlier:openExtension'),
+  onInsertionStatus: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: import('../shared/outlier').InsertionStatus): void => callback(status)
+    ipcRenderer.on('outlier:status', listener)
+    return () => ipcRenderer.removeListener('outlier:status', listener)
+  },
   getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch) => ipcRenderer.invoke('settings:update', patch),

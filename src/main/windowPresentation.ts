@@ -44,6 +44,7 @@ interface PreviousPresentation {
 export class WindowPresentationController {
   private conversationModeEnabled = false
   private globalShortcutAvailable = false
+  private stopShortcutAvailable = false
   private previousPresentation: PreviousPresentation | null = null
 
   constructor(
@@ -103,7 +104,7 @@ export class WindowPresentationController {
       this.focusWindow()
       this.onConversationRequested()
     })
-    this.shortcuts.register(STOP_SPEECH_SHORTCUT, this.onStopRequested)
+    this.stopShortcutAvailable = this.shortcuts.register(STOP_SPEECH_SHORTCUT, this.onStopRequested)
     return this.globalShortcutAvailable
   }
 
@@ -111,6 +112,8 @@ export class WindowPresentationController {
     this.shortcuts.unregister(FOCUS_WINDOW_SHORTCUT)
     this.shortcuts.unregister(STOP_SPEECH_SHORTCUT)
   }
+
+  isStopShortcutAvailable(): boolean { return this.stopShortcutAvailable }
 
   private status(enabled: boolean): ConversationModeStatus {
     return { enabled, globalShortcutAvailable: this.globalShortcutAvailable }

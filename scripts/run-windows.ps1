@@ -18,8 +18,10 @@ New-Item -ItemType Directory -Path $destination -Force | Out-Null
   Copy-Item -LiteralPath (Join-Path $repo $_) -Destination $destination -Force
 }
 
-foreach ($folder in @('src', 'scripts')) {
+foreach ($folder in @('src', 'scripts', 'browser-extension')) {
   $target = Join-Path $destination $folder
+  $resolvedDestination = [IO.Path]::GetFullPath($destination).TrimEnd('\') + '\'
+  if (-not ([IO.Path]::GetFullPath($target).StartsWith($resolvedDestination, [StringComparison]::OrdinalIgnoreCase))) { throw 'La destinazione è fuori dalla cartella NEB.' }
   if (Test-Path $target) { Remove-Item -LiteralPath $target -Recurse -Force }
   Copy-Item -LiteralPath (Join-Path $repo $folder) -Destination $target -Recurse -Force
 }
