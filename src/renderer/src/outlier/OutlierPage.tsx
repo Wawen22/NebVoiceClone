@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText, Sparkles, Timer } from 'lucide-react'
+import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText, Sparkles, Timer, Check, AlertCircle } from 'lucide-react'
 import type { OutlierProject } from '../../../shared/outlier'
 import type { OutlierWorkspace } from './useOutlierWorkspace'
 
@@ -94,19 +94,63 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
             <p className="field-note">Motiva ogni dimensione valutata e cita evidenze specifiche delle tue conversazioni. Il testo è separato dalla voce.</p>
             <div className="control-card outlier-insertion">
               <div className="outlier-heading"><h3>Inserimento nel browser</h3><span className={status?.connected ? 'status-dot green' : 'status-dot amber'} /></div>
-              {isThinking ? (
-                <div className="outlier-status-badge thinking" role="status" aria-live="polite">
-                  <Timer size={15} />
-                  <span>{status?.message}</span>
-                </div>
-              ) : isFixingTypo ? (
-                <div className="outlier-status-badge typo-fixing" role="status" aria-live="polite">
-                  <Pencil size={15} />
-                  <span>{status?.message}</span>
-                </div>
-              ) : (
-                <p role="status" aria-live="polite">{status?.message || 'Verifica del servizio…'}</p>
-              )}
+              {(() => {
+                const message = status?.message || 'Verifica del servizio…'
+                if (isThinking) {
+                  return (
+                    <div className="outlier-status-badge thinking" role="status" aria-live="polite">
+                      <Timer size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                if (isFixingTypo) {
+                  return (
+                    <div className="outlier-status-badge typo-fixing" role="status" aria-live="polite">
+                      <Pencil size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                if (isPaused) {
+                  return (
+                    <div className="outlier-status-badge paused" role="status" aria-live="polite">
+                      <Pause size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                if (isTyping) {
+                  return (
+                    <div className="outlier-status-badge typing" role="status" aria-live="polite">
+                      <Sparkles size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                if (isCompleted) {
+                  return (
+                    <div className="outlier-status-badge completed" role="status" aria-live="polite">
+                      <Check size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                if (status?.phase === 'error') {
+                  return (
+                    <div className="outlier-status-badge error" role="status" aria-live="polite">
+                      <AlertCircle size={15} />
+                      <span>{message}</span>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="outlier-status-badge idle" role="status" aria-live="polite">
+                    <PlugZap size={15} />
+                    <span>{message}</span>
+                  </div>
+                )
+              })()}
               {status?.target && <div className="outlier-target"><strong>{status.target.title}</strong><small>{status.target.url}</small></div>}
               {status && !status.stopAvailable && status.supported && <p className="notice">Ctrl+Alt+S non disponibile. Riavvia NEB dopo aver liberato la scorciatoia per abilitare l’inserimento.</p>}
               <label className="field outlier-speed">Velocità media
@@ -126,7 +170,7 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 4 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
                       <input type="checkbox" disabled={disabled} checked={w.data.thinkingPauses ?? true} onChange={(event) => void w.save({ ...w.data, thinkingPauses: event.target.checked })} />
-                      Pause di riflessione umane (1.8s - 3.2s ogni 130-220 caratteri)
+                      Pause di riflessione umane (1.8s - 3.0s ogni 70-130 caratteri)
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
                       <input type="checkbox" disabled={disabled} checked={w.data.simulateTypos ?? true} onChange={(event) => void w.save({ ...w.data, simulateTypos: event.target.checked })} />
