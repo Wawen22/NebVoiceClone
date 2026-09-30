@@ -17,6 +17,9 @@ New-Item -ItemType Directory -Path $destination -Force | Out-Null
 ) | ForEach-Object {
   Copy-Item -LiteralPath (Join-Path $repo $_) -Destination $destination -Force
 }
+if (Test-Path (Join-Path $repo '.env.local')) {
+  Copy-Item -LiteralPath (Join-Path $repo '.env.local') -Destination $destination -Force
+}
 
 foreach ($folder in @('src', 'scripts', 'browser-extension')) {
   $target = Join-Path $destination $folder

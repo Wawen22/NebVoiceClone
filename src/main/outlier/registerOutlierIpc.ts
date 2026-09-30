@@ -65,7 +65,11 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
     return controller.start(request)
   })
   ipcMain.handle('outlier:pause', (event) => { trust(event.sender, event.senderFrame); return controller.pause() })
-  ipcMain.handle('outlier:resume', (event) => { trust(event.sender, event.senderFrame); return controller.resume() })
+  ipcMain.handle('outlier:resume', (event, value?: unknown) => {
+    trust(event.sender, event.senderFrame)
+    const request = value ? parseInsertionRequest(value) : undefined
+    return controller.resume(request)
+  })
   ipcMain.handle('outlier:stop', (event) => { trust(event.sender, event.senderFrame); return controller.stop() })
   ipcMain.handle('outlier:setup', (event) => { trust(event.sender, event.senderFrame); return setup() })
   ipcMain.handle('outlier:openExtension', async (event) => {

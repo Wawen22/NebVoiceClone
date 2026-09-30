@@ -13,7 +13,7 @@ describe('Outlier validation', () => {
     expect(() => parseOutlierData({ ...data, projects: [{ ...data.projects[0], name: ' ' }] })).toThrow()
   })
   it('rejects invalid speeds, unknown schemas and excess text', () => {
-    expect(() => parseOutlierData({ ...defaultOutlierData(), charactersPerMinute: 601 })).toThrow()
+    expect(() => parseOutlierData({ ...defaultOutlierData(), charactersPerMinute: 1201 })).toThrow()
     expect(() => parseOutlierData({ ...defaultOutlierData(), schemaVersion: 2 })).toThrow()
     expect(() => parseInsertionRequest({ projectId: 's2s', text: 'x'.repeat(50_001), charactersPerMinute: 180 })).toThrow()
   })

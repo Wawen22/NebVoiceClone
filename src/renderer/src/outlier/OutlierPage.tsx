@@ -11,7 +11,27 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
   const draft = w.drafts[w.selectedId] || ''
   const disabled = w.locked || w.saving || installing || !w.loaded
   const status = w.status
-  const canStart = !disabled && project?.integration === 's2s' && !project.archived && draft.trim().length >= 100 && draft.length <= 50_000 && status?.supported && status.connected && status.stopAvailable
+  const isTyping = Boolean(status && ['typing', 'preparing'].includes(status.phase))
+  const isPaused = status?.phase === 'paused'
+  const isCompleted = status?.phase === 'completed'
+  const hasTextInField = Boolean(
+    (status?.confirmed ?? 0) > 0 ||
+    (status?.target?.initialValue && status.target.initialValue.length > 0)
+  )
+  const canOperate = Boolean(
+    !w.saving &&
+    !installing &&
+    w.loaded &&
+    project?.integration === 's2s' &&
+    !project.archived &&
+    draft.trim().length >= 100 &&
+    draft.length <= 50_000 &&
+    status?.supported &&
+    status.connected &&
+    status.stopAvailable
+  )
+  const canStart = canOperate && !isTyping && !isPaused && !hasTextInField
+  const canResume = canOperate && !isTyping && !isCompleted && (isPaused || hasTextInField)
   async function saveProject(): Promise<void> {
     if (!editing) return
     const exists = w.data.projects.some((entry) => entry.id === editing.id)
@@ -65,11 +85,11 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
               {status && status.total > 0 && <><progress aria-label="Caratteri confermati nel campo" max={status.total} value={status.confirmed} /><small>{status.confirmed} / {status.total} caratteri confermati · {status.phase}</small></>}
               <div className="outlier-actions">
                 <button className="primary-button" disabled={!canStart} onClick={() => void w.action(() => window.neb.startInsertion({ projectId: project.id, text: draft, charactersPerMinute: w.data.charactersPerMinute }))}><Play size={16} /> Avvia inserimento</button>
-                <button className="secondary-button" disabled={!status || !['typing', 'preparing'].includes(status.phase)} onClick={() => void w.action(() => window.neb.pauseInsertion())}><Pause size={16} /> Pausa</button>
-                <button className="secondary-button" disabled={status?.phase !== 'paused' || !status.connected} onClick={() => void w.action(() => window.neb.resumeInsertion())}><Play size={16} /> Riprendi</button>
-                <button className="secondary-button" disabled={!w.locked} onClick={() => void w.action(() => window.neb.stopInsertion())}><Square size={16} /> Stop</button>
+                <button className="secondary-button" disabled={!isTyping} onClick={() => void w.action(() => window.neb.pauseInsertion())}><Pause size={16} /> Pausa</button>
+                <button className="secondary-button" disabled={!canResume} onClick={() => void w.action(() => window.neb.resumeInsertion({ projectId: project.id, text: draft, charactersPerMinute: w.data.charactersPerMinute }))}><Play size={16} /> Riprendi</button>
+                <button className="secondary-button" disabled={!w.locked && !hasTextInField} onClick={() => void w.action(() => window.neb.stopInsertion())}><Square size={16} /> Stop</button>
               </div>
-              <p className="field-note">Il campo iniziale deve essere vuoto. Il trasferimento si arresta se cambia la destinazione. Controllo finale e invio della task spettano a te.</p>
+              <p className="field-note">Se il campo contiene già testo parziale coerente, usa Riprendi per continuare l’inserimento. Controllo finale e invio della task spettano a te.</p>
               {project.integration !== 's2s' && <p className="notice">Questo progetto dispone di note ed editor. Seleziona gli strumenti S2S nelle impostazioni del progetto per collegarne il Rationale.</p>}
             </div>
             <details className="control-card outlier-setup" open={!w.setup?.installed}>

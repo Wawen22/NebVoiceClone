@@ -148,3 +148,34 @@ it('Stop during an outstanding native request prevents replay or a following key
   expect(f.typed).toEqual([])
   await expect(f.controller.resume()).rejects.toThrow()
 })
+
+it('pauses cleanly when focus is lost during typing and allows resume', async () => {
+  const f = fixture()
+  const request = f.driver.request
+  f.driver.request = async (...args) => {
+    const result = await request(...args)
+    if (args[0] === 'native' && args[1] === 'type' && f.typed.length === 2) {
+      f.controller.invalidate('Edge lost focus', 'focus')
+    }
+    return result
+  }
+  await f.controller.start({ projectId: 's2s', text, charactersPerMinute: 180 })
+  expect(f.controller.status.phase).toBe('paused')
+  expect(f.controller.status.confirmed).toBeGreaterThan(0)
+  await f.controller.resume()
+  expect(f.controller.status.phase).toBe('completed')
+  expect(f.value()).toBe(text)
+})
+
+it('detects existing matching text on associate and resumes from that point', async () => {
+  const prefix = text.slice(0, 10)
+  const f = fixture()
+  f.setValue(prefix)
+  f.controller.associate({ ...target, initialValue: prefix })
+  expect(f.controller.status.phase).toBe('paused')
+  expect(f.controller.status.confirmed).toBe(prefix.length)
+  await f.controller.resume({ projectId: 's2s', text, charactersPerMinute: 180 })
+  expect(f.controller.status.phase).toBe('completed')
+  expect(f.value()).toBe(text)
+  expect(f.typed.join('')).toBe(text.slice(10))
+})
