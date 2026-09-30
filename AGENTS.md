@@ -45,3 +45,9 @@ Questo progetto ha 3 percorsi fondamentali:
 - **Heartbeat a 10s**: Mantiene vivo il service worker Manifest V3 e il canale Native Messaging.
 - **Named Pipe**: Non chiamare `socket.destroy()` su abort/timeout in `bridge.ts`; la pipe deve restare aperta per la ripresa.
 - **UI UX**: Layout a 2 colonne (Editor Rationale a sinistra, Controller Browser a destra). Barra progetti collassabile. Zoom nativo con <kbd>Ctrl</kbd> + <kbd>-</kbd>/<kbd>+</kbd>/<kbd>0</kbd>.
+
+---
+
+## 5. Pro-Tip Macchina Virtuale (VM) per Multitasking
+- Documentazione: `docs/outlier-vm-setup.md`.
+- Consente a NEB + Edge di operare in una VM (Hyper-V / VMware / VirtualBox) con focus isolato e sicuro, lasciando il PC host libero al 100% per altre attività. Supportare l'utente nel setup guidato della VM quando richiesto.

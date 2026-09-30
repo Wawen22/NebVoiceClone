@@ -89,3 +89,10 @@ Prima di concludere qualsiasi attività:
   - Layout Dashboard a 2 colonne: Editor a sinistra, Box Inserimento con pulsanti e badge a destra.
   - Barra progetti collassabile con switch rapido a tendina.
   - Zoom nativo ad alta densità con tasti <kbd>Ctrl</kbd> + <kbd>-</kbd> / <kbd>+</kbd> / <kbd>0</kbd>.
+
+---
+
+## 6. Pro-Tip: Setup Macchina Virtuale (VM) per Multitasking
+Documentazione completa e checklist operativa: [`docs/outlier-vm-setup.md`](file:///home/rnebili/Progetti/NEB/Projects/NebVoiceGenerator/docs/outlier-vm-setup.md).
+- Permette a NEB ed Edge di girare con focus nativo al 100% all'interno di una VM (Hyper-V / VMware / VirtualBox), consentendo all'utente di lavorare, programmare o navigare sul PC host senza interruzioni di focus su `SendInput` e azzerando i rischi di rilevamento anti-cheat da parte di Outlier.
+- Supportare l'utente nell'installazione e setup dell'ambiente isolato VM quando richiesto.
