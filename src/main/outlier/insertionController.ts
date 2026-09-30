@@ -9,6 +9,7 @@ import {
   type InsertionStatus,
   type InsertionRequest
 } from '../../shared/outlier'
+import { CadencePlanner } from './cadence'
 
 export interface InsertionDriver {
   request(route: 'browser' | 'native', action: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
@@ -202,17 +203,32 @@ export class InsertionController {
       const expected = targetText.slice(0, operation.offset)
       if (!await check('prepare', expected)) return this.status
       const lease = parseLease(await request('native', 'probe', { expected }))
+      const planner = new CadencePlanner(operation.request)
       this.update({ phase: 'typing', message: 'Inserimento in corso · Ctrl+Alt+S stop · Ctrl+Alt+P pausa' })
+      let prevChar: string | null = operation.offset > 0 ? targetText[operation.offset - 1] : null
       while (operation.offset < targetText.length) {
         const prefix = targetText.slice(0, operation.offset)
-        await this.delay(60_000 / operation.request.charactersPerMinute, signal)
-        signal.throwIfAborted()
-        if (!await check('snapshot', prefix)) return this.status
         const character = String.fromCodePoint(targetText.codePointAt(operation.offset)!)
+        const plan = planner.planNext(character, prevChar)
+        if (plan.isThinkingPause) {
+          this.update({ message: 'Pausa di riflessione… · Ctrl+Alt+S stop' })
+        }
+        await this.delay(plan.delayMs, signal)
+        signal.throwIfAborted()
+        if (plan.isThinkingPause) {
+          this.update({ message: 'Inserimento in corso · Ctrl+Alt+S stop · Ctrl+Alt+P pausa' })
+        }
+        if (!await check('snapshot', prefix)) return this.status
         this.uncertain = true
-        await request('native', 'type', { lease, expected: prefix, text: character })
+        await request('native', 'type', {
+          lease,
+          expected: prefix,
+          text: character,
+          ...(plan.typo ? { typo: plan.typo } : {})
+        })
         this.uncertain = false
         operation.offset += character.length
+        prevChar = character
         this.update({ confirmed: operation.offset })
         if (!await check('snapshot', prefix + character)) return this.status
       }

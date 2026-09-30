@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText } from 'lucide-react'
+import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText, Sparkles } from 'lucide-react'
 import type { OutlierProject } from '../../../shared/outlier'
 import type { OutlierWorkspace } from './useOutlierWorkspace'
+
+const AVAILABLE_SPEEDS = [450, 600, 650, 700, 750, 800]
 
 export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspace; voice: ReactNode }): React.JSX.Element {
   const [editing, setEditing] = useState<OutlierProject | null>(null)
@@ -32,6 +34,18 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
   )
   const canStart = canOperate && !isTyping && !isPaused && !hasTextInField
   const canResume = canOperate && !isTyping && !isCompleted && (isPaused || hasTextInField)
+  const currentSpeed = AVAILABLE_SPEEDS.includes(w.data.charactersPerMinute) ? w.data.charactersPerMinute : 600
+  function buildRequest() {
+    if (!project) throw new Error('Seleziona un progetto.')
+    return {
+      projectId: project.id,
+      text: draft,
+      charactersPerMinute: currentSpeed,
+      cadenceMode: w.data.cadenceMode ?? 'natural',
+      thinkingPauses: w.data.thinkingPauses ?? true,
+      simulateTypos: w.data.simulateTypos ?? true
+    }
+  }
   async function saveProject(): Promise<void> {
     if (!editing) return
     const exists = w.data.projects.some((entry) => entry.id === editing.id)
@@ -81,15 +95,40 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
               <p role="status" aria-live="polite">{status?.message || 'Verifica del servizio…'}</p>
               {status?.target && <div className="outlier-target"><strong>{status.target.title}</strong><small>{status.target.url}</small></div>}
               {status && !status.stopAvailable && status.supported && <p className="notice">Ctrl+Alt+S non disponibile. Riavvia NEB dopo aver liberato la scorciatoia per abilitare l’inserimento.</p>}
-              <label className="field outlier-speed">Velocità<select disabled={disabled} value={w.data.charactersPerMinute} onChange={(event) => void w.save({ ...w.data, charactersPerMinute: Number(event.target.value) })}>{[60, 120, 180, 240, 300, 450, 600].map((speed) => <option key={speed} value={speed}>{speed} caratteri / minuto</option>)}</select></label>
+              <label className="field outlier-speed">Velocità media
+                <select disabled={disabled} value={currentSpeed} onChange={(event) => void w.save({ ...w.data, charactersPerMinute: Number(event.target.value) })}>
+                  {AVAILABLE_SPEEDS.map((speed) => <option key={speed} value={speed}>{speed} caratteri / minuto</option>)}
+                </select>
+              </label>
+              <div className="outlier-cadence" style={{ margin: '8px 0 12px' }}>
+                <label className="field" style={{ marginBottom: 6 }}>
+                  <span><Sparkles size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />Stile di digitazione</span>
+                  <select disabled={disabled} value={w.data.cadenceMode ?? 'natural'} onChange={(event) => void w.save({ ...w.data, cadenceMode: event.target.value as 'natural' | 'uniform' })}>
+                    <option value="natural">Cadenza naturale umana (jitter + ritmo di parola)</option>
+                    <option value="uniform">Cadenza fissa uniforme (metronomo)</option>
+                  </select>
+                </label>
+                {(w.data.cadenceMode ?? 'natural') === 'natural' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 4 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input type="checkbox" disabled={disabled} checked={w.data.thinkingPauses ?? true} onChange={(event) => void w.save({ ...w.data, thinkingPauses: event.target.checked })} />
+                      Pause di riflessione umane (1.8s - 3.2s ogni 130-220 caratteri)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input type="checkbox" disabled={disabled} checked={w.data.simulateTypos ?? true} onChange={(event) => void w.save({ ...w.data, simulateTypos: event.target.checked })} />
+                      Simula refusi ed auto-correzione (tasto adiacente + Backspace)
+                    </label>
+                  </div>
+                )}
+              </div>
               {status && status.total > 0 && <><progress aria-label="Caratteri confermati nel campo" max={status.total} value={status.confirmed} /><small>{status.confirmed} / {status.total} caratteri confermati · {status.phase}</small></>}
               <div className="outlier-actions">
-                <button className="primary-button" disabled={!canStart} onClick={() => void w.action(() => window.neb.startInsertion({ projectId: project.id, text: draft, charactersPerMinute: w.data.charactersPerMinute }))}><Play size={16} /> Avvia inserimento</button>
+                <button className="primary-button" disabled={!canStart} onClick={() => void w.action(() => window.neb.startInsertion(buildRequest()))}><Play size={16} /> Avvia inserimento</button>
                 <button className="secondary-button" disabled={!isTyping} onClick={() => void w.action(() => window.neb.pauseInsertion())}><Pause size={16} /> Pausa</button>
-                <button className="secondary-button" disabled={!canResume} onClick={() => void w.action(() => window.neb.resumeInsertion({ projectId: project.id, text: draft, charactersPerMinute: w.data.charactersPerMinute }))}><Play size={16} /> Riprendi</button>
-                <button className="secondary-button" disabled={!w.locked && !hasTextInField} onClick={() => void w.action(() => window.neb.stopInsertion())}><Square size={16} /> Stop</button>
+                <button className="secondary-button" disabled={!canResume} onClick={() => void w.action(() => window.neb.resumeInsertion(buildRequest()))}><Play size={16} /> Riprendi</button>
+                <button className="secondary-button" disabled={!isTyping && !isPaused && !hasTextInField} onClick={() => void w.action(() => window.neb.stopInsertion())}><Square size={16} /> Stop</button>
               </div>
-              <p className="field-note">Se il campo contiene già testo parziale coerente, usa Riprendi per continuare l’inserimento. Controllo finale e invio della task spettano a te.</p>
+              <p className="field-note">Se il campo contiene già testo parziale coerente o perdi il focus, usa Riprendi per continuare l’inserimento. Controllo finale e invio della task spettano a te.</p>
               {project.integration !== 's2s' && <p className="notice">Questo progetto dispone di note ed editor. Seleziona gli strumenti S2S nelle impostazioni del progetto per collegarne il Rationale.</p>}
             </div>
             <details className="control-card outlier-setup" open={!w.setup?.installed}>

@@ -179,3 +179,71 @@ it('detects existing matching text on associate and resumes from that point', as
   expect(f.value()).toBe(text)
   expect(f.typed.join('')).toBe(text.slice(10))
 })
+
+it('applies cadence delays and forwards simulated typos to native driver', async () => {
+  const delays: number[] = []
+  const typos: string[] = []
+  let val = ''
+  const driver: InsertionDriver = {
+    async request(route, action, payload) {
+      if (route === 'native' && action === 'probe') return { hwnd: '42', controlId: 'textarea-1' }
+      if (route === 'native' && action === 'type') {
+        if (payload.typo) typos.push(String(payload.typo))
+        val += payload.text
+        return {}
+      }
+      return { target, value: val, focused: true, selectionStart: val.length, selectionEnd: val.length }
+    }
+  }
+  const longText = 'This is a long test sentence to verify that cadence delays vary naturally. '.repeat(10)
+  const controller = new InsertionController(
+    driver,
+    true,
+    () => undefined,
+    async (ms) => { delays.push(ms) }
+  )
+  controller.setStopAvailable(true)
+  controller.associate(target)
+  const result = await controller.start({
+    projectId: 's2s',
+    text: longText,
+    charactersPerMinute: 600,
+    cadenceMode: 'natural',
+    thinkingPauses: true,
+    simulateTypos: true
+  })
+  expect(result.phase).toBe('completed')
+  expect(val).toBe(longText)
+  expect(delays.length).toBe(longText.length)
+  const uniqueDelays = new Set(delays)
+  expect(uniqueDelays.size).toBeGreaterThan(10)
+})
+
+it('applies fixed uniform delays in uniform mode', async () => {
+  const delays: number[] = []
+  let val = ''
+  const driver: InsertionDriver = {
+    async request(route, action, payload) {
+      if (route === 'native' && action === 'probe') return { hwnd: '42', controlId: 'textarea-1' }
+      if (route === 'native' && action === 'type') { val += payload.text; return {} }
+      return { target, value: val, focused: true, selectionStart: val.length, selectionEnd: val.length }
+    }
+  }
+  const shortText = 'Test uniform cadence timing.'.repeat(5)
+  const controller = new InsertionController(
+    driver,
+    true,
+    () => undefined,
+    async (ms) => { delays.push(ms) }
+  )
+  controller.setStopAvailable(true)
+  controller.associate(target)
+  const result = await controller.start({
+    projectId: 's2s',
+    text: shortText,
+    charactersPerMinute: 600,
+    cadenceMode: 'uniform'
+  })
+  expect(result.phase).toBe('completed')
+  expect(delays.every((d) => d === 100)).toBe(true)
+})

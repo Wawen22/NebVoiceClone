@@ -96,6 +96,25 @@ public class NativeHost {
         // Probe again immediately before injection. One scalar is the maximum in-flight unit.
         var final = Probe((string)payload["expected"]);
         if ((string)final["hwnd"] != (string)actual["hwnd"] || (string)final["controlId"] != (string)actual["controlId"] || !Connected || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > Convert.ToInt64(message["deadline"])) throw new InvalidOperationException("Focus cambiato o richiesta scaduta.");
+        string typo = payload.ContainsKey("typo") ? (payload["typo"] as string) : null;
+        if (!String.IsNullOrEmpty(typo)) {
+            INPUT[] typoKeys = new INPUT[typo.Length * 2];
+            for (int i = 0; i < typo.Length; i++) {
+                typoKeys[i * 2] = new INPUT { type = 1, data = new INPUTUNION { keyboard = new KEYBDINPUT { vk = 0, scan = typo[i], flags = 4u } } };
+                typoKeys[i * 2 + 1] = typoKeys[i * 2];
+                typoKeys[i * 2 + 1].data.keyboard.flags |= 2u;
+            }
+            if (SendInput((uint)typoKeys.Length, typoKeys, Marshal.SizeOf(typeof(INPUT))) == typoKeys.Length) {
+                var rng = new Random();
+                Thread.Sleep(rng.Next(140, 221));
+                INPUT[] bs = new INPUT[2];
+                bs[0] = new INPUT { type = 1, data = new INPUTUNION { keyboard = new KEYBDINPUT { vk = 8, scan = 0, flags = 0u } } };
+                bs[1] = bs[0];
+                bs[1].data.keyboard.flags |= 2u;
+                SendInput((uint)bs.Length, bs, Marshal.SizeOf(typeof(INPUT)));
+                Thread.Sleep(rng.Next(50, 91));
+            }
+        }
         if (SendInput((uint)keys.Length, keys, Marshal.SizeOf(typeof(INPUT))) != keys.Length) throw new InvalidOperationException("Windows non ha accettato tutti gli eventi. Nessuna ripetizione automatica.");
         return new Dictionary<string, object> { { "accepted", true } };
     }
