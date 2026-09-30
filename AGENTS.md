@@ -56,5 +56,5 @@ Questo progetto ha 3 percorsi fondamentali:
 
 ## 6. Prevenzione Sovrascrittura VS Code (Buffer Collision) & Sync
 - In `.vscode/settings.json`, `files.autoSave` è impostato su `off` per impedire che cambi di finestra in VS Code riscrivano su disco vecchi buffer in memoria.
-- In `scripts/run-windows.ps1`, è attivo un controllo pre-lancio che esegue automaticamente `git checkout -- .` sul repository prima di copiare i file a `%LOCALAPPDATA%\NEBVoiceConsole\dev`, assicurando che solo il codice pulito e committato venga deployato.
+- In `.gitattributes`, `* text=auto eol=lf` impedisce che strumenti Windows convertano i terminatori di linea in CRLF.
 - La cartella `out/` è inclusa in `run-windows.ps1` per garantire il passaggio degli asset precompilati.

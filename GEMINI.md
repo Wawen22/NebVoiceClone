@@ -61,7 +61,7 @@ Ogni singola volta che viene modificato o ricompilato del codice in WSL:
 
 Se l'utente o l'ambiente ha file aperti in VS Code su WSL o Windows, il salvataggio automatico (`files.autoSave`) al cambio finestra o a intervalli può riscrivere su disco i vecchi buffer in memoria, cancellando le modifiche appena generate dall'agente.
 - **Prevenzione in .vscode/settings.json**: `"files.autoSave": "off"` configurato per evitare scritture silenti da buffer obsoleti.
-- **Salvaguardia Automatica in `run-windows.ps1`**: Lo script esegue automaticamente `git checkout -- .` sul repository prima di qualsiasi copia, scartando all'istante eventuali buffer obsoleti flushati da VS Code e garantendo che venga avviata SEMPRE la versione committata pulita.
+- **Line Endings (.gitattributes)**: `* text=auto eol=lf` configurato per impedire che Windows converta i file di Linux in CRLF.
 - **Cartella `out/` inclusa nel sync**: `run-windows.ps1` copia sempre anche `out/` precompilato.
 - **Mantenere il branch `main` sempre committato**: Ogni modifica completata deve essere committata e pushato su `main`.
 
