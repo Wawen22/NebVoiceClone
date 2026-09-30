@@ -51,8 +51,8 @@ export class CadencePlanner {
     this.mode = request.cadenceMode ?? 'natural'
     this.thinkingPauses = request.thinkingPauses ?? true
     this.simulateTypos = request.simulateTypos ?? true
-    this.nextThinkingThreshold = this.randomBetween(70, 130)
-    this.nextTypoThreshold = this.randomBetween(80, 150)
+    this.nextThinkingThreshold = this.randomBetween(130, 220)
+    this.nextTypoThreshold = this.randomBetween(90, 160)
   }
 
   planNext(character: string, prevChar: string | null): CharacterPlan {
@@ -71,8 +71,8 @@ export class CadencePlanner {
       (prevChar === ' ' || prevChar === '.' || prevChar === '\n' || prevChar === ',' || prevChar === ';' || prevChar === ':')
     ) {
       this.charsSinceThinking = 0
-      this.nextThinkingThreshold = this.randomBetween(70, 130)
-      const thinkingDelay = this.randomBetween(1800, 3000)
+      this.nextThinkingThreshold = this.randomBetween(130, 220)
+      const thinkingDelay = this.randomBetween(1800, 3200)
       return { delayMs: thinkingDelay, isThinkingPause: true }
     }
 
@@ -92,7 +92,7 @@ export class CadencePlanner {
         const picked = candidates[Math.floor(Math.random() * candidates.length)]
         typo = character === character.toUpperCase() ? picked.toUpperCase() : picked
         this.charsSinceTypo = 0
-        this.nextTypoThreshold = this.randomBetween(90, 160)
+        this.nextTypoThreshold = this.randomBetween(100, 180)
       }
     }
 
@@ -101,26 +101,20 @@ export class CadencePlanner {
 
     // Structural modifiers:
     if (character === '\n') {
-      // Natural breath / paragraph transition pause
-      delay += this.randomBetween(800, 1600)
+      delay += this.randomBetween(350, 600)
     } else if (character === '.' || character === '!' || character === '?') {
-      // Sentence completion pause
-      delay += this.randomBetween(450, 900)
+      delay += this.randomBetween(200, 400)
     } else if (character === ',' || character === ';' || character === ':') {
-      // Clause pause
-      delay += this.randomBetween(180, 350)
+      delay += this.randomBetween(120, 220)
     } else if (character === ' ') {
-      delay += this.randomBetween(40, 100)
-    } else if (prevChar === ' ' && Math.random() < 0.07) {
-      // Micro-hesitation before starting a new word (cognitive word selection)
-      delay += this.randomBetween(350, 700)
+      delay += this.randomBetween(30, 80)
     } else if (prevChar && /[a-zA-Z0-9]/.test(prevChar) && /[a-zA-Z0-9]/.test(character)) {
       // Intra-word burst: slightly faster typing within a word
       delay = delay * 0.88
     }
 
-    // Clamp delay to sensible human bounds: min 25ms, max 2000ms
-    delay = Math.max(25, Math.min(2000, Math.round(delay)))
+    // Clamp delay to sensible human bounds: min 25ms, max 1500ms
+    delay = Math.max(25, Math.min(1500, Math.round(delay)))
 
     return { delayMs: delay, typo }
   }

@@ -211,14 +211,16 @@ export class InsertionController {
         const character = String.fromCodePoint(targetText.codePointAt(operation.offset)!)
         const plan = planner.planNext(character, prevChar)
         if (plan.isThinkingPause) {
-          this.update({ message: 'Pausa di riflessione… · Ctrl+Alt+S stop' })
+          this.update({ message: 'Pausa di riflessione in corso… · Ctrl+Alt+S stop' })
         }
         await this.delay(plan.delayMs, signal)
         signal.throwIfAborted()
-        if (plan.isThinkingPause) {
+        if (!await check('snapshot', prefix)) return this.status
+        if (plan.typo) {
+          this.update({ message: 'Simulazione e correzione refuso… · Ctrl+Alt+S stop' })
+        } else if (plan.isThinkingPause) {
           this.update({ message: 'Inserimento in corso · Ctrl+Alt+S stop · Ctrl+Alt+P pausa' })
         }
-        if (!await check('snapshot', prefix)) return this.status
         this.uncertain = true
         await request('native', 'type', {
           lease,
@@ -227,6 +229,9 @@ export class InsertionController {
           ...(plan.typo ? { typo: plan.typo } : {})
         })
         this.uncertain = false
+        if (plan.typo) {
+          this.update({ message: 'Inserimento in corso · Ctrl+Alt+S stop · Ctrl+Alt+P pausa' })
+        }
         operation.offset += character.length
         prevChar = character
         this.update({ confirmed: operation.offset })

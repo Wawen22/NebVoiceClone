@@ -23,12 +23,22 @@
     field = candidate
     if (field.disabled || field.readOnly || !field.isConnected || field.getClientRects().length === 0) throw new Error('Il Rationale non è disponibile o modificabile.')
     if (location.href !== url || (message.documentId && message.documentId !== documentId) || (message.url && message.url !== url)) throw new Error('Il documento è cambiato. Collega di nuovo la scheda.')
+    function autoScroll() {
+      try {
+        if (field && typeof field.scrollHeight === 'number') {
+          field.scrollTop = field.scrollHeight
+        }
+      } catch { /* ignore */ }
+    }
     if (message.action === 'prepare') {
       if (field.value !== message.expected) throw new Error('Il campo contiene testo inatteso. Non verrà sovrascritto.')
       field.scrollIntoView({ block: 'center' })
       field.focus()
       field.setSelectionRange(field.value.length, field.value.length)
+      autoScroll()
       armed = true
+    } else if (message.action === 'snapshot') {
+      autoScroll()
     }
     return { documentId, url, value: field.value, focused: document.hasFocus() && document.activeElement === field && document.visibilityState === 'visible', selectionStart: field.selectionStart, selectionEnd: field.selectionEnd }
   }

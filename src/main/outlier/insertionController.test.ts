@@ -247,3 +247,34 @@ it('applies fixed uniform delays in uniform mode', async () => {
   expect(result.phase).toBe('completed')
   expect(delays.every((d) => d === 100)).toBe(true)
 })
+
+it('emits dynamic status messages for thinking pauses and typos', async () => {
+  const messages: string[] = []
+  let val = ''
+  const driver: InsertionDriver = {
+    async request(route, action, payload) {
+      if (route === 'native' && action === 'probe') return { hwnd: '42', controlId: 'textarea-1' }
+      if (route === 'native' && action === 'type') { val += payload.text; return {} }
+      return { target, value: val, focused: true, selectionStart: val.length, selectionEnd: val.length }
+    }
+  }
+  const longText = 'Questo è un testo molto lungo con punteggiatura, parole complesse e molte frasi per testare le pause di riflessione e i refusi. '.repeat(10)
+  const controller = new InsertionController(
+    driver,
+    true,
+    (s) => { if (s.message) messages.push(s.message) },
+    async () => undefined
+  )
+  controller.setStopAvailable(true)
+  controller.associate(target)
+  await controller.start({
+    projectId: 's2s',
+    text: longText,
+    charactersPerMinute: 600,
+    cadenceMode: 'natural',
+    thinkingPauses: true,
+    simulateTypos: true
+  })
+  expect(messages.some((m) => m.includes('Pausa di riflessione'))).toBe(true)
+  expect(messages.some((m) => m.includes('refuso'))).toBe(true)
+})

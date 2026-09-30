@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText, Sparkles } from 'lucide-react'
+import { Archive, ArchiveRestore, Plus, Pencil, FolderOpen, PlugZap, Play, Pause, Square, Mic, FileText, Sparkles, Timer } from 'lucide-react'
 import type { OutlierProject } from '../../../shared/outlier'
 import type { OutlierWorkspace } from './useOutlierWorkspace'
 
@@ -34,6 +34,8 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
   )
   const canStart = canOperate && !isTyping && !isPaused && !hasTextInField
   const canResume = canOperate && !isTyping && !isCompleted && (isPaused || hasTextInField)
+  const isThinking = Boolean(status?.message?.includes('Pausa di riflessione'))
+  const isFixingTypo = Boolean(status?.message?.includes('refuso'))
   const currentSpeed = AVAILABLE_SPEEDS.includes(w.data.charactersPerMinute) ? w.data.charactersPerMinute : 600
   function buildRequest() {
     if (!project) throw new Error('Seleziona un progetto.')
@@ -92,7 +94,19 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
             <p className="field-note">Motiva ogni dimensione valutata e cita evidenze specifiche delle tue conversazioni. Il testo è separato dalla voce.</p>
             <div className="control-card outlier-insertion">
               <div className="outlier-heading"><h3>Inserimento nel browser</h3><span className={status?.connected ? 'status-dot green' : 'status-dot amber'} /></div>
-              <p role="status" aria-live="polite">{status?.message || 'Verifica del servizio…'}</p>
+              {isThinking ? (
+                <div className="outlier-status-badge thinking" role="status" aria-live="polite">
+                  <Timer size={15} />
+                  <span>{status?.message}</span>
+                </div>
+              ) : isFixingTypo ? (
+                <div className="outlier-status-badge typo-fixing" role="status" aria-live="polite">
+                  <Pencil size={15} />
+                  <span>{status?.message}</span>
+                </div>
+              ) : (
+                <p role="status" aria-live="polite">{status?.message || 'Verifica del servizio…'}</p>
+              )}
               {status?.target && <div className="outlier-target"><strong>{status.target.title}</strong><small>{status.target.url}</small></div>}
               {status && !status.stopAvailable && status.supported && <p className="notice">Ctrl+Alt+S non disponibile. Riavvia NEB dopo aver liberato la scorciatoia per abilitare l’inserimento.</p>}
               <label className="field outlier-speed">Velocità media
