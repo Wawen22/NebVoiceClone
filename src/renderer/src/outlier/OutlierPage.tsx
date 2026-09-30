@@ -414,7 +414,7 @@ export function OutlierPage({ workspace: w, voice }: { workspace: OutlierWorkspa
 
                       {(w.data.cadenceMode ?? 'natural') === 'natural' && (
                         <div className="outlier-options-compact">
-                          <label><input type="checkbox" disabled={disabled} checked={w.data.thinkingPauses ?? true} onChange={(event) => void w.save({ ...w.data, thinkingPauses: event.target.checked })} /> Pause riflessione (1.8s - 3s)</label>
+                          <label><input type="checkbox" disabled={disabled} checked={w.data.thinkingPauses ?? true} onChange={(event) => void w.save({ ...w.data, thinkingPauses: event.target.checked })} /> Pause riflessione & rilettura (1.8s - ~5s)</label>
                           <label><input type="checkbox" disabled={disabled} checked={w.data.simulateTypos ?? true} onChange={(event) => void w.save({ ...w.data, simulateTypos: event.target.checked })} /> Refusi & correzioni</label>
                         </div>
                       )}
