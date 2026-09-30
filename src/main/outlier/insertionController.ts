@@ -220,7 +220,12 @@ export class InsertionController {
         const character = String.fromCodePoint(targetText.codePointAt(operation.offset)!)
         const plan = planner.planNext(character, prevChar)
         if (plan.isThinkingPause) {
-          this.update({ message: 'Pausa di riflessione in corso… · Ctrl+Alt+S stop' })
+          const isDeep = plan.delayMs >= 4000
+          this.update({
+            message: isDeep
+              ? 'Pausa di rilettura profonda (~5s)… · Ctrl+Alt+S stop'
+              : 'Pausa di riflessione in corso… · Ctrl+Alt+S stop'
+          })
         }
         await this.delay(plan.delayMs, signal)
         signal.throwIfAborted()

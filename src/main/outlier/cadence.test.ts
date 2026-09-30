@@ -51,7 +51,7 @@ describe('CadencePlanner', () => {
     expect(commaPlan.delayMs).toBeGreaterThan(120)
   })
 
-  it('generates thinking pauses when enabled', () => {
+  it('generates standard and deep ~5s thinking pauses with high frequency when enabled', () => {
     const planner = new CadencePlanner({
       projectId: 's2s',
       text: 'test',
@@ -59,16 +59,34 @@ describe('CadencePlanner', () => {
       cadenceMode: 'natural',
       thinkingPauses: true
     })
-    let foundThinking = false
-    for (let i = 0; i < 300; i++) {
+    const pauseDelays: number[] = []
+    let charsBeforeFirstPause = 0
+    let firstPauseFound = false
+
+    for (let i = 0; i < 600; i++) {
       const plan = planner.planNext('a', ' ')
+      if (!firstPauseFound) charsBeforeFirstPause++
       if (plan.isThinkingPause) {
-        expect(plan.delayMs).toBeGreaterThanOrEqual(1800)
-        foundThinking = true
-        break
+        firstPauseFound = true
+        pauseDelays.push(plan.delayMs)
       }
     }
-    expect(foundThinking).toBe(true)
+
+    // First pause must trigger within the 55-120 char range
+    expect(charsBeforeFirstPause).toBeGreaterThanOrEqual(55)
+    expect(charsBeforeFirstPause).toBeLessThanOrEqual(121)
+
+    // Multiple pauses generated over 600 iterations
+    expect(pauseDelays.length).toBeGreaterThanOrEqual(3)
+
+    // Verify presence of deep pauses (>= 4500ms) and standard pauses (>= 1800ms)
+    const hasDeepPause = pauseDelays.some((d) => d >= 4500 && d <= 5600)
+    const hasStandardPause = pauseDelays.some((d) => d >= 1800 && d <= 3200)
+    expect(hasDeepPause || hasStandardPause).toBe(true)
+    pauseDelays.forEach((delay) => {
+      expect(delay).toBeGreaterThanOrEqual(1800)
+      expect(delay).toBeLessThanOrEqual(5600)
+    })
   })
 
   it('generates typos only when enabled', () => {

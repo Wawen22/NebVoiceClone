@@ -45,14 +45,15 @@ export class CadencePlanner {
   private nextThinkingThreshold: number
   private charsSinceTypo = 0
   private nextTypoThreshold: number
+  private thinkingPauseCount = 0
 
   constructor(request: InsertionRequest) {
     this.baseDelayMs = Math.round((60 / request.charactersPerMinute) * 1000)
     this.mode = request.cadenceMode ?? 'natural'
     this.thinkingPauses = request.thinkingPauses ?? true
     this.simulateTypos = request.simulateTypos ?? true
-    this.nextThinkingThreshold = this.randomBetween(130, 220)
-    this.nextTypoThreshold = this.randomBetween(90, 160)
+    this.nextThinkingThreshold = this.randomBetween(55, 120)
+    this.nextTypoThreshold = this.randomBetween(85, 160)
   }
 
   planNext(character: string, prevChar: string | null): CharacterPlan {
@@ -64,15 +65,23 @@ export class CadencePlanner {
     this.charsSinceTypo++
 
     // 1. Thinking pause?
-    // Occurs after punctuation or space when threshold reached
+    // Occurs after punctuation or space when threshold reached (every 55-120 chars)
     if (
       this.thinkingPauses &&
       this.charsSinceThinking >= this.nextThinkingThreshold &&
       (prevChar === ' ' || prevChar === '.' || prevChar === '\n' || prevChar === ',' || prevChar === ';' || prevChar === ':')
     ) {
       this.charsSinceThinking = 0
-      this.nextThinkingThreshold = this.randomBetween(130, 220)
-      const thinkingDelay = this.randomBetween(1800, 3200)
+      this.nextThinkingThreshold = this.randomBetween(55, 120)
+      this.thinkingPauseCount++
+
+      // Deep thinking pause (~5s, 4.5s - 5.6s) roughly every 3rd pause or ~30% of the time,
+      // and regular reflection pause (1.8s - 3.2s) otherwise
+      const isDeepPause = (this.thinkingPauseCount % 3 === 0) || Math.random() < 0.28
+      const thinkingDelay = isDeepPause
+        ? this.randomBetween(4500, 5600)
+        : this.randomBetween(1800, 3200)
+
       return { delayMs: thinkingDelay, isThinkingPause: true }
     }
 
@@ -92,7 +101,7 @@ export class CadencePlanner {
         const picked = candidates[Math.floor(Math.random() * candidates.length)]
         typo = character === character.toUpperCase() ? picked.toUpperCase() : picked
         this.charsSinceTypo = 0
-        this.nextTypoThreshold = this.randomBetween(100, 180)
+        this.nextTypoThreshold = this.randomBetween(90, 170)
       }
     }
 
@@ -101,16 +110,17 @@ export class CadencePlanner {
 
     // Structural modifiers:
     if (character === '\n') {
-      delay += this.randomBetween(350, 600)
+      // Paragraph break: realistic pause before starting the new thought block
+      delay += this.randomBetween(1200, 2400)
     } else if (character === '.' || character === '!' || character === '?') {
-      delay += this.randomBetween(200, 400)
+      delay += this.randomBetween(280, 520)
     } else if (character === ',' || character === ';' || character === ':') {
-      delay += this.randomBetween(120, 220)
+      delay += this.randomBetween(150, 290)
     } else if (character === ' ') {
-      delay += this.randomBetween(30, 80)
+      delay += this.randomBetween(35, 90)
     } else if (prevChar && /[a-zA-Z0-9]/.test(prevChar) && /[a-zA-Z0-9]/.test(character)) {
       // Intra-word burst: slightly faster typing within a word
-      delay = delay * 0.88
+      delay = delay * 0.86
     }
 
     // Clamp delay to sensible human bounds: min 25ms, max 1500ms
