@@ -51,3 +51,10 @@ Questo progetto ha 3 percorsi fondamentali:
 ## 5. Pro-Tip Macchina Virtuale (VM) per Multitasking
 - Documentazione: `docs/outlier-vm-setup.md`.
 - Consente a NEB + Edge di operare in una VM (Hyper-V / VMware / VirtualBox) con focus isolato e sicuro, lasciando il PC host libero al 100% per altre attività. Supportare l'utente nel setup guidato della VM quando richiesto.
+
+---
+
+## 6. Prevenzione Sovrascrittura VS Code (Buffer Collision) & Sync
+- In `.vscode/settings.json`, `files.autoSave` è impostato su `off` per impedire che cambi di finestra in VS Code riscrivano su disco vecchi buffer in memoria.
+- In `scripts/run-windows.ps1`, è attivo un controllo pre-lancio che esegue automaticamente `git checkout -- .` sul repository prima di copiare i file a `%LOCALAPPDATA%\NEBVoiceConsole\dev`, assicurando che solo il codice pulito e committato venga deployato.
+- La cartella `out/` è inclusa in `run-windows.ps1` per garantire il passaggio degli asset precompilati.

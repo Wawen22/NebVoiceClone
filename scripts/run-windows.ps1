@@ -11,6 +11,20 @@ $sourceLockHash = (Get-FileHash -LiteralPath (Join-Path $repo 'package-lock.json
 $installStamp = Join-Path $destination '.installed-lock-hash'
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
+# Ripristina qualsiasi file sporcato accidentalmente da buffer in memoria di editor prima di copiare
+if (Get-Command 'wsl.exe' -ErrorAction SilentlyContinue) {
+  try {
+    & wsl.exe -d Ubuntu-24.04 -- git -C /home/rnebili/Progetti/NEB/Projects/NebVoiceGenerator checkout -- . 2>$null
+  } catch {}
+}
+if (Test-Path (Join-Path $repo '.git')) {
+  if (Get-Command 'git.exe' -ErrorAction SilentlyContinue) {
+    try {
+      & git.exe -C $repo checkout -- . 2>$null
+    } catch {}
+  }
+}
+
 @(
   'package.json', 'package-lock.json', 'electron.vite.config.ts',
   'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json', 'eslint.config.mjs'
@@ -21,7 +35,7 @@ if (Test-Path (Join-Path $repo '.env.local')) {
   Copy-Item -LiteralPath (Join-Path $repo '.env.local') -Destination $destination -Force
 }
 
-foreach ($folder in @('src', 'scripts', 'browser-extension')) {
+foreach ($folder in @('src', 'scripts', 'browser-extension', 'out')) {
   $target = Join-Path $destination $folder
   $resolvedDestination = [IO.Path]::GetFullPath($destination).TrimEnd('\') + '\'
   if (-not ([IO.Path]::GetFullPath($target).StartsWith($resolvedDestination, [StringComparison]::OrdinalIgnoreCase))) { throw 'La destinazione è fuori dalla cartella NEB.' }

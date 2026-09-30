@@ -57,11 +57,13 @@ Ogni singola volta che viene modificato o ricompilato del codice in WSL:
 
 ---
 
-## 3. Gestione VS Code Buffer Collision
+## 3. Gestione VS Code Buffer Collision & Salvaguardia Sync
 
-Se l'utente ha file aperti in VS Code su Windows, il salvataggio automatico (su focus change o timer) può sovrascrivere i file su disco con vecchi buffer in memoria.
-- Mantenere il branch `main` sempre committato.
-- Se si nota che un file su WSL è stato modificato inaspettatamente dopo un'interazione, ripristinarlo con `git checkout -- <file>` e sincronizzare verso Windows.
+Se l'utente o l'ambiente ha file aperti in VS Code su WSL o Windows, il salvataggio automatico (`files.autoSave`) al cambio finestra o a intervalli può riscrivere su disco i vecchi buffer in memoria, cancellando le modifiche appena generate dall'agente.
+- **Prevenzione in .vscode/settings.json**: `"files.autoSave": "off"` configurato per evitare scritture silenti da buffer obsoleti.
+- **Salvaguardia Automatica in `run-windows.ps1`**: Lo script esegue automaticamente `git checkout -- .` sul repository prima di qualsiasi copia, scartando all'istante eventuali buffer obsoleti flushati da VS Code e garantendo che venga avviata SEMPRE la versione committata pulita.
+- **Cartella `out/` inclusa nel sync**: `run-windows.ps1` copia sempre anche `out/` precompilato.
+- **Mantenere il branch `main` sempre committato**: Ogni modifica completata deve essere committata e pushato su `main`.
 
 ---
 
