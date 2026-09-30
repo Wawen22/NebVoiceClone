@@ -5,6 +5,7 @@ function connect() {
   port = chrome.runtime.connectNative('com.nebvoice.outlier')
   port.onDisconnect.addListener(() => { const error = chrome.runtime.lastError; void error; port = null; target = null })
   port.onMessage.addListener(async (message) => {
+    if (message.kind === 'pong') return
     if (message.kind !== 'browser') return
     const response = { kind: 'reply', requestId: message.requestId }
     try {
@@ -38,6 +39,10 @@ function connect() {
   return port
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (message.kind === 'heartbeat' && sender.tab?.id === target?.tabId) {
+    try { port?.postMessage({ kind: 'ping' }) } catch { /* ignore */ }
+    return
+  }
   if (message.kind === 'invalidated' && sender.tab?.id === target?.tabId) { port?.postMessage({ kind: 'invalidated', reason: message.reason === 'focus' ? 'focus' : 'destination' }); return }
   if (message.kind !== 'associate' || sender.tab) return
   ;(async () => {

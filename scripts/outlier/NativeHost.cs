@@ -16,6 +16,12 @@ public class NativeHost {
     static Stream Pipe, Output;
     static volatile bool Connected = true;
     static IntPtr AssociatedWindow = IntPtr.Zero;
+    static void Log(string msg) {
+        try {
+            string file = Path.Combine(Path.GetTempPath(), "neb-outlier-host.log");
+            File.AppendAllText(file, DateTime.UtcNow.ToString("HH:mm:ss.fff") + " " + msg + Environment.NewLine);
+        } catch {}
+    }
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public INPUTUNION data; }
     [StructLayout(LayoutKind.Explicit)] struct INPUTUNION {
         [FieldOffset(0)] public KEYBDINPUT keyboard;
@@ -137,6 +143,10 @@ public class NativeHost {
                     while (Connected) {
                         var packet = ReadFrame(input);
                         string kind = packet.ContainsKey("kind") ? (string)packet["kind"] : "";
+                        if (kind == "ping") {
+                            WriteFrame(Output, OutputLock, new Dictionary<string, object> { { "kind", "pong" } });
+                            continue;
+                        }
                         if (kind == "associated") {
                             var destination = (Dictionary<string, object>)packet["target"];
                             IntPtr hwnd = EdgeWindow();
@@ -147,12 +157,16 @@ public class NativeHost {
                         }
                         if (kind == "associated" || kind == "invalidated" || kind == "reply") WriteFrame(Pipe, PipeLock, packet);
                     }
-                } catch { Connected = false; Pipe.Close(); }
+                } catch (Exception ex) { Log("browserReader error: " + ex.Message); Connected = false; Pipe.Close(); }
             });
             browserReader.IsBackground = true; browserReader.Start();
             while (Connected) {
                 var message = ReadFrame(Pipe);
-                if ((string)message["kind"] == "browser") { WriteFrame(Output, OutputLock, message); continue; }
+                if ((string)message["kind"] == "browser") {
+                    try { WriteFrame(Output, OutputLock, message); }
+                    catch (Exception ex) { Log("WriteFrame to Output error: " + ex.Message); }
+                    continue;
+                }
                 if ((string)message["kind"] != "native") throw new InvalidDataException();
                 var reply = new Dictionary<string, object> { { "kind", "reply" }, { "requestId", message["requestId"] } };
                 try { reply["result"] = Native(message); }
@@ -160,7 +174,7 @@ public class NativeHost {
                 WriteFrame(Pipe, PipeLock, reply);
             }
             return 0;
-        } catch (Exception error) { Console.Error.WriteLine(error.Message); return 1; }
+        } catch (Exception error) { Log("Main error: " + error.ToString()); Console.Error.WriteLine(error.Message); return 1; }
         finally { Connected = false; if (Pipe != null) Pipe.Dispose(); }
     }
 }

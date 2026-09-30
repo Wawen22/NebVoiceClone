@@ -10,7 +10,8 @@ function page(count = 1) {
   runInNewContext(readFileSync(new URL('../../../browser-extension/content.js', import.meta.url), 'utf8'), {
     document, location: { href: 'http://localhost/demo' }, crypto: { randomUUID: () => 'document-1' },
     chrome: { runtime: { onMessage: { addListener: (fn: typeof listener) => { listener = fn } }, sendMessage: async () => undefined } },
-    MutationObserver: class { observe() {} }, addEventListener: () => undefined
+    MutationObserver: class { observe() {} }, addEventListener: () => undefined,
+    setInterval: () => 0 as unknown as NodeJS.Timeout, clearInterval: () => undefined
   })
   const send = (message: Record<string, unknown>): Record<string, unknown> => {
     let value: unknown

@@ -52,6 +52,13 @@
   addEventListener('pagehide', () => invalidate())
   addEventListener('popstate', () => invalidate())
   new MutationObserver(() => {
-    if (field && (!field.isConnected || document.querySelectorAll('textarea[data-track="comment:notes"]')[0] !== field)) invalidate()
+    if (field && !field.isConnected) invalidate('destination')
   }).observe(document, { childList: true, subtree: true })
+  if (typeof setInterval === 'function') {
+    setInterval(() => {
+      if (field && field.isConnected) {
+        chrome.runtime.sendMessage({ kind: 'heartbeat' }).catch(() => undefined)
+      }
+    }, 10000)
+  }
 })()
