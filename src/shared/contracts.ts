@@ -147,4 +147,6 @@ export interface DesktopApi extends OutlierApi {
   setConversationMode(enabled: boolean): Promise<ConversationModeStatus>
   onConversationRequested(callback: () => void): () => void
   onStopRequested(callback: () => void): () => void
+  setZoomFactor(factor: number): void
+  getZoomFactor(): number
 }

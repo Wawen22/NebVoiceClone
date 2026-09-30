@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
@@ -53,7 +53,9 @@ const api: DesktopApi = {
     const listener = (): void => callback()
     ipcRenderer.on('window:stopSpeech', listener)
     return () => ipcRenderer.removeListener('window:stopSpeech', listener)
-  }
+  },
+  setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
+  getZoomFactor: () => webFrame.getZoomFactor()
 }
 
 contextBridge.exposeInMainWorld('neb', api)

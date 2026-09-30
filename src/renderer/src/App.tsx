@@ -85,7 +85,35 @@ export function App(): React.JSX.Element {
   }, [conversationMode])
 
   useEffect(() => {
+    const savedZoom = localStorage.getItem('neb:zoom-factor')
+    const initialZoom = savedZoom ? Math.min(1.4, Math.max(0.65, Number(savedZoom))) : 0.88
+    window.neb.setZoomFactor?.(initialZoom)
+  }, [])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.ctrlKey && (event.key === '-' || event.key === '_')) {
+        event.preventDefault()
+        const current = window.neb.getZoomFactor ? window.neb.getZoomFactor() : 0.88
+        const next = Math.max(0.65, Math.round((current - 0.05) * 100) / 100)
+        window.neb.setZoomFactor?.(next)
+        localStorage.setItem('neb:zoom-factor', String(next))
+        return
+      }
+      if (event.ctrlKey && (event.key === '+' || event.key === '=')) {
+        event.preventDefault()
+        const current = window.neb.getZoomFactor ? window.neb.getZoomFactor() : 0.88
+        const next = Math.min(1.35, Math.round((current + 0.05) * 100) / 100)
+        window.neb.setZoomFactor?.(next)
+        localStorage.setItem('neb:zoom-factor', String(next))
+        return
+      }
+      if (event.ctrlKey && event.key === '0') {
+        event.preventDefault()
+        window.neb.setZoomFactor?.(0.88)
+        localStorage.setItem('neb:zoom-factor', '0.88')
+        return
+      }
       if (event.key === 'Escape') stop()
       if ((event.target as HTMLElement | null)?.closest('[data-no-speech-shortcuts]') && event.ctrlKey) {
         if (event.key === 'Enter' || event.key.toLowerCase() === 'r') event.preventDefault()
