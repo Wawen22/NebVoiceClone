@@ -150,5 +150,4 @@ export interface DesktopApi extends OutlierApi {
   setZoomFactor(factor: number): void
   getZoomFactor(): number
   paraphraseReadyLines(texts: string[]): Promise<string[]>
-  paraphraseSingleLine(text: string, avoidVariation?: string): Promise<string>
 }

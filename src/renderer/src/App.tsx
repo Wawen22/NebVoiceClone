@@ -27,7 +27,6 @@ export function App(): React.JSX.Element {
   const [readyLinesB, setReadyLinesB] = useState<ReadyLine[]>([])
   const [activeReadyTab, setActiveReadyTab] = useState<ReadyLinesTab>('modelA')
   const [generatingModelB, setGeneratingModelB] = useState(false)
-  const [singleRegeneratingId, setSingleRegeneratingId] = useState<string | null>(null)
   const [readyOpen, setReadyOpen] = useState(false)
   const [activeReadyLineId, setActiveReadyLineId] = useState<string | null>(null)
   const [outputs, setOutputs] = useState<AudioOutput[]>([])
@@ -399,26 +398,6 @@ export function App(): React.JSX.Element {
     }
   }
 
-  async function regenerateSingleLine(id: string, text: string, index: number): Promise<void> {
-    if (singleRegeneratingId || generatingModelB) return
-    setSingleRegeneratingId(id)
-    setError('')
-    setStatus('Rielaborazione battuta con Nemotron…')
-    try {
-      const baseText = activeReadyTab === 'modelB' && readyLinesA[index] ? readyLinesA[index].text : text
-      const newText = await window.neb.paraphraseSingleLine(baseText, text)
-      if (newText.trim()) {
-        setLines((current) => editReadyLine(current, id, newText.trim()))
-        setStatus('Battuta rigenerata con successo con Nemotron 3 Ultra')
-      }
-    } catch (reason) {
-      setError(`Rigenerazione non riuscita: ${message(reason)}`)
-      setStatus('Errore rigenerazione battuta')
-    } finally {
-      setSingleRegeneratingId(null)
-    }
-  }
-
   const isLinux = info?.platform === 'linux'
   const virtualOutput = outputs.find((output) => isLinux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
   const routing = routingStatus(outputs, settings.outputDeviceId, info?.platform)
@@ -445,8 +424,6 @@ export function App(): React.JSX.Element {
       error={error}
       generatingModelB={generatingModelB}
       onGenerateModelB={() => void generateModelBLines()}
-      singleRegeneratingId={singleRegeneratingId}
-      onRegenerateLine={(id, text, index) => void regenerateSingleLine(id, text, index)}
       onAdd={(text) => { const id = crypto.randomUUID(); setLines((current) => addReadyLine(current, text, id)) }}
       onEdit={(id, text) => setLines((current) => editReadyLine(current, id, text))}
       onMove={(id, direction) => setLines((current) => moveReadyLine(current, id, direction))}
