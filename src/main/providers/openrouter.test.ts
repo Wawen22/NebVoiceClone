@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { paraphraseWithNemotron, parseParaphraseResponse } from './openrouter'
+import { paraphraseSingleLine, paraphraseWithNemotron, parseParaphraseResponse } from './openrouter'
 
 describe('parseParaphraseResponse', () => {
   it('parses valid JSON array correctly', () => {
@@ -79,5 +79,46 @@ describe('paraphraseWithNemotron', () => {
     await expect(
       paraphraseWithNemotron(['Test'], { apiKey: 'bad-key' })
     ).rejects.toThrow('Errore OpenRouter: Invalid API key')
+  })
+})
+
+describe('paraphraseSingleLine', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    delete process.env.OPENROUTER_API_KEY
+  })
+
+  it('returns empty string if text is empty', async () => {
+    const res = await paraphraseSingleLine('   ')
+    expect(res).toBe('')
+  })
+
+  it('calls OpenRouter and includes avoid variation instruction', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: '"Ciao, come procede la giornata?"'
+            }
+          }
+        ]
+      })
+    })
+    globalThis.fetch = fakeFetch
+
+    const res = await paraphraseSingleLine(
+      'Hey ciao come va?',
+      'Ciao, come stai?',
+      { apiKey: 'sk-or-fake-key' }
+    )
+
+    expect(res).toBe('Ciao, come procede la giornata?')
+    expect(fakeFetch).toHaveBeenCalledTimes(1)
+    const [url, options] = fakeFetch.mock.calls[0]
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
+    const body = JSON.parse(options.body)
+    expect(body.messages[0].content).toContain('fornisci una formulazione diversa da questa versione già esistente: "Ciao, come stai?"')
   })
 })

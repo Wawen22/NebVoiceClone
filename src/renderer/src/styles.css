@@ -312,6 +312,8 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 .ready-play.active { border-color: var(--accent); background: #19514a; }
 .ready-wave { width: 21px; height: 15px; gap: 1px; }
 .ready-wave span { width: 2px; }
+.ready-sparkle-btn { color: #6efadc; }
+.ready-sparkle-btn:hover:not(:disabled) { border-color: #3fe9c6; background: #143530; color: #a7ffeb; }
 .ready-icon.danger:hover:not(:disabled), .ready-clear { color: var(--error); }
 .ready-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; min-height: 55px; padding: 10px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
 .ready-footer .ready-clear { margin-left: auto; }

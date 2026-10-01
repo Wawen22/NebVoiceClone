@@ -56,7 +56,8 @@ const api: DesktopApi = {
   },
   setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
   getZoomFactor: () => webFrame.getZoomFactor(),
-  paraphraseReadyLines: (texts) => ipcRenderer.invoke('openrouter:paraphraseReadyLines', texts)
+  paraphraseReadyLines: (texts) => ipcRenderer.invoke('openrouter:paraphraseReadyLines', texts),
+  paraphraseSingleLine: (text, avoidVariation) => ipcRenderer.invoke('openrouter:paraphraseSingleLine', text, avoidVariation)
 }
 
 contextBridge.exposeInMainWorld('neb', api)

@@ -9,7 +9,7 @@ import type { AppInfo, GeminiKeySource } from '../../shared/contracts'
 import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication'
 import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
 import type { WindowPresentationController } from '../windowPresentation'
-import { paraphraseWithNemotron } from '../providers/openrouter'
+import { paraphraseSingleLine, paraphraseWithNemotron } from '../providers/openrouter'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -167,5 +167,11 @@ export function registerIpc(
     const lines = texts.map((t) => typeof t === 'string' ? t.trim() : '').filter(Boolean)
     if (lines.length === 0) return []
     return paraphraseWithNemotron(lines)
+  })
+  ipcMain.handle('openrouter:paraphraseSingleLine', async (event, text: unknown, avoid: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Testo battuta mancante.')
+    const avoidText = typeof avoid === 'string' && avoid.trim() ? avoid.trim() : undefined
+    return paraphraseSingleLine(text, avoidText)
   })
 }
