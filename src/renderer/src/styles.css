@@ -252,7 +252,7 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 
 .console-heading-actions, .conversation-header-actions { display: flex; align-items: center; gap: 9px; flex: none; }
 .ready-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 4px; background: #244945; color: #b5f5e7; font-variant-numeric: tabular-nums; font-size: 10px; }
-.ready-dialog { position: fixed; inset: 16px 16px 16px auto; width: min(440px, calc(100vw - 32px)); height: calc(100vh - 32px); max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 1px solid #45616a; border-radius: 8px; background: var(--surface); color: #eef4f6; box-shadow: 0 20px 60px #0009; }
+.ready-dialog { position: fixed; inset: 16px 16px 16px auto; width: min(640px, calc(100vw - 32px)); height: calc(100vh - 32px); max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 1px solid #45616a; border-radius: 8px; background: var(--surface); color: #eef4f6; box-shadow: 0 20px 60px #0009; }
 .ready-dialog::backdrop { background: #050a10b8; }
 .ready-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .ready-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 20px 16px; border-bottom: 1px solid var(--border); }
@@ -304,7 +304,7 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 .ready-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; min-height: 55px; padding: 10px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
 .ready-footer .ready-clear { margin-left: auto; }
 @media (max-width: 760px) { .console-heading-actions { flex-wrap: wrap; } }
-@media (max-width: 650px) { .ready-dialog { inset: 8px; width: calc(100vw - 16px); height: calc(100vh - 16px); } .conversation-header-actions { gap: 5px; } .conversation-header-actions .secondary-button { min-height: 32px; padding: 5px 7px; font-size: 10px; } .conversation-header-actions .conversation-exit kbd { display: none; } }
+@media (max-width: 680px) { .ready-dialog { inset: 8px; width: calc(100vw - 16px); height: calc(100vh - 16px); } .conversation-header-actions { gap: 5px; } .conversation-header-actions .secondary-button { min-height: 32px; padding: 5px 7px; font-size: 10px; } .conversation-header-actions .conversation-exit kbd { display: none; } }
 
 @media (max-width: 1120px) {
   .console-grid { grid-template-columns: 1fr; flex: none; }
