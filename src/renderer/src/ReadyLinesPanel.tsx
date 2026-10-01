@@ -16,6 +16,8 @@ export interface ReadyLinesPanelProps {
   error: string
   generatingModelB: boolean
   onGenerateModelB: () => void
+  singleRegeneratingId?: string | null
+  onRegenerateLine?: (id: string, text: string, index: number) => void
   onAdd: (text: string) => void
   onEdit: (id: string, text: string) => void
   onMove: (id: string, direction: -1 | 1) => void
@@ -42,6 +44,8 @@ export function ReadyLinesPanel({
   error,
   generatingModelB,
   onGenerateModelB,
+  singleRegeneratingId,
+  onRegenerateLine,
   onAdd,
   onEdit,
   onMove,
@@ -314,6 +318,21 @@ export function ReadyLinesPanel({
                       >
                         <Pencil size={15} />
                       </button>
+                      {onRegenerateLine && (
+                        <button
+                          className="ready-icon ready-sparkle-btn"
+                          aria-label={`Rigenera battuta ${index + 1} con Nemotron`}
+                          title="Rigenera con Nemotron (OpenRouter)"
+                          disabled={singleRegeneratingId === line.id || generatingModelB}
+                          onClick={() => onRegenerateLine(line.id, line.text, index)}
+                        >
+                          {singleRegeneratingId === line.id ? (
+                            <span className="spinner" aria-hidden="true" />
+                          ) : (
+                            <Sparkles size={14} />
+                          )}
+                        </button>
+                      )}
                       <button
                         className="ready-icon"
                         aria-label={`Sposta battuta ${index + 1} su`}

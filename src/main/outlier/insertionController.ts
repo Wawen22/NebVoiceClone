@@ -109,7 +109,9 @@ export class InsertionController {
   }
 
   async resume(request?: InsertionRequest): Promise<InsertionStatus> {
-    if (this.status.phase !== 'paused' || this.abort) throw new Error('Nessun inserimento pronto per la ripresa.')
+    if ((this.status.phase !== 'paused' && this.status.phase !== 'error') || this.abort) {
+      throw new Error('Nessun inserimento pronto per la ripresa.')
+    }
     if (!this.status.connected || !this.status.target || !this.status.stopAvailable) {
       throw new Error('Collega Edge e rendi disponibile lo stop globale prima di riprendere.')
     }
@@ -162,29 +164,51 @@ export class InsertionController {
 
     const check = async (action: string, expected: string): Promise<boolean> => {
       signal.throwIfAborted()
-      try {
-        const snapshot = parseSnapshot(await request('browser', action, { target: operation.target, expected }))
-        if (!sameTarget(snapshot.target, operation.target)) {
-          throw new Error('Scheda, documento o destinazione cambiata. Inserimento fermato.')
+      const exp = expected.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      const maxRetries = action === 'snapshot' ? 4 : 1
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        signal.throwIfAborted()
+        try {
+          const snapshot = parseSnapshot(await request('browser', action, { target: operation.target, expected }))
+          if (!sameTarget(snapshot.target, operation.target)) {
+            throw new Error('Scheda, documento o destinazione cambiata. Inserimento fermato.')
+          }
+          const val = snapshot.value.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+          const textMatches = val === exp
+          const selectionMatches = snapshot.selectionStart === exp.length && snapshot.selectionEnd === exp.length
+
+          if (textMatches && (selectionMatches || attempt > 1)) {
+            if (!snapshot.focused) {
+              this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
+              return false
+            }
+            return true
+          }
+
+          if (attempt < maxRetries) {
+            await this.delay(30 * attempt, signal)
+            continue
+          }
+
+          if (!textMatches || !selectionMatches) {
+            throw new Error('Il campo contiene testo o una selezione inattesa. Nessun carattere sarà riscritto.')
+          }
+          if (!snapshot.focused) {
+            this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
+            return false
+          }
+          return true
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (/focus|primo piano/i.test(msg)) {
+            this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
+            return false
+          }
+          if (attempt >= maxRetries) throw error
+          await this.delay(30 * attempt, signal)
         }
-        const val = snapshot.value.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-        const exp = expected.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-        if (val !== exp || snapshot.selectionStart !== exp.length || snapshot.selectionEnd !== exp.length) {
-          throw new Error('Il campo contiene testo o una selezione inattesa. Nessun carattere sarà riscritto.')
-        }
-        if (!snapshot.focused) {
-          this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
-          return false
-        }
-        return true
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error)
-        if (/focus|primo piano/i.test(msg)) {
-          this.pause('Inserimento in pausa per perdita di focus. Clicca su Riprendi per continuare.')
-          return false
-        }
-        throw error
       }
+      return false
     }
 
     try {
