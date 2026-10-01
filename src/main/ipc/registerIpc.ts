@@ -9,6 +9,7 @@ import type { AppInfo, GeminiKeySource } from '../../shared/contracts'
 import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication'
 import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
 import type { WindowPresentationController } from '../windowPresentation'
+import { paraphraseWithNemotron } from '../providers/openrouter'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -159,5 +160,12 @@ export function registerIpc(
     assertTrusted(event.sender, event.senderFrame)
     if (typeof enabled !== 'boolean') throw new Error('Conversation mode must be a boolean.')
     return windowPresentation.setConversationMode(enabled)
+  })
+  ipcMain.handle('openrouter:paraphraseReadyLines', async (event, texts: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (!Array.isArray(texts)) throw new Error('Formato battute non valido.')
+    const lines = texts.map((t) => typeof t === 'string' ? t.trim() : '').filter(Boolean)
+    if (lines.length === 0) return []
+    return paraphraseWithNemotron(lines)
   })
 }

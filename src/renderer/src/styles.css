@@ -259,6 +259,18 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 .ready-header h2 { margin: 6px 0 0; font-size: 19px; font-weight: 680; }
 .ready-header h2 span { color: var(--accent); font-variant-numeric: tabular-nums; }
 .ready-header-actions { display: flex; align-items: center; gap: 5px; }
+.ready-tabs { display: flex; align-items: center; gap: 8px; padding: 10px 20px 0; border-bottom: 1px solid var(--border); background: #111a24; }
+.ready-tab { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 650; cursor: pointer; transition: all 0.15s ease; }
+.ready-tab:hover { color: #eef4f6; background: #192736; }
+.ready-tab.active { color: #34e5c4; border-color: var(--border) var(--border) transparent; background: var(--surface); border-bottom: 2px solid #34e5c4; }
+.ready-tab-tag { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; background: #203444; color: #c9d8de; font-size: 10px; font-weight: 700; }
+.ready-tab.active .ready-tab-tag { background: #1e453e; color: #72fedc; }
+.ready-tab-title { letter-spacing: 0.03em; }
+.ready-tab-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #253948; color: #9eb6c3; font-variant-numeric: tabular-nums; font-size: 10px; }
+.ready-tab.active .ready-tab-count { background: #244945; color: #b5f5e7; }
+.ready-generate-btn { margin-left: auto; border-color: #276e65 !important; background: linear-gradient(135deg, #153833 0%, #17323e 100%) !important; color: #6efadc !important; font-weight: 600; box-shadow: 0 2px 8px #0004; }
+.ready-generate-btn:hover:not(:disabled) { border-color: #3fe9c6 !important; color: #b4fff0 !important; box-shadow: 0 0 12px #3fe9c633; }
+.ready-generate-btn:disabled { opacity: 0.45; filter: grayscale(0.5); cursor: not-allowed; }
 .ready-toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .ready-toolbar .secondary-button { white-space: normal; }
 .ready-feedback { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 7px 20px; border-bottom: 1px solid var(--border); color: var(--success); font-size: 10px; overflow-wrap: anywhere; }

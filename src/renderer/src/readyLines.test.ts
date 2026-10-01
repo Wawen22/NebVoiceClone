@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addReadyLine, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone } from './readyLines'
+import { addReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone } from './readyLines'
 
 describe('ready lines', () => {
   it('accepts more than 30 manually added lines without changing their exact text', () => {
@@ -35,5 +35,17 @@ describe('ready lines', () => {
     const done = toggleReadyLineDone(lines, 'a')
     expect(done).toEqual([{ id: 'a', text: 'Battuta esatta!', done: true }])
     expect(toggleReadyLineDone(done, 'a')).toEqual(lines)
+  })
+
+  it('creates ready lines from texts using id generator and filters empty strings', () => {
+    let idCounter = 1
+    const lines = createReadyLinesFromTexts(
+      ['  Prima battuta  ', '', '   ', 'Seconda battuta'],
+      () => `id-${idCounter++}`
+    )
+    expect(lines).toEqual([
+      { id: 'id-1', text: 'Prima battuta', done: false },
+      { id: 'id-2', text: 'Seconda battuta', done: false }
+    ])
   })
 })

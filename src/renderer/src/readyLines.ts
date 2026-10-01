@@ -4,6 +4,22 @@ export interface ReadyLine {
   done: boolean
 }
 
+export type ReadyLinesTab = 'modelA' | 'modelB'
+
+export function createReadyLinesFromTexts(
+  texts: string[],
+  idGenerator: () => string = () => crypto.randomUUID()
+): ReadyLine[] {
+  return texts
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text) => ({
+      id: idGenerator(),
+      text,
+      done: false
+    }))
+}
+
 export function addReadyLine(lines: ReadyLine[], text: string, id: string): ReadyLine[] {
   return text.trim() ? [...lines, { id, text, done: false }] : lines
 }

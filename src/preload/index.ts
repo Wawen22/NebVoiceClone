@@ -55,7 +55,8 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener('window:stopSpeech', listener)
   },
   setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
-  getZoomFactor: () => webFrame.getZoomFactor()
+  getZoomFactor: () => webFrame.getZoomFactor(),
+  paraphraseReadyLines: (texts) => ipcRenderer.invoke('openrouter:paraphraseReadyLines', texts)
 }
 
 contextBridge.exposeInMainWorld('neb', api)

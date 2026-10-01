@@ -11,7 +11,7 @@ import { SetupGuide } from './SetupGuide'
 import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type GeminiKeySource, type GeminiKeyStatus, type ProviderStatus, type SaveGeminiKeyRequest } from '../../shared/contracts'
 import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
-import { addReadyLine, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine } from './readyLines'
+import { addReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine, type ReadyLinesTab } from './readyLines'
 
 type Page = 'console' | 'outlier' | 'settings' | 'guide' | 'diagnostics'
 
@@ -23,7 +23,10 @@ export function App(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [gemini, setGemini] = useState<ProviderStatus>({ ready: false, message: 'Verifica Gemini…' })
   const [script, setScript] = useState('')
-  const [readyLines, setReadyLines] = useState<ReadyLine[]>([])
+  const [readyLinesA, setReadyLinesA] = useState<ReadyLine[]>([])
+  const [readyLinesB, setReadyLinesB] = useState<ReadyLine[]>([])
+  const [activeReadyTab, setActiveReadyTab] = useState<ReadyLinesTab>('modelA')
+  const [generatingModelB, setGeneratingModelB] = useState(false)
   const [readyOpen, setReadyOpen] = useState(false)
   const [activeReadyLineId, setActiveReadyLineId] = useState<string | null>(null)
   const [outputs, setOutputs] = useState<AudioOutput[]>([])
@@ -372,27 +375,67 @@ export function App(): React.JSX.Element {
     finally { setVoiceProfileBusy(false) }
   }
 
+  async function generateModelBLines(): Promise<void> {
+    if (readyLinesA.length === 0 || generatingModelB) return
+    setGeneratingModelB(true)
+    setError('')
+    setStatus('Generazione versione Model B con Nemotron (OpenRouter)…')
+    try {
+      const rawTexts = readyLinesA.map((line) => line.text)
+      const paraphrased = await window.neb.paraphraseReadyLines(rawTexts)
+      if (paraphrased.length === 0) {
+        throw new Error('Nessuna battuta generata dal modello Nemotron.')
+      }
+      const nextLinesB = createReadyLinesFromTexts(paraphrased)
+      setReadyLinesB(nextLinesB)
+      setActiveReadyTab('modelB')
+      setStatus(`Generate ${nextLinesB.length} battute per MODEL B con Nemotron 3 Ultra`)
+    } catch (reason) {
+      setError(`Generazione Model B non riuscita: ${message(reason)}`)
+      setStatus('Errore generazione Model B')
+    } finally {
+      setGeneratingModelB(false)
+    }
+  }
+
   const isLinux = info?.platform === 'linux'
   const virtualOutput = outputs.find((output) => isLinux ? /NEB[ _]Voice/i.test(output.label) : /CABLE Input/i.test(output.label))
   const routing = routingStatus(outputs, settings.outputDeviceId, info?.platform)
   const geminiMessage = gemini.message === 'Gemini connected' ? 'Connesso a Gemini' : gemini.message.startsWith('Gemini API key is missing') ? 'Chiave API Gemini assente' : gemini.message
   const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
+  const setLines = activeReadyTab === 'modelA' ? setReadyLinesA : setReadyLinesB
   const common = {
     settings, gemini, script, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, activeKeyName,
-    readyLinesCount: readyLines.length, onOpenReadyLines: () => setReadyOpen(true),
+    readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => setReadyOpen(true),
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
-  const readyPanel = readyOpen && <ReadyLinesPanel lines={readyLines} currentScript={script} ready={gemini.ready} busy={busy} playing={playing} activeLineId={activeReadyLineId} status={status} error={error}
-    onAdd={(text) => { const id = crypto.randomUUID(); setReadyLines((current) => addReadyLine(current, text, id)) }}
-    onEdit={(id, text) => setReadyLines((current) => editReadyLine(current, id, text))}
-    onMove={(id, direction) => setReadyLines((current) => moveReadyLine(current, id, direction))}
-    onToggleDone={(id) => setReadyLines((current) => toggleReadyLineDone(current, id))}
-    onRemove={(id) => setReadyLines((current) => removeReadyLine(current, id))}
-    onRestore={(line, index) => setReadyLines((current) => restoreReadyLine(current, line, index))}
-    onClear={() => setReadyLines([])}
-    onSpeak={(line) => { void speak(line.text, line.id) }}
-    onStop={stop}
-    onClose={() => setReadyOpen(false)} />
+  const readyPanel = readyOpen && (
+    <ReadyLinesPanel
+      linesA={readyLinesA}
+      linesB={readyLinesB}
+      activeTab={activeReadyTab}
+      onTabChange={setActiveReadyTab}
+      currentScript={script}
+      ready={gemini.ready}
+      busy={busy}
+      playing={playing}
+      activeLineId={activeReadyLineId}
+      status={status}
+      error={error}
+      generatingModelB={generatingModelB}
+      onGenerateModelB={() => void generateModelBLines()}
+      onAdd={(text) => { const id = crypto.randomUUID(); setLines((current) => addReadyLine(current, text, id)) }}
+      onEdit={(id, text) => setLines((current) => editReadyLine(current, id, text))}
+      onMove={(id, direction) => setLines((current) => moveReadyLine(current, id, direction))}
+      onToggleDone={(id) => setLines((current) => toggleReadyLineDone(current, id))}
+      onRemove={(id) => setLines((current) => removeReadyLine(current, id))}
+      onRestore={(line, index) => setLines((current) => restoreReadyLine(current, line, index))}
+      onClear={() => setLines([])}
+      onSpeak={(line) => { void speak(line.text, line.id) }}
+      onStop={stop}
+      onClose={() => setReadyOpen(false)}
+    />
+  )
 
   if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}</>
 
