@@ -39,11 +39,6 @@
       armed = true
     } else if (message.action === 'snapshot') {
       autoScroll()
-      if (armed && typeof message.expected === 'string' && field.value === message.expected) {
-        if (field.selectionStart !== field.value.length || field.selectionEnd !== field.value.length) {
-          try { field.setSelectionRange(field.value.length, field.value.length) } catch { /* ignore */ }
-        }
-      }
     }
     return { documentId, url, value: field.value, focused: document.hasFocus() && document.activeElement === field && document.visibilityState === 'visible', selectionStart: field.selectionStart, selectionEnd: field.selectionEnd }
   }
