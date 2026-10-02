@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { addReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone } from './readyLines'
+import { addReadyLine, completeReadyLine, nextReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone } from './readyLines'
 
 describe('ready lines', () => {
+  it('advances to the first unfinished line after completion and handles replay idempotently', () => {
+    const lines = [{ id: 'a', text: 'Prima', done: false }, { id: 'b', text: 'Seconda', done: false }]
+    expect(nextReadyLine(lines)?.id).toBe('a')
+    const completed = completeReadyLine(lines, 'a')
+    expect(nextReadyLine(completed)?.id).toBe('b')
+    expect(completeReadyLine(completed, 'a')).toEqual(completed)
+    expect(nextReadyLine(completeReadyLine(completed, 'b'))).toBeUndefined()
+    expect(nextReadyLine(toggleReadyLineDone(completed, 'a'))?.id).toBe('a')
+    expect(nextReadyLine([])).toBeUndefined()
+  })
+
+  it('keeps progress independent across model lists and does not complete missing IDs', () => {
+    const modelA = [{ id: 'a', text: 'A', done: false }]
+    const modelB = [{ id: 'b', text: 'B', done: false }]
+    expect(nextReadyLine(completeReadyLine(modelA, 'a'))).toBeUndefined()
+    expect(nextReadyLine(modelB)?.id).toBe('b')
+    expect(completeReadyLine(modelB, 'a')).toEqual(modelB)
+  })
   it('accepts more than 30 manually added lines without changing their exact text', () => {
     const lines = Array.from({ length: 31 }, (_, index) => ({ id: String(index), text: `  Battuta ${index + 1}!  ` }))
       .reduce((current, line) => addReadyLine(current, line.text, line.id), [] as ReturnType<typeof addReadyLine>)

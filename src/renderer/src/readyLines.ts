@@ -6,6 +6,14 @@ export interface ReadyLine {
 
 export type ReadyLinesTab = 'modelA' | 'modelB'
 
+export function nextReadyLine(lines: ReadyLine[]): ReadyLine | undefined {
+  return lines.find((line) => !line.done)
+}
+
+export function completeReadyLine(lines: ReadyLine[], id: string): ReadyLine[] {
+  return lines.map((line) => line.id === id ? { ...line, done: true } : line)
+}
+
 export function createReadyLinesFromTexts(
   texts: string[],
   idGenerator: () => string = () => crypto.randomUUID()

@@ -12,7 +12,7 @@ import { SetupGuide } from './SetupGuide'
 import { DEFAULT_SETTINGS, type AppInfo, type AppSettings, type ConversationModeStatus, type GeminiKeySource, type GeminiKeyStatus, type ProviderStatus, type SaveGeminiKeyRequest } from '../../shared/contracts'
 import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
-import { addReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine, type ReadyLinesTab } from './readyLines'
+import { addReadyLine, completeReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine, type ReadyLinesTab } from './readyLines'
 
 type Page = 'console' | 'outlier' | 'settings' | 'guide' | 'diagnostics'
 
@@ -31,6 +31,12 @@ export function App(): React.JSX.Element {
   const [singleRegeneratingId, setSingleRegeneratingId] = useState<string | null>(null)
   const [readyOpen, setReadyOpen] = useState(false)
   const [activeReadyLineId, setActiveReadyLineId] = useState<string | null>(null)
+  const [completedReadyLine, setCompletedReadyLine] = useState<{ id: string; tab: ReadyLinesTab } | null>(null)
+  const [autoPrepare, setAutoPrepare] = useState(true)
+  const [prepareRequested, setPrepareRequested] = useState(false)
+  const autoPrepareRef = useRef(autoPrepare)
+  autoPrepareRef.current = autoPrepare
+  const playbackReadyLine = useRef<{ id: string; tab: ReadyLinesTab } | null>(null)
   const [outputs, setOutputs] = useState<AudioOutput[]>([])
   const [fileName, setFileName] = useState('')
   const [duration, setDuration] = useState<number | null>(null)
@@ -67,6 +73,14 @@ export function App(): React.JSX.Element {
     void refreshOutputs()
     void checkGemini()
     audio.current.onEnded(() => {
+      const completed = playbackReadyLine.current
+      playbackReadyLine.current = null
+      if (completed) {
+        const updateLines = completed.tab === 'modelA' ? setReadyLinesA : setReadyLinesB
+        updateLines((lines) => completeReadyLine(lines, completed.id))
+        setCompletedReadyLine(completed)
+        if (autoPrepareRef.current) setReadyOpen(true)
+      }
       playbackActive.current = false
       setPlaying(false)
       setActiveReadyLineId(null)
@@ -88,6 +102,18 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (conversationMode) scriptInput.current?.focus()
   }, [conversationMode])
+
+  useEffect(() => {
+    function prepareShortcut(event: KeyboardEvent): void {
+      if (event.ctrlKey && event.shiftKey && event.code === 'Space' && !readyOpen && !busy && !playing) {
+        event.preventDefault()
+        setPrepareRequested(true)
+        setReadyOpen(true)
+      }
+    }
+    window.addEventListener('keydown', prepareShortcut)
+    return () => window.removeEventListener('keydown', prepareShortcut)
+  }, [readyOpen, busy, playing])
 
   useEffect(() => {
     const savedZoom = localStorage.getItem('neb:zoom-factor')
@@ -225,6 +251,7 @@ export function App(): React.JSX.Element {
 
   async function loadFile(file: File | undefined): Promise<void> {
     if (!file) return
+    playbackReadyLine.current = null
     playbackActive.current = false
     playbackStartedAt.current = null
     setPlaying(false)
@@ -246,6 +273,7 @@ export function App(): React.JSX.Element {
 
   async function play(): Promise<void> {
     if (!fileName || busy) return
+    playbackReadyLine.current = null
     try {
       await audio.current.play(settings.outputDeviceId)
       setActiveReadyLineId(null)
@@ -259,6 +287,7 @@ export function App(): React.JSX.Element {
 
   async function replay(): Promise<void> {
     if (!hasAudio || busy) return
+    playbackReadyLine.current = null
     try {
       await audio.current.replay(settings.outputDeviceId)
       setActiveReadyLineId(null)
@@ -276,6 +305,7 @@ export function App(): React.JSX.Element {
       setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa prima di generare la voce.')
       return
     }
+    playbackReadyLine.current = null
     const current = ++requestId.current
     const started = performance.now()
     setActiveReadyLineId(readyLineId)
@@ -288,6 +318,7 @@ export function App(): React.JSX.Element {
     setStatus('Generazione con Gemini…')
     setError('')
     audio.current.stop()
+    playbackReadyLine.current = readyLineId ? { id: readyLineId, tab: activeReadyTab } : null
     setMetrics(null)
     let firstChunkMs: number | null = null
     let streamError: unknown = null
@@ -323,11 +354,12 @@ export function App(): React.JSX.Element {
       setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined })
       setStatus(playbackActive.current ? `Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : 'Riproduzione terminata')
     } catch (reason) {
-      if (current === requestId.current) { generationInProgress.current = false; playbackActive.current = false; setPlaying(false); setActiveReadyLineId(null); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }
+      if (current === requestId.current) { playbackReadyLine.current = null; generationInProgress.current = false; playbackActive.current = false; setPlaying(false); setActiveReadyLineId(null); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }
     } finally { if (current === requestId.current) setBusy(false) }
   }
 
   function stop(): void {
+    playbackReadyLine.current = null
     requestId.current++
     audio.current.stop()
     generationInProgress.current = false
@@ -442,6 +474,12 @@ export function App(): React.JSX.Element {
       busy={busy}
       playing={playing}
       activeLineId={activeReadyLineId}
+      completedLine={completedReadyLine}
+      onConsumeCompletion={() => setCompletedReadyLine(null)}
+      autoPrepare={autoPrepare}
+      onAutoPrepareChange={setAutoPrepare}
+      prepareRequested={prepareRequested}
+      onConsumePrepare={() => setPrepareRequested(false)}
       status={status}
       error={error}
       generatingModelB={generatingModelB}

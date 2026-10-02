@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
-import type { ReadyLine, ReadyLinesTab } from './readyLines'
+import { ArrowDown, ArrowUp, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
+import { nextReadyLine, type ReadyLine, type ReadyLinesTab } from './readyLines'
+import { PrepareLineDialog } from './PrepareLineDialog'
 import { ScriptImportPanel } from './ScriptImportPanel'
 import type { ScriptImportMode, ScriptImportResult } from './scriptImport'
 
@@ -14,6 +15,12 @@ export interface ReadyLinesPanelProps {
   busy: boolean
   playing: boolean
   activeLineId: string | null
+  completedLine: { id: string; tab: ReadyLinesTab } | null
+  onConsumeCompletion: () => void
+  autoPrepare: boolean
+  onAutoPrepareChange: (enabled: boolean) => void
+  prepareRequested: boolean
+  onConsumePrepare: () => void
   status: string
   error: string
   generatingModelB: boolean
@@ -43,6 +50,12 @@ export function ReadyLinesPanel({
   busy,
   playing,
   activeLineId,
+  completedLine,
+  onConsumeCompletion,
+  autoPrepare,
+  onAutoPrepareChange,
+  prepareRequested,
+  onConsumePrepare,
   status,
   error,
   generatingModelB,
@@ -69,9 +82,52 @@ export function ReadyLinesPanel({
   const [draft, setDraft] = useState('')
   const [importing, setImporting] = useState(false)
   const [importDirty, setImportDirty] = useState(false)
+  const [preparedId, setPreparedId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [menuId, setMenuId] = useState<string | null>(null)
   const [deleted, setDeleted] = useState<{ line: ReadyLine; index: number; tab: ReadyLinesTab } | null>(null)
 
   const lines = activeTab === 'modelA' ? linesA : linesB
+  const nextLine = nextReadyLine(lines)
+  const preparedIndex = lines.findIndex((line) => line.id === preparedId)
+  const preparedLine = lines[preparedIndex]
+  const canPrepare = !busy && !playing && !generatingModelB && !singleRegeneratingId && !importing && editingId === null
+
+  useEffect(() => {
+    if (!prepareRequested) return
+    onConsumePrepare()
+    if (canPrepare && nextLine) setPreparedId(nextLine.id)
+  }, [prepareRequested, onConsumePrepare, canPrepare, nextLine])
+
+  useEffect(() => {
+    function dismiss(event: PointerEvent): void {
+      if (!(event.target instanceof Element) || !event.target.closest('.ready-more')) setMenuId(null)
+    }
+    window.addEventListener('pointerdown', dismiss)
+    return () => window.removeEventListener('pointerdown', dismiss)
+  }, [])
+
+  useEffect(() => {
+    if (!completedLine || busy || playing) return
+    onConsumeCompletion()
+    if (!autoPrepare || importing || editingId !== null || preparedId || generatingModelB || singleRegeneratingId) return
+    const completedLines = completedLine.tab === 'modelA' ? linesA : linesB
+    const next = nextReadyLine(completedLines)
+    if (!next) return
+    onTabChange(completedLine.tab)
+    setPreparedId(next.id)
+  }, [completedLine, busy, playing, autoPrepare, importing, editingId, preparedId, generatingModelB, singleRegeneratingId, linesA, linesB, onConsumeCompletion, onTabChange])
+
+  useEffect(() => {
+    function keydown(event: KeyboardEvent): void {
+      if (event.ctrlKey && event.shiftKey && event.code === 'Space' && canPrepare && nextLine && !preparedId) {
+        event.preventDefault()
+        setPreparedId(nextLine.id)
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  }, [canPrepare, nextLine, preparedId])
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -111,6 +167,8 @@ export function ReadyLinesPanel({
     setDeleted(null)
     setImporting(false)
     setImportDirty(false)
+    setMenuId(null)
+    setExpandedId(null)
     onTabChange(nextTab)
   }
 
@@ -152,8 +210,10 @@ export function ReadyLinesPanel({
   }
 
   return (
-    <dialog ref={dialogRef} className="ready-dialog" aria-labelledby="ready-heading" onCancel={(event) => { event.preventDefault(); close() }}>
-      <div className="ready-panel">
+    <dialog ref={dialogRef} className="ready-dialog" aria-labelledby="ready-heading" onKeyDown={(event) => {
+      if (event.key === 'Escape' && menuId && !preparedId) { event.preventDefault(); setMenuId(null) }
+    }} onCancel={(event) => { event.preventDefault(); close() }}>
+      <div className={`ready-panel ${activeTab}`}>
         <header className="ready-header">
           <div>
             <span className="eyebrow">IN QUESTA SESSIONE</span>
@@ -183,7 +243,7 @@ export function ReadyLinesPanel({
           >
             <span className="ready-tab-tag">A</span>
             <span className="ready-tab-title">MODEL A</span>
-            <span className="ready-tab-count">{linesA.length}</span>
+            <span className="ready-tab-count">{linesA.filter((line) => line.done).length} / {linesA.length} completate</span>
           </button>
           <button
             role="tab"
@@ -194,9 +254,17 @@ export function ReadyLinesPanel({
           >
             <span className="ready-tab-tag">B</span>
             <span className="ready-tab-title">MODEL B</span>
-            <span className="ready-tab-count">{linesB.length}</span>
+            <span className="ready-tab-count">{linesB.filter((line) => line.done).length} / {linesB.length} completate</span>
           </button>
         </div>
+
+        <section className="ready-next" aria-label="Prossima battuta">
+          <div><strong>{lines.length === 0 ? 'Importa o aggiungi le tue battute' : nextLine ? `Prossima · ${activeTab === 'modelA' ? 'MODEL A' : 'MODEL B'} · Battuta ${lines.indexOf(nextLine) + 1} di ${lines.length}` : 'Tutte le battute completate'}</strong>
+            {nextLine && <p>{nextLine.text}</p>}
+          </div>
+          <button className="secondary-button ready-save" disabled={!nextLine || !canPrepare} title="Ctrl + Shift + Spazio" onClick={() => setPreparedId(nextLine?.id ?? null)}><Pencil size={16} /> Prepara prossima</button>
+          <label className="ready-auto"><input type="checkbox" checked={autoPrepare} onChange={(event) => onAutoPrepareChange(event.target.checked)} /> Apri automaticamente la prossima</label>
+        </section>
 
         <div className="ready-toolbar">
           <button className="secondary-button" disabled={generatingModelB || Boolean(singleRegeneratingId) || busy || playing} onClick={() => {
@@ -219,7 +287,7 @@ export function ReadyLinesPanel({
           <button
             type="button"
             className="secondary-button ready-generate-btn"
-            disabled={linesA.length === 0 || generatingModelB || importing}
+            disabled={linesA.length === 0 || generatingModelB || importing || busy || playing || Boolean(singleRegeneratingId)}
             onClick={handleGenerate}
             title={
               linesA.length === 0
@@ -299,7 +367,7 @@ export function ReadyLinesPanel({
                 return (
                   <li
                     ref={active ? activeItemRef : null}
-                    className={active ? `ready-item active${line.done ? ' done' : ''}` : line.done ? 'ready-item done' : 'ready-item'}
+                    className={`ready-item${active ? ' active' : ''}${line.done ? ' done' : ''}${nextLine?.id === line.id && !active ? ' next' : ''}`}
                     key={line.id}
                   >
                     <label className="ready-number">
@@ -313,16 +381,16 @@ export function ReadyLinesPanel({
                       />
                       <small>Fatta</small>
                     </label>
-                    <div className="ready-copy" tabIndex={0} role="group" aria-label={`Testo battuta ${index + 1}: ${line.text}`}>
-                      <strong>{line.text.trim().split(/\r?\n/, 1)[0]}</strong>
+                    <button type="button" className={`ready-copy${expandedId === line.id ? ' expanded' : ''}`} aria-expanded={expandedId === line.id} aria-label={`Espandi o riduci testo battuta ${index + 1}`} onClick={() => setExpandedId(expandedId === line.id ? null : line.id)}>
+                      <span className="ready-line-state">{active ? (playing ? 'In riproduzione' : 'In preparazione') : line.done ? 'Completata' : nextLine?.id === line.id ? 'Prossima' : `Battuta ${index + 1}`}</span>
                       <p>{line.text}</p>
-                    </div>
+                    </button>
                     <div className="ready-item-actions">
                       <button
                         className={active ? 'ready-play active' : 'ready-play'}
                         aria-label={active ? `Interrompi battuta ${index + 1}` : `Pronuncia battuta ${index + 1}`}
                         title={active ? 'Interrompi' : 'Pronuncia battuta'}
-                        disabled={!active && (!ready || busy)}
+                        disabled={!active && (!ready || busy || playing)}
                         onClick={() => active ? onStop() : playLine(line)}
                       >
                         {active ? (
@@ -345,19 +413,23 @@ export function ReadyLinesPanel({
                       >
                         <Pencil size={15} />
                       </button>
+                      <div className="ready-more">
+                        <button className="ready-icon" aria-label={`Altre azioni battuta ${index + 1}`} aria-expanded={menuId === line.id} onClick={() => setMenuId(menuId === line.id ? null : line.id)}><MoreHorizontal size={18} /></button>
+                        {menuId === line.id && <div className={`ready-more-menu${index >= lines.length - 2 ? ' above' : ''}`}>
                       {onRegenerateLine && (
                         <button
                           className="ready-icon ready-sparkle-btn"
                           aria-label={`Rigenera battuta ${index + 1} con Nemotron`}
                           title="Rigenera con Nemotron (OpenRouter)"
                           disabled={singleRegeneratingId === line.id || generatingModelB}
-                          onClick={() => onRegenerateLine(line.id, line.text, index)}
+                          onClick={() => { setMenuId(null); onRegenerateLine(line.id, line.text, index) }}
                         >
                           {singleRegeneratingId === line.id ? (
                             <span className="spinner" aria-hidden="true" />
                           ) : (
                             <Sparkles size={14} />
                           )}
+                          Rigenera
                         </button>
                       )}
                       <button
@@ -365,27 +437,32 @@ export function ReadyLinesPanel({
                         aria-label={`Sposta battuta ${index + 1} su`}
                         title="Sposta su"
                         disabled={index === 0}
-                        onClick={() => onMove(line.id, -1)}
+                        onClick={() => { setMenuId(null); onMove(line.id, -1) }}
                       >
                         <ArrowUp size={15} />
+                        Sposta su
                       </button>
                       <button
                         className="ready-icon"
                         aria-label={`Sposta battuta ${index + 1} giù`}
                         title="Sposta giù"
                         disabled={index === lines.length - 1}
-                        onClick={() => onMove(line.id, 1)}
+                        onClick={() => { setMenuId(null); onMove(line.id, 1) }}
                       >
                         <ArrowDown size={15} />
+                        Sposta giù
                       </button>
                       <button
                         className="ready-icon danger"
                         aria-label={`Elimina battuta ${index + 1}`}
                         title="Elimina"
-                        onClick={() => remove(line, index)}
+                        onClick={() => { setMenuId(null); remove(line, index) }}
                       >
                         <Trash2 size={15} />
+                        Elimina
                       </button>
+                        </div>}
+                      </div>
                     </div>
                   </li>
                 )
@@ -425,6 +502,11 @@ export function ReadyLinesPanel({
             </button>
           )}
         </footer>
+        {preparedLine && <PrepareLineDialog key={preparedLine.id} line={preparedLine} index={preparedIndex} total={lines.length} tab={activeTab} canPlay={ready && canPrepare} onClose={() => setPreparedId(null)} onNavigate={(direction) => setPreparedId(lines[preparedIndex + direction]?.id ?? null)} onPlay={(text) => {
+          onEdit(preparedLine.id, text)
+          setPreparedId(null)
+          onSpeak({ ...preparedLine, text })
+        }} />}
       </div>
     </dialog>
   )
