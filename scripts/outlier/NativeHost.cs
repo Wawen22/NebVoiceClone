@@ -155,7 +155,7 @@ public class NativeHost {
                             if (!title.ToString().StartsWith(expectedTitle, StringComparison.Ordinal)) throw new InvalidOperationException("La finestra visibile non corrisponde alla scheda scelta.");
                             AssociatedWindow = hwnd;
                         }
-                        if (kind == "associated" || kind == "invalidated" || kind == "reply") WriteFrame(Pipe, PipeLock, packet);
+                        if (kind == "associated" || kind == "invalidated" || kind == "reply" || kind == "s2sAudio") WriteFrame(Pipe, PipeLock, packet);
                     }
                 } catch (Exception ex) { Log("browserReader error: " + ex.Message); Connected = false; Pipe.Close(); }
             });

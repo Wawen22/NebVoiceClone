@@ -3,6 +3,16 @@ import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
 const api: DesktopApi = {
+  getS2SProviderStatus: () => ipcRenderer.invoke('s2s:providerStatus'),
+  adaptS2STurn: (request) => ipcRenderer.invoke('s2s:adapt', request),
+  cancelS2SAdaptation: (id) => ipcRenderer.invoke('s2s:cancelAdaptation', id),
+  getS2SAudioStatus: () => ipcRenderer.invoke('s2s:audioStatus'),
+  stopS2SAudioCapture: () => ipcRenderer.invoke('s2s:stopAudio'),
+  onS2SAudio: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: import('../shared/s2s').S2SAudioEvent): void => callback(value)
+    ipcRenderer.on('s2s:audio', listener)
+    return () => ipcRenderer.removeListener('s2s:audio', listener)
+  },
   getOutlierData: () => ipcRenderer.invoke('outlier:get'),
   saveOutlierData: (value) => ipcRenderer.invoke('outlier:save', value),
   getInsertionStatus: () => ipcRenderer.invoke('outlier:getStatus'),

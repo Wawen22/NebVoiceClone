@@ -10,6 +10,8 @@ import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication
 import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
 import type { WindowPresentationController } from '../windowPresentation'
 import { paraphraseSingleLine, paraphraseWithNemotron } from '../providers/openrouter'
+import { adaptS2STurn, S2S_QWEN_MODEL } from '../providers/qwen'
+import { parseS2SAdaptRequest } from '../../shared/s2s'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -18,6 +20,7 @@ export function registerIpc(
   const gemini = new GeminiTtsProvider(resolveGeminiApiKey)
   let activeGeneration: AbortController | null = null
   let activeVoiceCreation = false
+  let activeAdaptation: { id: string; controller: AbortController } | null = null
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
@@ -167,6 +170,23 @@ export function registerIpc(
     const lines = texts.map((t) => typeof t === 'string' ? t.trim() : '').filter(Boolean)
     if (lines.length === 0) return []
     return paraphraseWithNemotron(lines)
+  })
+  ipcMain.handle('s2s:providerStatus', (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return { ready: Boolean(process.env.OPENROUTER_API_KEY?.trim()), model: S2S_QWEN_MODEL }
+  })
+  ipcMain.handle('s2s:adapt', async (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    const request = parseS2SAdaptRequest(value)
+    activeAdaptation?.controller.abort()
+    const operation = { id: request.requestId, controller: new AbortController() }
+    activeAdaptation = operation
+    try { return await adaptS2STurn(request, { signal: operation.controller.signal }) }
+    finally { if (activeAdaptation === operation) activeAdaptation = null }
+  })
+  ipcMain.handle('s2s:cancelAdaptation', (event, id: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (id === undefined || id === activeAdaptation?.id) { activeAdaptation?.controller.abort(); activeAdaptation = null }
   })
   ipcMain.handle('openrouter:paraphraseSingleLine', async (event, text: unknown, avoid: unknown) => {
     assertTrusted(event.sender, event.senderFrame)

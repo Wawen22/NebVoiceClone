@@ -37,7 +37,8 @@ export class NativeBridge implements InsertionDriver {
   constructor(
     private readonly associated: (target: BrowserTarget) => void,
     private readonly disconnected: () => void,
-    private readonly invalidated: (message: string, reason: string) => void
+    private readonly invalidated: (message: string, reason: string) => void,
+    private readonly audio: (message: unknown) => void = () => undefined
   ) {}
   setExtensionId(id: string): void {
     if (!/^[a-p]{32}$/.test(id)) throw new Error('ID estensione Edge non valido.')
@@ -62,6 +63,7 @@ export class NativeBridge implements InsertionDriver {
               continue
             }
             if (message.kind === 'associated') this.associated(parseTarget(message.target))
+            else if (message.kind === 's2sAudio') this.audio(message)
             else if (message.kind === 'invalidated') this.invalidated('Scheda, focus o campo cambiato. Verifica il testo parziale.', message.reason === 'focus' ? 'focus' : 'destination')
             else if (message.kind === 'reply' && typeof message.requestId === 'string') {
               const pending = this.pending.get(message.requestId)

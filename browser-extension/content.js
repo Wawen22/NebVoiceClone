@@ -5,14 +5,19 @@
   let url = location.href
   let field = null
   let armed = false
+  let associated = false
   const invalidate = (reason = 'destination') => {
-    if (armed) { if (reason !== 'focus') armed = false; chrome.runtime.sendMessage({ kind: 'invalidated', reason }).catch(() => undefined) }
+    if (reason === 'focus' ? armed : armed || associated) {
+      if (reason !== 'focus') { armed = false; associated = false }
+      chrome.runtime.sendMessage({ kind: 'invalidated', reason, documentId, url }).catch(() => undefined)
+    }
   }
   function snapshot(message) {
     if (message.action === 'associate') {
       invalidate()
       field = null
       armed = false
+      associated = false
       url = location.href
       documentId = crypto.randomUUID()
     }
@@ -23,6 +28,7 @@
     field = candidate
     if (field.disabled || field.readOnly || !field.isConnected || field.getClientRects().length === 0) throw new Error('Il Rationale non è disponibile o modificabile.')
     if (location.href !== url || (message.documentId && message.documentId !== documentId) || (message.url && message.url !== url)) throw new Error('Il documento è cambiato. Collega di nuovo la scheda.')
+    if (message.action === 'associate') associated = true
     function autoScroll() {
       try {
         if (field && typeof field.scrollHeight === 'number') {
@@ -52,7 +58,10 @@
   addEventListener('pagehide', () => invalidate())
   addEventListener('popstate', () => invalidate())
   new MutationObserver(() => {
-    if (field && !field.isConnected) invalidate('destination')
+    if (field && (armed || associated)) {
+      const candidates = document.querySelectorAll('textarea[data-track="comment:notes"]')
+      if (!field.isConnected || candidates.length !== 1 || candidates[0] !== field || location.href !== url) invalidate('destination')
+    }
   }).observe(document, { childList: true, subtree: true })
   if (typeof setInterval === 'function') {
     setInterval(() => {

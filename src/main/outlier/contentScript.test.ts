@@ -5,12 +5,15 @@ import { expect, it } from 'vitest'
 function page(count = 1) {
   let listener!: (message: Record<string, unknown>, sender: unknown, reply: (value: unknown) => void) => void
   let replacements = 0
+  const invalidations: unknown[] = []
+  let mutation!: () => void
+  const events: Record<string, () => void> = {}
   const field = { value: '', disabled: false, readOnly: false, isConnected: true, selectionStart: 0, selectionEnd: 0, scrollHeight: 500, scrollTop: 0, getClientRects: () => [1], scrollIntoView: () => undefined, focus: () => { document.activeElement = field }, setSelectionRange: (start: number, end: number) => { field.selectionStart = start; field.selectionEnd = end } }
   const document = { activeElement: field, visibilityState: 'visible', hasFocus: () => true, querySelectorAll: () => count === 1 ? [replacements ? { ...field } : field] : Array(count).fill(field), addEventListener: () => undefined }
   runInNewContext(readFileSync(new URL('../../../browser-extension/content.js', import.meta.url), 'utf8'), {
     document, location: { href: 'http://localhost/demo' }, crypto: { randomUUID: () => 'document-1' },
-    chrome: { runtime: { onMessage: { addListener: (fn: typeof listener) => { listener = fn } }, sendMessage: async () => undefined } },
-    MutationObserver: class { observe() {} }, addEventListener: () => undefined,
+    chrome: { runtime: { onMessage: { addListener: (fn: typeof listener) => { listener = fn } }, sendMessage: async (value: unknown) => { invalidations.push(value) } } },
+    MutationObserver: class { constructor(fn: () => void) { mutation = fn } observe() {} }, addEventListener: (name: string, fn: () => void) => { events[name] = fn },
     setInterval: () => 0 as unknown as NodeJS.Timeout, clearInterval: () => undefined
   })
   const send = (message: Record<string, unknown>): Record<string, unknown> => {
@@ -18,7 +21,7 @@ function page(count = 1) {
     listener(message, {}, (reply) => { value = reply })
     return value as Record<string, unknown>
   }
-  return { send, field, replace: () => { replacements++ } }
+  return { send, field, invalidations, mutate: () => mutation(), event: (name: string) => events[name]?.(), replace: () => { replacements++ } }
 }
 it('only focuses the unique Rationale, autoscrolls, and never assigns its text', () => {
   const p = page()
@@ -49,4 +52,15 @@ it('reassociates a replaced textarea with a new document identity', () => {
   p.replace()
   expect(p.send({ action: 'snapshot', documentId: 'document-1', url: 'http://localhost/demo' })).toHaveProperty('error')
   expect(p.send({ action: 'associate' })).toMatchObject({ value: '', url: 'http://localhost/demo' })
+})
+it('invalidates an associated audio destination when its field is replaced without arming typing', () => {
+  const p = page(); p.send({ action: 'associate' })
+  p.replace(); p.mutate()
+  expect(p.invalidations).toContainEqual({ kind: 'invalidated', reason: 'destination', documentId: 'document-1', url: 'http://localhost/demo' })
+})
+it('invalidates unarmed association on navigation but allows background audio on blur', () => {
+  const p = page(); p.send({ action: 'associate' }); p.event('blur')
+  expect(p.invalidations).toEqual([])
+  p.event('popstate')
+  expect(p.invalidations).toHaveLength(1)
 })

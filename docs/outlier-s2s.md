@@ -2,6 +2,9 @@
 
 Outlier raccoglie progetti con nome, note e strumenti. S2S è preconfigurato; puoi aggiungere progetti, modificarli, archiviarli e ripristinarli. Conversazione e Battute riusano la stessa voce e lo stesso elenco della Console.
 
+Per la conversazione automatica con Qwen, configurazione e prove sono in
+[s2s-automation.md](s2s-automation.md).
+
 ## Rationale
 
 Scrivi o incolla il tuo testo nell'editor dedicato. È separato dal testo vocale e non viene inviato a Gemini o a un altro servizio AI. Ctrl+Enter qui non pronuncia il testo.
@@ -19,7 +22,7 @@ I progetti e la velocità sono salvati localmente. Rationale e indicatore Model 
 7. In NEB controlla titolo e URL, prepara almeno 100 caratteri e premi Avvia inserimento. Il campo iniziale deve essere vuoto.
 8. Verifica il testo nella task e inviala personalmente.
 
-L'estensione usa soltanto activeTab, scripting e Native Messaging. L'accesso alla scheda parte dal tuo clic. Riconosce il campo textarea[data-track="comment:notes"] nel documento principale: nessun campo o più candidati impediscono l'operazione. Non modifica il valore della textarea via JavaScript e non preme Submit.
+L'estensione usa activeTab, scripting e Native Messaging; per l'ascolto automatico usa anche tabCapture e offscreen. L'accesso alla scheda e l'avvio dell'ascolto partono dai tuoi clic. Riconosce il campo textarea[data-track="comment:notes"] nel documento principale: nessun campo o più candidati impediscono l'operazione. Non modifica il valore della textarea via JavaScript e non preme Submit.
 
 ## Controlli e interruzioni
 

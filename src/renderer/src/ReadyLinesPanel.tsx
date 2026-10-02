@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
 import { nextReadyLine, type ReadyLine, type ReadyLinesTab } from './readyLines'
 import { PrepareLineDialog } from './PrepareLineDialog'
@@ -6,6 +6,8 @@ import { ScriptImportPanel } from './ScriptImportPanel'
 import type { ScriptImportMode, ScriptImportResult } from './scriptImport'
 
 export interface ReadyLinesPanelProps {
+  automation?: (editorReady: boolean) => ReactNode
+  automationLocked?: boolean
   linesA: ReadyLine[]
   linesB: ReadyLine[]
   activeTab: ReadyLinesTab
@@ -41,6 +43,8 @@ export interface ReadyLinesPanelProps {
 }
 
 export function ReadyLinesPanel({
+  automation,
+  automationLocked = false,
   linesA,
   linesB,
   activeTab,
@@ -233,6 +237,8 @@ export function ReadyLinesPanel({
           </div>
         </header>
 
+        {automation?.(!unsaved && !importing && editingId === null && !preparedId && !generatingModelB && !singleRegeneratingId)}
+        <fieldset className="ready-script-fields" disabled={automationLocked} aria-label="Script e battute">
         <div className="ready-tabs" role="tablist" aria-label="Seleziona modello battute">
           <button
             role="tab"
@@ -502,6 +508,7 @@ export function ReadyLinesPanel({
             </button>
           )}
         </footer>
+        </fieldset>
         {preparedLine && <PrepareLineDialog key={preparedLine.id} line={preparedLine} index={preparedIndex} total={lines.length} tab={activeTab} canPlay={ready && canPrepare} onClose={() => setPreparedId(null)} onNavigate={(direction) => setPreparedId(lines[preparedIndex + direction]?.id ?? null)} onPlay={(text) => {
           onEdit(preparedLine.id, text)
           setPreparedId(null)

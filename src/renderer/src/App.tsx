@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
 import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
+import { AutomationPanel } from './s2s/AutomationPanel'
+import { useS2SAutomation } from './s2s/useS2SAutomation'
 import { importReadyLines } from './scriptImport'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
@@ -63,6 +65,19 @@ export function App(): React.JSX.Element {
   const playbackActive = useRef(false)
   const generationInProgress = useRef(false)
   const scriptInput = useRef<HTMLTextAreaElement>(null)
+  const s2sProject = outlierWorkspace.data.projects.find((project) => project.id === outlierWorkspace.selectedId)
+  const s2sUnavailableReason = info?.platform !== 'win32' ? 'Avvia NEB dalla versione Windows.'
+    : !s2sProject || s2sProject.integration !== 's2s' || s2sProject.archived ? 'Seleziona un progetto S2S attivo nella pagina Outlier.'
+    : !outlierWorkspace.status?.connected ? 'Collega la scheda S2S dal popup NEB in Edge.'
+    : !outlierWorkspace.status.stopAvailable ? 'La scorciatoia globale Ctrl+Alt+S deve essere disponibile.'
+    : outlierWorkspace.locked ? 'Ferma l’inserimento Rationale prima della conversazione automatica.'
+    : !gemini.ready ? 'Configura la voce Gemini prima di avviare.'
+    : !routingStatus(outputs, settings.outputDeviceId, info?.platform).routed ? 'Seleziona CABLE Input come uscita NEB e CABLE Output come microfono in Edge.' : ''
+  const automation = useS2SAutomation({ settings, available: !s2sUnavailableReason, unavailableReason: s2sUnavailableReason,
+    manualBusy: busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy,
+    tab: activeReadyTab, projectId: outlierWorkspace.selectedId, target: outlierWorkspace.status?.target ?? null,
+    onComplete: (tab, id) => (tab === 'modelA' ? setReadyLinesA : setReadyLinesB)((lines) => completeReadyLine(lines, id))
+  })
 
   useEffect(() => {
     void window.neb.getAppInfo().then(setInfo).catch((reason: unknown) => setError(message(reason)))
@@ -177,6 +192,7 @@ export function App(): React.JSX.Element {
   }
 
   async function saveGeminiKey(request: SaveGeminiKeyRequest): Promise<boolean> {
+    if (automation.isLocked()) return false
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -194,6 +210,7 @@ export function App(): React.JSX.Element {
   }
 
   async function selectGeminiKey(source: GeminiKeySource): Promise<void> {
+    if (automation.isLocked()) return
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -210,6 +227,7 @@ export function App(): React.JSX.Element {
   }
 
   async function removeGeminiKey(): Promise<void> {
+    if (automation.isLocked()) return
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -236,6 +254,7 @@ export function App(): React.JSX.Element {
   }
 
   async function update(patch: Partial<AppSettings>): Promise<void> {
+    if (automation.isLocked()) return
     try {
       const next = await window.neb.updateSettings(patch)
       audio.current.setVolume(next.outputVolume)
@@ -245,11 +264,13 @@ export function App(): React.JSX.Element {
   }
 
   function previewOutputVolume(volume: number): void {
+    if (automation.isLocked()) return
     audio.current.setVolume(volume)
     setSettings((current) => ({ ...current, outputVolume: volume }))
   }
 
   async function loadFile(file: File | undefined): Promise<void> {
+    if (automation.isLocked()) return
     if (!file) return
     playbackReadyLine.current = null
     playbackActive.current = false
@@ -272,6 +293,7 @@ export function App(): React.JSX.Element {
   }
 
   async function play(): Promise<void> {
+    if (automation.isLocked()) return
     if (!fileName || busy) return
     playbackReadyLine.current = null
     try {
@@ -286,6 +308,7 @@ export function App(): React.JSX.Element {
   }
 
   async function replay(): Promise<void> {
+    if (automation.isLocked()) return
     if (!hasAudio || busy) return
     playbackReadyLine.current = null
     try {
@@ -300,6 +323,7 @@ export function App(): React.JSX.Element {
   }
 
   async function speak(text: string = script, readyLineId: string | null = null): Promise<void> {
+    if (automation.isLocked()) return
     if (busy || !gemini.ready || !text.trim()) return
     if (outputs.length === 0) {
       setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa prima di generare la voce.')
@@ -359,6 +383,7 @@ export function App(): React.JSX.Element {
   }
 
   function stop(): void {
+    automation.stop()
     playbackReadyLine.current = null
     requestId.current++
     audio.current.stop()
@@ -396,6 +421,7 @@ export function App(): React.JSX.Element {
   }
 
   async function importVoiceProfile(): Promise<void> {
+    if (automation.isLocked()) return
     setVoiceProfileBusy(true)
     setVoiceProfileError('')
     setVoiceProfileMessage('')
@@ -410,6 +436,7 @@ export function App(): React.JSX.Element {
   }
 
   async function generateModelBLines(): Promise<void> {
+    if (automation.isLocked()) return
     if (readyLinesA.length === 0 || generatingModelB) return
     setGeneratingModelB(true)
     setError('')
@@ -433,6 +460,7 @@ export function App(): React.JSX.Element {
   }
 
   async function regenerateSingleLine(id: string, text: string, index: number): Promise<void> {
+    if (automation.isLocked()) return
     if (singleRegeneratingId || generatingModelB) return
     setSingleRegeneratingId(id)
     setError('')
@@ -459,20 +487,24 @@ export function App(): React.JSX.Element {
   const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
   const setLines = activeReadyTab === 'modelA' ? setReadyLinesA : setReadyLinesB
   const common = {
-    settings, gemini, script, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, activeKeyName,
+    settings, gemini, script, scriptInput, routing, isLinux, busy: busy || automation.locked,
+    playing: playing || automation.snapshot.phase === 'speaking', hasAudio,
+    status: automation.locked ? automation.snapshot.message : status, error: automation.error || error, metrics, activeKeyName,
     readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => setReadyOpen(true),
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
   const readyPanel = readyOpen && (
     <ReadyLinesPanel
+      automationLocked={automation.locked}
+      automation={(editorReady) => <AutomationPanel automation={automation} lines={activeReadyTab === 'modelA' ? readyLinesA : readyLinesB} tab={activeReadyTab} available={!s2sUnavailableReason} unavailableReason={s2sUnavailableReason} editorReady={editorReady} />}
       linesA={readyLinesA}
       linesB={readyLinesB}
       activeTab={activeReadyTab}
       onTabChange={setActiveReadyTab}
       currentScript={script}
       ready={gemini.ready}
-      busy={busy}
-      playing={playing}
+      busy={busy || automation.locked}
+      playing={playing || automation.snapshot.phase === 'speaking'}
       activeLineId={activeReadyLineId}
       completedLine={completedReadyLine}
       onConsumeCompletion={() => setCompletedReadyLine(null)}
@@ -480,8 +512,8 @@ export function App(): React.JSX.Element {
       onAutoPrepareChange={setAutoPrepare}
       prepareRequested={prepareRequested}
       onConsumePrepare={() => setPrepareRequested(false)}
-      status={status}
-      error={error}
+      status={automation.locked ? automation.snapshot.message : status}
+      error={automation.error || error}
       generatingModelB={generatingModelB}
       onGenerateModelB={() => void generateModelBLines()}
       singleRegeneratingId={singleRegeneratingId}
@@ -527,7 +559,7 @@ export function App(): React.JSX.Element {
       <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready && !keyBusy ? 'connection ready' : 'connection'} aria-live="polite"><span className="status-dot" /><span className="connection-copy"><strong title={activeKeyName}>API in uso: {activeKeyName}</strong><small>{keyBusy ? 'Verifica in corso…' : gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</small></span></div></header>
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
       {page === 'outlier' && <OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} />}
-      {page === 'settings' && <SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} />}
+      {page === 'settings' && <fieldset className="settings-session-lock" disabled={automation.locked}><SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy || automation.locked} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy || automation.locked} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} /></fieldset>}
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
     </main>

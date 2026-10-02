@@ -1,4 +1,5 @@
 import type { OutlierApi } from './outlier'
+import type { S2SApi } from './s2s'
 
 export const GEMINI_MODELS = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts'] as const
 export const GEMINI_PREBUILT_VOICES = ['Kore', 'Puck'] as const
@@ -129,7 +130,7 @@ export interface VoiceProfileExportResult {
   fileName: string
 }
 
-export interface DesktopApi extends OutlierApi {
+export interface DesktopApi extends OutlierApi, S2SApi {
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<AppSettings>
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>

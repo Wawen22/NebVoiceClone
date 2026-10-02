@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { ProjectStore } from './projectStore'
 import { NativeBridge } from './bridge'
 import { InsertionController } from './insertionController'
+import { AudioCaptureRelay } from './audioCapture'
 import { insertionLocked, parseInsertionRequest, type OutlierSetup } from '../../shared/outlier'
 
 const execute = promisify(execFile)
@@ -17,7 +18,17 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
   const hostDirectory = join(app.getPath('userData'), 'outlier-host')
   const configPath = join(hostDirectory, 'connection.json')
   const store = new ProjectStore(join(app.getPath('userData'), 'outlier-projects.json'))
-  const bridge = new NativeBridge((target) => controller.associate(target), () => controller.disconnect(), (message, reason) => controller.invalidate(message, reason))
+  const audio = new AudioCaptureRelay((event) => {
+    const web = getWebContents()
+    if (web && !web.isDestroyed()) web.send('s2s:audio', event)
+  })
+  const bridge = new NativeBridge((target) => {
+    if (audio.status.state === 'active') audio.disconnect('Scheda associata nuovamente: riavvia l’ascolto.')
+    controller.associate(target)
+  }, () => { audio.disconnect('Collegamento Edge interrotto.'); controller.disconnect() }, (message, reason) => {
+    if (reason !== 'focus') audio.disconnect('Scheda o destinazione cambiata.')
+    controller.invalidate(message, reason)
+  }, (packet) => audio.receive(packet, controller.status.target))
   const controller = new InsertionController(bridge, supported, (status) => {
     const web = getWebContents()
     if (web && !web.isDestroyed()) web.send('outlier:status', status)
@@ -58,6 +69,12 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
     return store.save(value)
   })
   ipcMain.handle('outlier:getStatus', (event) => { trust(event.sender, event.senderFrame); return controller.status })
+  ipcMain.handle('s2s:audioStatus', (event) => { trust(event.sender, event.senderFrame); return audio.status })
+  ipcMain.handle('s2s:stopAudio', async (event) => {
+    trust(event.sender, event.senderFrame)
+    audio.disconnect('Ascolto fermato da NEB.')
+    try { await bridge.request('browser', 'audio-stop', {}) } catch { /* A disconnected extension cannot send more audio. */ }
+  })
   ipcMain.handle('outlier:start', async (event, value: unknown) => {
     trust(event.sender, event.senderFrame)
     if (installing) throw new Error('Attendi la configurazione del collegamento.')
@@ -93,7 +110,7 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
   })
   return {
     controller,
-    close: () => { controller.stop(); bridge.close() },
+    close: () => { controller.stop(); audio.disconnect('NEB chiuso.'); bridge.close() },
     initialize: async () => {
       if (!supported) return
       await bridge.listen()
