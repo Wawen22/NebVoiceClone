@@ -43,7 +43,7 @@ export class PcmTimeline {
 interface SimulationDependencies {
   reply(request: S2SSimulationRequest, signal: AbortSignal): Promise<S2SSimulationReply>
   play(text: string, signal: AbortSignal): Promise<void>
-  cost(reply: S2SSimulationReply): boolean
+  cost(reply: S2SSimulationReply, accepted: boolean): boolean
   state(message: string): void
   failed(message: string): void
 }
@@ -80,7 +80,7 @@ export class SimulatedModel {
     try {
       const reply = cached ?? await this.deps.reply({ requestId: `simulation-${this.id}-${token}`, scenario: this.scenario, history: this.history.slice(-60) }, operation.signal)
       // Known costs belong to this session even if Pause/Stop invalidated playback.
-      const canContinue = cached ? true : this.deps.cost(reply)
+      const canContinue = cached ? true : this.deps.cost(reply, token === this.serial && !operation.signal.aborted && !this.disposed)
       if (token !== this.serial || operation.signal.aborted || this.disposed) return
       if (!canContinue) { this.pause(); return }
       operation.signal.throwIfAborted()

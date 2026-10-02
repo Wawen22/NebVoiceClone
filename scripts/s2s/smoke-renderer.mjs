@@ -61,7 +61,7 @@ try {
       currentTime = 0
       createMediaStreamDestination() { return { stream: {} } }
       createBuffer(_channels, length) { return { duration: length / 24000, getChannelData: () => new Float32Array(length) } }
-      createBufferSource() { let timer; return { buffer: null, onended: null, connect() {}, start() { timer = setTimeout(() => this.onended?.(), 100) }, stop() { clearTimeout(timer); this.onended?.() } } }
+      createBufferSource() { let timer; return { buffer: null, onended: null, connect() {}, start() { timer = setTimeout(() => this.onended?.(), this.buffer.duration * 1000) }, stop() { clearTimeout(timer); this.onended?.() } } }
       async resume() {}
       async close() {}
     }
@@ -96,8 +96,8 @@ try {
       cancelS2SSimulationReply: async () => {},
       synthesizeStream: async (request, onChunk) => {
         fixture.spoken.push(request.text)
-        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 9600 : 4800)
-        if (request.voice.voiceId === 'Puck') { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, 2000, true) }
+        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 24000 : 14400)
+        { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, 2000, true) }
         onChunk(pcm); return { generationMs: 10 }
       }
     }
@@ -110,28 +110,42 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}`)
   await page.getByRole('button', { name: /Battute pronte/i }).click()
   const addLine = async (text) => {
+    if (await page.getByRole('button', { name: 'Torna alle battute', exact: true }).count()) await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
     await page.getByRole('button', { name: 'Nuova battuta', exact: true }).click()
     await page.locator('#ready-text').fill(text)
     await page.getByRole('button', { name: 'Salva battuta', exact: true }).click()
   }
   await addLine('Descrivi la soluzione.'); await addLine('Quali limiti ha?')
-  await page.getByLabel('Automatico', { exact: true }).check()
+  await page.getByRole('button', { name: 'Automatico', exact: true }).click()
+  const openAutomatic = async (source = 'outlier') => {
+    if (await page.getByRole('button', { name: 'Automatico', exact: true }).count()) await page.getByRole('button', { name: 'Automatico', exact: true }).click()
+    await page.getByRole('button', { name: source === 'outlier' ? 'Outlier / Edge' : 'Simulazione', exact: true }).click()
+  }
+  await openAutomatic()
   const start = page.getByRole('button', { name: /Avvia MODEL A/ })
   await start.click()
+  await page.waitForFunction(() => Number(document.querySelector('canvas[aria-label="Onde audio NEB"]')?.dataset.level) > 0)
   await page.getByText('Attendo la risposta di Outlier.', { exact: false }).first().waitFor()
-  assert.equal(await page.getByRole('tab', { name: /MODEL B/ }).isDisabled(), true)
-  assert.equal(await page.getByRole('button', { name: 'Nuova battuta', exact: true }).isDisabled(), true)
+  assert.equal(await page.getByRole('tab', { name: /MODEL B/ }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: 'Nuova battuta', exact: true }).count(), 0)
   await page.evaluate(() => window.fixture.voice())
+  await page.waitForFunction(() => Number(document.querySelector('canvas[aria-label="Onde audio MODEL A"]')?.dataset.level) > 0)
   await page.waitForFunction(() => window.fixture.spoken.length === 2)
   assert.deepEqual(await page.evaluate(() => window.fixture.spoken), ['Descrivi la soluzione.', 'E quali limiti ha?'])
   await page.getByText('Ascolto la risposta finale di Outlier.', { exact: false }).first().waitFor()
   await page.evaluate(() => window.fixture.voice())
   await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.spoken.length), 2)
+  assert.deepEqual(await page.locator('.s2s-message.neb > p').allTextContents(), ['Descrivi la soluzione.', 'E quali limiti ha?'])
+  assert.equal(await page.locator('.s2s-message.model').count(), 2)
+  assert.equal(await page.getByText('2/2 battute completate', { exact: true }).count(), 1)
+  const artifacts = path.resolve('.superpowers/s2s-smoke')
+  await mkdir(artifacts, { recursive: true })
+  await page.screenshot({ path: path.join(artifacts, 'automatic-player.png') })
 
   await addLine('Fammi un esempio concreto.')
   await page.evaluate(() => { window.fixture.holdAdapt = true })
-  await start.click()
+  await openAutomatic(); await start.click()
   await page.getByText('Ascolto la risposta finale di Outlier.', { exact: false }).first().waitFor()
   await page.evaluate(() => window.fixture.voice())
   await page.waitForFunction(() => window.fixture.release !== null)
@@ -142,7 +156,7 @@ try {
 
   await addLine('Un ultimo chiarimento.')
   await page.evaluate(() => { window.fixture.holdAdapt = false })
-  await start.click()
+  await openAutomatic(); await start.click()
   await page.getByText('Ascolto la risposta finale di Outlier.', { exact: false }).first().waitFor()
   await page.evaluate(() => window.fixture.replaceCapture())
   await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).waitFor()
@@ -154,15 +168,21 @@ try {
   await page.evaluate(() => window.fixture.disconnect())
   await addLine('Vorrei preparare una lezione. Da dove parto?')
   await addLine('Quali limiti devo considerare?')
+  await openAutomatic('simulation')
   const simulate = page.getByRole('button', { name: 'Simulazione MODEL A', exact: true })
   await simulate.click()
   await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), 2)
+  await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
+  await openAutomatic('simulation')
   await page.evaluate(() => { window.fixture.holdAdapt = true; window.fixture.release = null })
   await simulate.click()
   await page.waitForFunction(() => window.fixture.release !== null)
   const modelBeforePause = await page.evaluate(() => window.fixture.modelRequests.length)
+  await page.getByRole('button', { name: 'Riduci', exact: true }).click()
+  await page.getByRole('button', { name: /Apri player/ }).click()
+  assert.equal(await page.getByRole('dialog', { name: 'Conversazione automatica', exact: true }).count(), 1)
   await page.getByRole('button', { name: 'Pausa', exact: true }).click()
   await page.evaluate(() => { window.fixture.holdAdapt = false; window.fixture.release() })
   await page.getByRole('button', { name: 'Riprendi simulazione', exact: true }).click()
@@ -176,10 +196,11 @@ try {
   await page.evaluate(() => window.fixture.releaseModel())
   await page.waitForTimeout(500)
   assert.equal(await page.evaluate(() => window.fixture.spoken.length), spokenBeforeStop)
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('dialog', { name: 'Conversazione automatica', exact: true }).count(), 0)
+  await page.getByRole('button', { name: /Battute pronte/i }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   assert.deepEqual(errors, [])
-  const artifacts = path.resolve('.superpowers/s2s-smoke')
-  await mkdir(artifacts, { recursive: true })
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+  console.log('PASS: dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
 } finally { await browser.close(); server.close() }

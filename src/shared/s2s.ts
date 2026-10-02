@@ -8,6 +8,12 @@ export interface S2SAdaptRequest {
   nextLine: S2SLine | null
   scenario: string
   history: S2SHistoryItem[]
+  remainingCostUsd?: number
+}
+
+export function isUnchangedS2SLine(original: string, adapted: string): boolean {
+  const normalize = (text: string): string => text.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return normalize(original) === normalize(adapted)
 }
 export interface S2SDecision {
   action: 'speak' | 'wait' | 'pause' | 'complete'
@@ -15,6 +21,8 @@ export interface S2SDecision {
   nextText: string
   reason: string
   costUsd: number | null
+  /** Observed portion of the cost when the total (e.g. cancelled repair) is unknown. */
+  knownCostUsd?: number
   qwenMs: number
 }
 export interface S2SSimulationRequest { requestId: string; scenario: string; history: S2SHistoryItem[] }
@@ -56,11 +64,12 @@ export function parseS2SAdaptRequest(value: unknown): S2SAdaptRequest {
   const v = value as S2SAdaptRequest
   const validText = (text: unknown, max: number): text is string => typeof text === 'string' && text.length <= max
   if (!validText(v.requestId, 100) || !v.requestId || !validText(v.scenario, 4000) ||
+      (v.remainingCostUsd !== undefined && (!Number.isFinite(v.remainingCostUsd) || v.remainingCostUsd <= 0)) ||
       !(v.audioPcm instanceof Uint8Array) || !v.audioPcm.length || v.audioPcm.length % 2 || v.audioPcm.length > MAX_S2S_AUDIO_BYTES ||
       !Array.isArray(v.history) || v.history.length > 60 ||
       v.history.some((item) => !item || !['user', 'assistant'].includes(item.role) || !validText(item.text, 16000) || (item.partial !== undefined && typeof item.partial !== 'boolean')) ||
       (v.nextLine !== null && (!v.nextLine || !validText(v.nextLine.id, 100) || !v.nextLine.id || !validText(v.nextLine.text, 4000) || !v.nextLine.text.trim()))) {
     throw new Error('Audio o contesto S2S non valido (massimo 120 secondi per risposta).')
   }
-  return { requestId: v.requestId, scenario: v.scenario, audioPcm: v.audioPcm, nextLine: v.nextLine, history: v.history }
+  return { requestId: v.requestId, scenario: v.scenario, audioPcm: v.audioPcm, nextLine: v.nextLine, history: v.history, remainingCostUsd: v.remainingCostUsd }
 }

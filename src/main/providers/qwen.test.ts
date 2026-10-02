@@ -8,6 +8,57 @@ const request = {
   scenario: 'Confrontare due soluzioni', history: [{ role: 'user' as const, text: 'Descrivi la soluzione.' }]
 }
 
+function reply(nextText: string, cost: number | null = 0.001): Response {
+  return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'speak', transcript: 'Ha un costo alto.', nextText, reason: 'Risposta conclusa.' }) } }], usage: { cost } }))
+}
+
+it('repairs an unchanged line using the transcript without uploading the audio twice', async () => {
+  const bodies: any[] = []
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    bodies.push(JSON.parse(String(options.body)))
+    return bodies.length === 1 ? reply(' quali svantaggi ci sono! ') : reply('Oltre al costo alto, quali altri svantaggi ci sono?')
+  })
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.nextText).toBe('Oltre al costo alto, quali altri svantaggi ci sono?')
+  expect(result.transcript).toBe('Ha un costo alto.')
+  expect(result.costUsd).toBe(0.002)
+  expect(bodies).toHaveLength(2)
+  expect(JSON.stringify(bodies[1])).not.toContain('input_audio')
+  expect(JSON.stringify(bodies[1])).toContain('Ha un costo alto.')
+})
+
+it('pauses after one ineffective repair instead of pronouncing an unchanged script', async () => {
+  const fetcher = vi.fn(async () => reply(request.nextLine.text))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('pause')
+  expect(result.nextText).toBe('')
+  expect(result.costUsd).toBe(0.002)
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+it.each([null, 0.001])('does not start a paid repair with unknown or exhausted remaining budget (%s)', async (cost) => {
+  const fetcher = vi.fn(async () => reply(request.nextLine.text, cost))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await adaptS2STurn({ ...request, remainingCostUsd: 0.001 }, { apiKey: 'test' })
+  expect(result.action).toBe('pause')
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('preserves the observed initial charge and flags uncertain repair cost on cancellation', async () => {
+  const abort = new AbortController()
+  let calls = 0
+  vi.stubGlobal('fetch', async () => {
+    if (++calls === 1) return reply(request.nextLine.text)
+    abort.abort()
+    throw new DOMException('Cancelled', 'AbortError')
+  })
+  const result = await adaptS2STurn(request, { apiKey: 'test', signal: abort.signal })
+  expect(result.action).toBe('pause')
+  expect(result.costUsd).toBeNull()
+  expect(result.knownCostUsd).toBe(0.001)
+})
+
 it('sends captured PCM as a valid mono 16kHz WAV and preserves script context', async () => {
   let payload: Record<string, any> = {}
   vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {

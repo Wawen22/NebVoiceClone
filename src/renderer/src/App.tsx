@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
 import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
-import { AutomationPanel } from './s2s/AutomationPanel'
+import { AutomationPanel, AutomationLauncher } from './s2s/AutomationPanel'
 import { useS2SAutomation } from './s2s/useS2SAutomation'
 import { localSimulationOutputs } from './s2s/simulation'
 import { importReadyLines } from './scriptImport'
@@ -33,6 +33,7 @@ export function App(): React.JSX.Element {
   const [generatingModelB, setGeneratingModelB] = useState(false)
   const [singleRegeneratingId, setSingleRegeneratingId] = useState<string | null>(null)
   const [readyOpen, setReadyOpen] = useState(false)
+  const [automationOpen, setAutomationOpen] = useState(false)
   const [activeReadyLineId, setActiveReadyLineId] = useState<string | null>(null)
   const [completedReadyLine, setCompletedReadyLine] = useState<{ id: string; tab: ReadyLinesTab } | null>(null)
   const [autoPrepare, setAutoPrepare] = useState(true)
@@ -494,13 +495,13 @@ export function App(): React.JSX.Element {
     settings, gemini, script, scriptInput, routing, isLinux, busy: busy || automation.locked,
     playing: playing || automation.snapshot.phase === 'speaking', hasAudio,
     status: automation.locked ? automation.snapshot.message : status, error: automation.error || error, metrics, activeKeyName,
-    readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => setReadyOpen(true),
+    readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => automation.locked ? setAutomationOpen(true) : setReadyOpen(true),
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
   const readyPanel = readyOpen && (
     <ReadyLinesPanel
       automationLocked={automation.locked}
-      automation={(editorReady) => <AutomationPanel automation={automation} lines={activeReadyTab === 'modelA' ? readyLinesA : readyLinesB} tab={activeReadyTab} available={!s2sUnavailableReason} unavailableReason={s2sUnavailableReason} simulationAvailable={gemini.ready && !outlierWorkspace.locked} localOutputs={localSimulationOutputs(outputs)} editorReady={editorReady} />}
+      automation={(editorReady) => <AutomationLauncher editorReady={editorReady} onOpen={() => { setReadyOpen(false); setAutomationOpen(true) }} />}
       linesA={readyLinesA}
       linesB={readyLinesB}
       activeTab={activeReadyTab}
@@ -541,8 +542,12 @@ export function App(): React.JSX.Element {
       onClose={() => setReadyOpen(false)}
     />
   )
+  const automationPanel = <>
+    <AutomationPanel open={automationOpen} onClose={() => setAutomationOpen(false)} onScript={() => { setAutomationOpen(false); setReadyOpen(true) }} automation={automation} lines={activeReadyTab === 'modelA' ? readyLinesA : readyLinesB} tab={activeReadyTab} available={!s2sUnavailableReason} unavailableReason={s2sUnavailableReason} simulationAvailable={gemini.ready && !outlierWorkspace.locked} localOutputs={localSimulationOutputs(outputs)} />
+    {!automationOpen && automation.locked && <button className="s2s-reopen" onClick={() => setAutomationOpen(true)}><span className="status-dot green" /> Automatico · {automation.snapshot.lineIndex}/{automation.snapshot.total} · Apri player</button>}
+  </>
 
-  if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}</>
+  if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}{automationPanel}</>
 
   const pageTitle = page === 'console' ? 'Console' : page === 'outlier' ? 'Outlier' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
   return <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame'}>
@@ -568,6 +573,7 @@ export function App(): React.JSX.Element {
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
     </main>
     {readyPanel}
+    {automationPanel}
   </div>
 }
 

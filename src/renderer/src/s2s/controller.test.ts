@@ -175,3 +175,37 @@ it('records late simulation cost during pause and refuses resume when the observ
   s.controller.resume()
   expect(s.controller.snapshot.phase).toBe('paused')
 })
+
+it('clears the spoken preview while listening and exposes the frozen session script', async () => {
+  const s = session()
+  expect(s.controller.snapshot.script.map((line) => line.id)).toEqual(['1', '2'])
+  s.plays[0].resolve(); await flush()
+  expect(s.controller.snapshot.nextText).toBe('')
+  expect(s.controller.snapshot.log.find((entry) => entry.kind === 'voice')).toMatchObject({ lineIndex: 0, adapted: 'Descrivi la soluzione.' })
+  s.feed(true, 3); s.feed(false, 25)
+  expect(s.requests[0].request.remainingCostUsd).toBe(1)
+})
+
+it('refuses unchanged proposals even if a provider bypasses the repair guard', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.feed(true, 3); s.feed(false, 25)
+  s.requests[0].resolve({ ...decision, nextText: 'QUALI LIMITI HA!' }); await flush(); s.feed(false, 4)
+  expect(s.controller.snapshot.phase).toBe('paused')
+  expect(s.spoken).toHaveLength(1)
+})
+
+it('marks late decisions as discarded so they cannot appear as accepted transcript', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.feed(true, 3); s.feed(false, 25); s.controller.stop()
+  s.requests[0].resolve(decision); await flush()
+  expect(s.controller.snapshot.log.find((entry) => entry.kind === 'decision')?.accepted).toBe(false)
+})
+
+it('accounts for the known initial charge when a cancelled repair has uncertain total cost', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.feed(true, 3); s.feed(false, 25); s.controller.pause(); s.controller.resume()
+  s.requests[0].resolve({ ...decision, action: 'pause', nextText: '', costUsd: null, knownCostUsd: 0.001 }); await flush(); s.feed(false)
+  expect(s.controller.snapshot.costUsd).toBe(0.001)
+  expect(s.controller.snapshot.costKnown).toBe(false)
+  expect(s.controller.snapshot.phase).toBe('paused')
+})

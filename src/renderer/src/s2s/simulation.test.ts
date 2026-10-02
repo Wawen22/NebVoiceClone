@@ -97,3 +97,15 @@ it('drains every elapsed frame when a 300ms renderer stall delays the simulation
   expect(delayed).toHaveLength(3)
   expect(delayed.every((pcm) => new DataView(pcm.buffer).getInt16(100, true) === 2000)).toBe(true)
 })
+
+it('reports obsolete paid replies as discarded even after the model has resumed', async () => {
+  const releases: Array<(reply: S2SSimulationReply) => void> = [], accepted: boolean[] = []
+  const simulation = new SimulatedModel('', {
+    reply: () => new Promise((resolve) => releases.push(resolve)), play: async () => {},
+    cost: (_reply, current) => { accepted.push(current); return true }, state: () => {}, failed: () => {}
+  })
+  simulation.respond('Ciao'); simulation.pause(); simulation.resume()
+  releases[0](reply); await flush()
+  releases[1](reply); await flush()
+  expect(accepted).toEqual([false, true])
+})

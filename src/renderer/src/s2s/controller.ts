@@ -1,15 +1,16 @@
-import { MAX_S2S_AUDIO_BYTES, type S2SAdaptRequest, type S2SDecision, type S2SHistoryItem, type S2SLine } from '../../../shared/s2s'
+import { MAX_S2S_AUDIO_BYTES, isUnchangedS2SLine, type S2SAdaptRequest, type S2SDecision, type S2SHistoryItem, type S2SLine } from '../../../shared/s2s'
 
 export type S2SPhase = 'idle' | 'preparing-voice' | 'speaking' | 'listening' | 'waiting' | 'adapting' | 'ready' | 'paused' | 'stopped' | 'completed'
 export interface S2SOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
 export const DEFAULT_S2S_OPTIONS: S2SOptions = { silenceMs: 2500, responseTimeoutMs: 30000, maxDurationMs: 20 * 60000, maxTurns: 40, maxCostUsd: 1 }
 export interface S2SLogEntry {
   atMs: number; kind: string; text: string; original?: string; adapted?: string; transcript?: string
+  lineIndex?: number; utteranceId?: number; responseId?: number; accepted?: boolean; action?: S2SDecision['action']
   qwenMs?: number; firstAudioMs?: number; silenceMs?: number; costUsd?: number | null
 }
 export interface S2SSnapshot {
   phase: S2SPhase; message: string; lineIndex: number; total: number; spokenTurns: number
-  costUsd: number; costKnown: boolean; nextText: string; level: number; log: S2SLogEntry[]
+  script: S2SLine[]; costUsd: number; costKnown: boolean; nextText: string; level: number; log: S2SLogEntry[]
 }
 export interface S2SDependencies {
   now(): number
@@ -20,7 +21,7 @@ export interface S2SDependencies {
 }
 
 export class S2SController {
-  snapshot: S2SSnapshot = { phase: 'idle', message: 'Automatico pronto da configurare.', lineIndex: 0, total: 0, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, log: [] }
+  snapshot: S2SSnapshot = { phase: 'idle', message: 'Automatico pronto da configurare.', lineIndex: 0, total: 0, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], log: [] }
   private lines: S2SLine[] = []
   private history: S2SHistoryItem[] = []
   private scenario = ''
@@ -40,8 +41,9 @@ export class S2SController {
   private preRoll: Uint8Array[] = []
   private serial = 0
   private sessionId = 0
+  private responseId = 0
   private operation: AbortController | null = null
-  private play: { line: S2SLine; text: string; started: boolean; at: number } | null = null
+  private play: { line: S2SLine; text: string; started: boolean; at: number; utteranceId: number; lineIndex: number } | null = null
   private proposalAt = 0
   private proposal: S2SDecision | null = null
   private adaptationAt = 0
@@ -62,9 +64,11 @@ export class S2SController {
     this.scenario = scenario
     this.options = settings
     this.history = []
+    this.responseId = 0
     this.startedAt = this.dependencies.now()
     this.lastPacketAt = this.startedAt
-    this.snapshot = { phase: 'idle', message: '', lineIndex: 0, total: lines.length, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, log: [] }
+    this.snapshot = { phase: 'idle', message: '', lineIndex: 0, total: lines.length, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], log: [] }
+    this.snapshot.script = this.lines.map((line) => ({ ...line }))
     this.resetResponse()
     this.log('session', 'Sessione avviata; obiettivo e ordine dello script conservati.')
     void this.speak(lines[0].text)
@@ -169,10 +173,10 @@ export class S2SController {
     if (this.snapshot.phase !== 'idle') { this.log('stop', 'Sessione fermata.'); this.setPhase('stopped', 'Automatico fermato.') }
   }
 
-  recordSimulationReply(reply: { text: string; modelMs: number; costUsd: number | null }): boolean {
+  recordSimulationReply(reply: { text: string; modelMs: number; costUsd: number | null }, accepted = this.active): boolean {
     if (reply.costUsd === null) this.snapshot.costKnown = false
     else this.snapshot.costUsd += reply.costUsd
-    this.log('simulation-model', `MODEL A simulato · risposta generata in ${reply.modelMs} ms.`, { transcript: reply.text, costUsd: reply.costUsd })
+    this.log('simulation-model', `MODEL A simulato · risposta generata in ${reply.modelMs} ms.`, { transcript: reply.text, costUsd: reply.costUsd, responseId: this.responseId, accepted: accepted && this.active })
     if (!this.snapshot.costKnown || this.snapshot.costUsd >= this.options.maxCostUsd) {
       if (this.locked) this.pause('Limite di costo simulazione raggiunto o costo non disponibile.')
       else this.publish()
@@ -183,7 +187,7 @@ export class S2SController {
   }
 
   private async adapt(): Promise<void> {
-    const token = ++this.serial, session = this.sessionId
+    const token = ++this.serial, session = this.sessionId, responseId = this.responseId
     const operation = new AbortController()
     this.operation = operation
     this.analyzedVersion = this.voiceVersion
@@ -194,11 +198,11 @@ export class S2SController {
     this.setPhase('adapting', 'Qwen ascolta la risposta e adatta la prossima battuta…')
     try {
       const decision = await this.dependencies.adapt({ requestId: `s2s-${session}-${token}`, audioPcm: pcm,
-        nextLine: this.lines[this.snapshot.lineIndex] ?? null, scenario: this.scenario, history: this.history.slice(-60) }, operation.signal)
+        nextLine: this.lines[this.snapshot.lineIndex] ?? null, scenario: this.scenario, history: this.history.slice(-60), remainingCostUsd: this.options.maxCostUsd - this.snapshot.costUsd }, operation.signal)
       if (session !== this.sessionId) return
-      if (decision.costUsd === null) this.snapshot.costKnown = false
+      if (decision.costUsd === null) { this.snapshot.costKnown = false; this.snapshot.costUsd += decision.knownCostUsd ?? 0 }
       else this.snapshot.costUsd += decision.costUsd
-      this.log('decision', decision.reason, { transcript: decision.transcript, qwenMs: decision.qwenMs, silenceMs: this.options.silenceMs, costUsd: decision.costUsd })
+      this.log('decision', decision.reason, { transcript: decision.transcript, qwenMs: decision.qwenMs, silenceMs: this.options.silenceMs, costUsd: decision.costUsd, responseId, action: decision.action, accepted: token === this.serial && !operation.signal.aborted })
       if (token !== this.serial || operation.signal.aborted) { this.publish(); return }
       this.operation = null
       if (this.snapshot.costUsd >= this.options.maxCostUsd || !this.snapshot.costKnown) {
@@ -217,8 +221,8 @@ export class S2SController {
       }
       if (decision.action !== 'speak' || !decision.nextText.trim() || !this.lines[this.snapshot.lineIndex]) { this.pause('Proposta Qwen non valida.'); return }
       const previousUser = [...this.history].reverse().find((item) => item.role === 'user')
-      if (previousUser?.partial && decision.nextText.trim().toLocaleLowerCase() === this.lines[this.snapshot.lineIndex].text.trim().toLocaleLowerCase()) {
-        this.pause('Qwen propone di ripetere la battuta interrotta: usa Ripeti battuta pendente solo se necessario.'); return
+      if (isUnchangedS2SLine(this.lines[this.snapshot.lineIndex].text, decision.nextText)) {
+        this.pause(previousUser?.partial ? 'Qwen propone di ripetere la battuta interrotta: usa Ripeti battuta pendente solo se necessario.' : 'Qwen ha restituito la battuta originale senza adattarla. Verifica la risposta e lo scenario.'); return
       }
       this.proposal = decision
       this.proposalAt = this.dependencies.now()
@@ -236,10 +240,10 @@ export class S2SController {
     const token = ++this.serial
     const operation = new AbortController()
     this.operation = operation
-    const play = { line, text, started: false, at: this.dependencies.now() }
+    const play = { line, text, started: false, at: this.dependencies.now(), utteranceId: token, lineIndex: this.snapshot.lineIndex }
     this.play = play
     this.snapshot.nextText = text
-    this.log('proposed', `Battuta ${this.snapshot.lineIndex + 1}`, { original: line.text, adapted: text })
+    this.log('proposed', `Battuta ${this.snapshot.lineIndex + 1}`, { original: line.text, adapted: text, lineIndex: play.lineIndex, utteranceId: play.utteranceId })
     this.setPhase('preparing-voice', 'Preparo la voce Gemini…')
     try {
       await this.dependencies.speak(text, operation.signal, () => {
@@ -248,9 +252,10 @@ export class S2SController {
           this.cancel(); this.setPhase('listening', 'Outlier sta parlando · voce NEB annullata.'); return false
         }
         play.started = true
+        this.responseId++
         if (transcript) this.history.push({ role: 'assistant', text: transcript })
         this.snapshot.spokenTurns++
-        this.log('voice', 'Primo audio Gemini.', { firstAudioMs: Math.round(this.dependencies.now() - play.at) })
+        this.log('voice', 'Primo audio Gemini.', { firstAudioMs: Math.round(this.dependencies.now() - play.at), original: line.text, adapted: text, lineIndex: play.lineIndex, utteranceId: play.utteranceId, responseId: this.responseId })
         this.setPhase('speaking', 'NEB parla · ascolto eventuali interruzioni.')
         return true
       })
@@ -259,7 +264,8 @@ export class S2SController {
       this.history.push({ role: 'user', text })
       this.dependencies.completed(line.id)
       this.snapshot.lineIndex++
-      this.log('spoken', 'Battuta pronunciata interamente.', { original: line.text, adapted: text })
+      this.snapshot.nextText = ''
+      this.log('spoken', 'Battuta pronunciata interamente.', { original: line.text, adapted: text, lineIndex: play.lineIndex, utteranceId: play.utteranceId })
       // Preserve a model response that begins just as our playback finishes.
       if (this.audioMs - this.lastVoiceMs > 300) this.resetResponse()
       this.listeningAt = this.dependencies.now()
@@ -274,9 +280,10 @@ export class S2SController {
     this.operation?.abort(); this.operation = null
     if (this.play?.started) {
       this.history.push({ role: 'user', text: this.play.text, partial: true })
-      this.log('partial', 'Battuta pronunciata solo in parte; non completata.', { original: this.play.line.text, adapted: this.play.text })
+      this.log('partial', 'Battuta pronunciata solo in parte; non completata.', { original: this.play.line.text, adapted: this.play.text, lineIndex: this.play.lineIndex, utteranceId: this.play.utteranceId })
     }
     this.play = null
+    this.snapshot.nextText = ''
   }
   private clearBuffer(): void { this.frames = []; this.bytes = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity }
   private resetResponse(): void { this.clearBuffer(); this.preRoll = []; this.audioMs = 0; this.voiceVersion = 0; this.analyzedVersion = 0 }

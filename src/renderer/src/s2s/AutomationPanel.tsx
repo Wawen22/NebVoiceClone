@@ -1,37 +1,86 @@
-import { useState } from 'react'
-import { Download, Pause, Play, Square } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Download, Pause, Play, Square, FlaskConical, ArrowLeft, Minimize2 } from 'lucide-react'
 import type { ReadyLine, ReadyLinesTab } from '../readyLines'
 import { DEFAULT_S2S_OPTIONS, type S2SOptions } from './controller'
 import type { S2SAutomation } from './useS2SAutomation'
 import type { AudioOutput } from '../audio/AudioEngine'
-import { FlaskConical } from 'lucide-react'
+import { conversationMessages, sessionLines } from './conversationView'
+import { VoiceWave } from './VoiceWave'
 
-export function AutomationPanel({ automation: a, lines, tab, available, unavailableReason, simulationAvailable, localOutputs, editorReady }: {
+export function AutomationLauncher({ editorReady, onOpen }: { editorReady: boolean; onOpen: () => void }): React.JSX.Element {
+  return <section className="s2s-launcher" aria-label="Conversazione S2S">
+    <div><strong>Conversazione S2S</strong><p>Player automatico con trascrizione e battute adattate.</p></div>
+    <button className="secondary-button" disabled={!editorReady} onClick={onOpen}><Play size={14} /> Automatico</button>
+    {!editorReady && <p>Salva o chiudi la modifica prima di aprire il player.</p>}
+  </section>
+}
+
+export function AutomationPanel({ open, onClose, onScript, automation: a, lines, tab, available, unavailableReason, simulationAvailable, localOutputs }: {
+  open: boolean; onClose: () => void; onScript: () => void
   automation: S2SAutomation; lines: ReadyLine[]; tab: ReadyLinesTab
-  available: boolean; unavailableReason: string; editorReady: boolean
+  available: boolean; unavailableReason: string
   simulationAvailable: boolean; localOutputs: AudioOutput[]
-}): React.JSX.Element {
-  const [enabled, setEnabled] = useState(false)
+}): React.JSX.Element | null {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const transcript = useRef<HTMLDivElement>(null)
+  const followTranscript = useRef(true)
+  const [source, setSource] = useState<'simulation' | 'outlier'>('simulation')
   const [scenario, setScenario] = useState('')
   const [options, setOptions] = useState<S2SOptions>(DEFAULT_S2S_OPTIONS)
   const [simulationOutput, setSimulationOutput] = useState('')
   const localDevice = localOutputs.some((output) => output.deviceId === simulationOutput) ? simulationOutput : localOutputs[0]?.deviceId ?? ''
   const canResume = a.isSimulation ? simulationAvailable && localOutputs.length > 0 : available && a.receiving
-  const shown = enabled || a.locked
   const pending = lines.filter((line) => !line.done).length
-  const model = (a.locked ? a.sessionTab : tab) === 'modelB' ? 'MODEL B' : 'MODEL A'
-  const lastDecision = [...a.snapshot.log].reverse().find((item) => item.qwenMs !== undefined)
+  const model = (a.snapshot.total ? a.sessionTab : tab) === 'modelB' ? 'MODEL B' : 'MODEL A'
+  const messages = conversationMessages(a.snapshot)
+  const turns = sessionLines(a.snapshot)
+  const current = turns[a.snapshot.lineIndex]
+  const lastDecision = [...a.snapshot.log].reverse().find((item) => item.qwenMs !== undefined && item.accepted)
   const lastVoice = [...a.snapshot.log].reverse().find((item) => item.firstAudioMs !== undefined)
-  return <section className="s2s-automation" aria-label="Conversazione automatica S2S">
-    <div className="s2s-mode">
-      <strong>Conversazione S2S</strong>
-      <label><input type="checkbox" checked={shown} disabled={a.locked} onChange={(event) => setEnabled(event.target.checked)} /> Automatico</label>
-    </div>
-    {shown && <>
-      <div className="s2s-connection"><span className={`status-dot ${a.receiving ? 'green' : 'amber'}`} />
-        <span>{a.isSimulation ? a.simulationMessage : a.receiving ? `Audio scheda collegato · ${a.audioStatus.target?.title || 'Outlier'}` : a.audioStatus.message}</span>
-        <meter min="0" max="0.15" value={Math.min(0.15, a.audioLevel)} aria-label="Livello audio ricevuto da Outlier" />
+  useEffect(() => {
+    const element = dialog.current
+    if (!element || !open) return
+    element.showModal()
+    return () => element.close()
+  }, [open])
+  useEffect(() => {
+    const element = transcript.current
+    if (open && element && followTranscript.current) element.scrollTop = element.scrollHeight
+  }, [open, a.snapshot.log, a.snapshot.phase])
+  if (!open) return null
+  return createPortal(<dialog ref={dialog} className="s2s-dialog" aria-labelledby="s2s-heading" data-no-speech-shortcuts onKeyDown={(event) => { if (event.key === 'Escape') event.stopPropagation() }} onCancel={(event) => { event.preventDefault(); a.stop(); onClose() }}>
+    <section className="s2s-player" aria-label="Conversazione automatica S2S">
+      <header className="s2s-player-header">
+        <div><span className="eyebrow">{a.locked ? a.isSimulation ? 'SIMULAZIONE IN CONSOLE' : 'CONVERSAZIONE OUTLIER' : 'NEB VOICE / S2S'}</span><h2 id="s2s-heading">Conversazione automatica</h2><p>{model} · obiettivo e ordine dello script conservati</p></div>
+        {a.locked ? <button className="secondary-button" onClick={onClose}><Minimize2 size={15} /> Riduci</button> : <button className="secondary-button" onClick={onScript}><ArrowLeft size={15} /> Torna alle battute</button>}
+      </header>
+      <div className="s2s-player-status"><span className={`status-dot ${a.active ? 'green' : 'amber'}`} /><p role="status">{a.starting ? 'Verifica configurazione…' : a.snapshot.message}</p><strong>{a.snapshot.lineIndex}/{a.snapshot.total || pending} battute completate</strong></div>
+      {a.error && <p className="notice error" role="alert">{a.error}</p>}
+      <div className="s2s-speakers">
+        <article className={a.snapshot.phase === 'speaking' ? 's2s-speaker neb speaking' : 's2s-speaker neb'}><div><strong>NEB · la tua voce</strong><span>{a.snapshot.phase === 'speaking' ? 'Parla' : a.snapshot.phase === 'preparing-voice' ? 'Prepara la voce' : 'In attesa'}</span></div><VoiceWave speaker="neb" enabled={a.active} getActivity={a.getVoiceActivity} /></article>
+        <article className="s2s-speaker model"><div><strong>{a.isSimulation && a.locked ? 'MODEL A · simulato' : a.locked ? model : 'MODEL A'}</strong><span>{a.isSimulation && a.locked ? a.simulationMessage : a.snapshot.phase === 'adapting' ? 'Qwen trascrive e adatta' : ['listening', 'waiting'].includes(a.snapshot.phase) ? 'Ascolto della risposta' : 'In attesa'}</span></div><VoiceWave speaker="model" enabled={a.active} getActivity={a.getVoiceActivity} /></article>
       </div>
+      <div className="s2s-player-body">
+        <div className="s2s-conversation"><div className="s2s-section-title"><h3>Trascrizione della conversazione</h3><span>NEB + {model}</span></div>
+          <div ref={transcript} className="s2s-transcript" role="log" aria-label="Trascrizione della conversazione" aria-live="polite" onScroll={(event) => { const e = event.currentTarget; followTranscript.current = e.scrollHeight - e.scrollTop - e.clientHeight < 80 }}>
+            {!messages.length && <div className="s2s-empty"><h3>Pronto per una prova?</h3><p>Avvia la simulazione per vedere qui le battute pronunciate, le risposte di MODEL A e le riscritture di Qwen.</p></div>}
+            {messages.map((item) => <article key={item.id} className={`s2s-message ${item.role}`}>
+              <div><strong>{item.role === 'neb' ? 'NEB' : model}</strong><span>{(item.atMs / 1000).toFixed(1)}s · {item.state === 'partial' ? 'Interrotta · solo una parte pronunciata' : item.state === 'simulated' ? 'Testo simulato · audio da trascrivere' : item.state === 'transcribed' ? 'Trascritto da Qwen' : item.state === 'speaking' ? 'In riproduzione' : 'Pronunciata'}</span></div>
+              <p>{item.text}</p>
+              {item.original && item.original !== item.text && <details><summary>Confronta con la battuta originale</summary><p>{item.original}</p></details>}
+            </article>)}
+            {a.active && ['listening', 'waiting', 'adapting'].includes(a.snapshot.phase) && <p className="s2s-transcribing">{a.snapshot.phase === 'adapting' ? 'Qwen verifica la risposta e riscrive la prossima battuta…' : 'Ascolto MODEL A. La trascrizione audio arriva dopo la verifica di Qwen.'}</p>}
+          </div>
+        </div>
+        <aside className="s2s-session-script">
+          {!a.locked && <div className="s2s-setup">
+            <h3>Avvio</h3><div className="s2s-source" role="group" aria-label="Sorgente della conversazione"><button aria-pressed={source === 'simulation'} onClick={() => setSource('simulation')}>Simulazione</button><button aria-pressed={source === 'outlier'} onClick={() => setSource('outlier')}>Outlier / Edge</button></div>
+            {source === 'simulation' ? <div className="s2s-simulation-config"><label>Uscita simulazione · cuffie / altoparlanti<select aria-label="Uscita simulazione" value={localDevice} onChange={(event) => setSimulationOutput(event.target.value)}>{!localOutputs.length && <option value="">Collega cuffie o altoparlanti reali</option>}{localOutputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}</select></label><p className="s2s-note">MODEL A usa un’AI e una voce distinta. Non serve Edge. Gli originali restano disponibili per Outlier. Usa OpenRouter e Gemini.</p></div> : <p className="s2s-note">{available ? a.receiving ? 'Audio della scheda collegato. Pronto per Outlier.' : a.audioStatus.message : unavailableReason}</p>}
+            {!pending && <p className="s2s-note">Importa o aggiungi battute dallo script per avviare.</p>}
+            {!a.providerReady && <p className="s2s-note">Configura OPENROUTER_API_KEY in .env.local e riavvia NEB.</p>}
+            <button className="primary-button s2s-start" disabled={a.starting || !pending || (source === 'simulation' ? !simulationAvailable || !localDevice : !available || !a.receiving)} onClick={() => void (source === 'simulation' ? a.startSimulation(lines, scenario, options, localDevice) : a.start(lines, scenario, options))}>{source === 'simulation' ? <FlaskConical size={15} /> : <Play size={15} />}{source === 'simulation' ? 'Simulazione MODEL A' : `Avvia ${model} · ${pending} battute`}</button>
+          </div>}
       {!a.locked && <details className="s2s-configuration">
         <summary>Scenario e tempi · silenzio {options.silenceMs / 1000}s</summary>
         <label>Scenario e ruolo da mantenere<textarea maxLength={4000} value={scenario} onChange={(event) => setScenario(event.target.value)} placeholder="Es. Sono un insegnante, voglio confrontare due modi per spiegare questo argomento…" /></label>
@@ -48,44 +97,18 @@ export function AutomationPanel({ automation: a, lines, tab, available, unavaila
         </div>
         <p>Qwen adatta il testo mantenendo obiettivo e ordine. L’audio della risposta e il contesto vengono inviati a OpenRouter/Alibaba; Gemini genera la tua voce. Il limite usa i costi riportati da OpenRouter e non include Gemini; una richiesta già partita può superarlo.</p>
       </details>}
-      {!a.locked && <div className="s2s-simulation-config">
-        <label>Uscita simulazione · cuffie / altoparlanti<select aria-label="Uscita simulazione" value={localDevice} onChange={(event) => setSimulationOutput(event.target.value)}>
-          {!localOutputs.length && <option value="">Collega cuffie o altoparlanti reali</option>}
-          {localOutputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}
-        </select></label>
-        <p className="s2s-note">Prova nella Console: MODEL A risponde con un’AI e una voce distinta, Qwen ascolta e adatta le battute. Non serve Edge. Le battute restano disponibili per Outlier. Usa le API OpenRouter e Gemini.</p>
-      </div>}
-      <div className="s2s-controls">
-        {!a.locked && <button className="secondary-button" disabled={!simulationAvailable || !localDevice || !pending || !editorReady} onClick={() => void a.startSimulation(lines, scenario, options, localDevice)}><FlaskConical size={14} /> Simulazione MODEL A</button>}
-        {!a.locked && <button className="secondary-button ready-save" disabled={!available || !a.receiving || !pending || !editorReady} onClick={() => void a.start(lines, scenario, options)}><Play size={14} /> Avvia {model} · {pending} battute</button>}
-        {a.active && <button className="secondary-button" onClick={a.pause}><Pause size={14} /> Pausa</button>}
-        {a.snapshot.phase === 'paused' && <>
-          <button className="secondary-button" disabled={!canResume} onClick={() => a.resume()}><Play size={14} /> {a.isSimulation ? 'Riprendi simulazione' : 'Riprendi ascolto'}</button>
-          {a.snapshot.lineIndex < a.snapshot.total && <button className="text-button" disabled={!canResume} onClick={() => a.resume(true)}>Ripeti battuta pendente</button>}
-        </>}
-        {a.locked && <button className="secondary-button" onClick={a.stop}><Square size={14} /> Stop automatico</button>}
-        {a.snapshot.log.length > 0 && <button className="text-button" onClick={a.exportLog}><Download size={14} /> Esporta cronologia</button>}
+          {current && <div className="s2s-current-turn"><h3>{['speaking', 'preparing-voice'].includes(a.snapshot.phase) ? 'Battuta in corso' : 'Prossima battuta'} · {a.snapshot.lineIndex + 1}</h3><small>ORIGINALE</small><p>{current.original}</p>{current.adapted ? <><small className="s2s-adapted-label">ADATTATA DA QWEN</small><p className="s2s-adapted-text">{current.text}</p></> : <p className="s2s-note">{a.snapshot.lineIndex === 0 ? 'La battuta di apertura usa il testo originale.' : 'In attesa della risposta e della riscrittura di Qwen.'}</p>}</div>}
+          {turns.length > 0 && <details className="s2s-turns" open={a.snapshot.phase === 'completed'}><summary>Script della sessione · {a.snapshot.lineIndex}/{turns.length}</summary><ol>{turns.map((turn, index) => <li key={turn.id}><strong>{index + 1}. {turn.state === 'spoken' ? 'Pronunciata' : turn.state === 'partial' ? 'Interrotta' : 'Da pronunciare'} · {turn.adapted ? 'Adattata' : 'Originale'}</strong><p>{turn.text}</p>{turn.adapted && <details><summary>Originale</summary><p>{turn.original}</p></details>}</li>)}</ol></details>}
+          {a.snapshot.phase === 'completed' && a.isSimulation && <p className="s2s-note">Prova completata. Le battute originali restano pronte per Outlier.</p>}
+          {a.snapshot.log.length > 0 && <details className="s2s-history"><summary>Tempi, costi e decisioni</summary><p>OpenRouter ${a.snapshot.costUsd.toFixed(4)}{a.snapshot.costKnown ? '' : ' + costo non disponibile'} · Gemini escluso</p>{lastDecision && <p>Qwen: {lastDecision.qwenMs} ms</p>}{lastVoice && <p>Primo audio NEB: {lastVoice.firstAudioMs} ms</p>}<ol>{a.snapshot.log.slice(-30).map((entry, index) => <li key={index}><strong>{(entry.atMs / 1000).toFixed(1)}s · {entry.text}</strong>{entry.accepted === false && <span> · Scartata</span>}</li>)}</ol></details>}
+        </aside>
       </div>
-      {!available && !a.locked && <p className="s2s-note">Per la conversazione su Outlier: {unavailableReason}</p>}
-      {!editorReady && !a.locked && <p className="s2s-note">Salva o chiudi la modifica della battuta prima di avviare l’automatico.</p>}
-      {!a.providerReady && <p className="s2s-note">Serve OPENROUTER_API_KEY nel file .env.local. Riavvia NEB dopo averla configurata.</p>}
-      <p className="s2s-state" role="status">{a.starting ? 'Verifica configurazione…' : a.snapshot.message} · {a.isSimulation ? `SIMULAZIONE · script ${model}` : model}</p>
-      {a.error && <p className="notice error" role="alert">{a.error}</p>}
-      {a.locked && a.snapshot.nextText && <div className="s2s-preview"><strong>{a.snapshot.phase === 'speaking' ? 'Battuta in corso' : 'Battuta proposta'}</strong><p>{a.snapshot.nextText}</p></div>}
-      {a.snapshot.log.length > 0 && <div className="s2s-metrics">
-        <span>{a.snapshot.lineIndex}/{a.snapshot.total} completate</span>
-        <span>OpenRouter ${a.snapshot.costUsd.toFixed(4)}{a.snapshot.costKnown ? '' : ' + costo non disponibile'}</span>
-        {lastDecision && <span>Qwen {lastDecision.qwenMs} ms</span>}
-        {lastVoice && <span>Primo audio Gemini {lastVoice.firstAudioMs} ms</span>}
-      </div>}
-      {a.snapshot.log.length > 0 && <details className="s2s-history"><summary>Cronologia e decisioni</summary>
-        <ol>{a.snapshot.log.slice(-30).map((entry, index) => <li key={`${entry.atMs}-${index}`}>
-          <strong>{(entry.atMs / 1000).toFixed(1)}s · {entry.text}</strong>
-          {entry.transcript && <p>Outlier: {entry.transcript}</p>}
-          {entry.original && <p>Originale: {entry.original}</p>}
-          {entry.adapted && <p>Testo NEB: {entry.adapted}</p>}
-        </li>)}</ol>
-      </details>}
-    </>}
-  </section>
+      <footer className="s2s-player-footer"><div className="s2s-controls">
+        {a.active && <button className="secondary-button" onClick={a.pause}><Pause size={15} /> Pausa</button>}
+        {a.snapshot.phase === 'paused' && <><button className="secondary-button" disabled={!canResume} onClick={() => a.resume()}><Play size={15} />{a.isSimulation ? 'Riprendi simulazione' : 'Riprendi ascolto'}</button>{a.snapshot.lineIndex < a.snapshot.total && <button className="text-button" disabled={!canResume} onClick={() => a.resume(true)}>Ripeti battuta pendente</button>}</>}
+        {a.locked && <button className="secondary-button s2s-stop" onClick={a.stop}><Square size={15} /> Stop automatico</button>}
+        {a.snapshot.log.length > 0 && <button className="text-button" onClick={a.exportLog}><Download size={15} /> Esporta cronologia</button>}
+      </div><span>{a.locked ? 'Esc ferma la sessione · Riduci la lascia attiva' : 'Onde basate sull’audio · trascrizione dopo la verifica'}</span></footer>
+    </section>
+  </dialog>, document.body)
 }

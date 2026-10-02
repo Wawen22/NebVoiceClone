@@ -1,0 +1,8 @@
+SCENARIO: Sono un insegnante di una prima media. Preparo una lezione di venti minuti sul ciclo dell'acqua, usando solo fogli e pennarelli. Voglio un'attività accessibile e una breve verifica finale.
+
+MODEL A
+Turn 1 (User): Ciao! Voglio preparare una lezione di venti minuti sul ciclo dell'acqua per una prima media. Come potrei iniziare in modo coinvolgente?
+Turn 2 (User): Proponimi un'attività pratica semplice. Ho a disposizione soltanto fogli e pennarelli.
+Turn 3 (User): Come posso adattare questa attività agli studenti che fanno fatica a seguire le spiegazioni?
+Turn 4 (User): Mi aiuti a organizzare le fasi della lezione per restare entro i venti minuti?
+Turn 5 (User): Come posso verificare in due minuti se gli studenti hanno capito il ciclo dell'acqua?

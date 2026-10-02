@@ -8,6 +8,7 @@ import { DEFAULT_S2S_OPTIONS, S2SController, type S2SOptions } from './controlle
 import { streamS2SSpeech } from './speechPlayer'
 import { assertS2STarget } from './sessionTarget'
 import { PcmTimeline, SimulatedModel } from './simulation'
+import { pcmLevel, type VoiceActivity, type VoiceSpeaker } from './voiceActivity'
 
 interface Arguments {
   settings: AppSettings; available: boolean; unavailableReason: string; manualBusy: boolean
@@ -27,6 +28,9 @@ export function useS2SAutomation(args: Arguments) {
   const session = useRef<{ mode: 'outlier' | 'simulation'; tab: ReadyLinesTab; projectId: string; target: BrowserTarget | null; captureId: string | null; settings: AppSettings; silenceMs: number; userText: string } | null>(null)
   const simulation = useRef<SimulatedModel | null>(null)
   const timeline = useRef(new PcmTimeline())
+  const nebTimeline = useRef(new PcmTimeline())
+  const voiceActivity = useRef<Record<VoiceSpeaker, VoiceActivity>>({ neb: { level: 0, at: 0 }, model: { level: 0, at: 0 } })
+  const [getVoiceActivity] = useState(() => (speaker: VoiceSpeaker): VoiceActivity => voiceActivity.current[speaker])
   const [simulationMessage, setSimulationMessage] = useState('')
   const lastSimulationTick = useRef(0)
   const lastSimulationVoice = useRef(-Infinity)
@@ -46,6 +50,8 @@ export function useS2SAutomation(args: Arguments) {
       previousPhase.current = next.phase
       setSnapshot(next)
       if (['paused', 'stopped', 'completed'].includes(next.phase)) {
+        nebTimeline.current = new PcmTimeline()
+        voiceActivity.current = { neb: { level: 0, at: 0 }, model: { level: 0, at: 0 } }
         simulation.current?.pause(); timeline.current = new PcmTimeline()
         if (session.current?.mode === 'simulation') setSimulationMessage(next.phase === 'paused' ? 'Simulazione in pausa.' : next.phase === 'completed' ? 'Simulazione completata.' : 'Simulazione fermata.')
         if (next.phase !== 'paused') { simulation.current?.stop(); simulation.current = null }
@@ -69,7 +75,12 @@ export function useS2SAutomation(args: Arguments) {
     speak: async (text, signal, onStarted) => {
       const current = session.current, settings = current?.settings
       if (!current || !settings) throw new Error('Sessione vocale non disponibile.')
-      const engine = new BrowserAudioEngine()
+      const playbackTimeline = new PcmTimeline()
+      nebTimeline.current = playbackTimeline
+      const engine = new BrowserAudioEngine({
+        scheduled: (pcm, startAt, currentTime) => playbackTimeline.schedule(pcm, performance.now() + (startAt - currentTime) * 1000),
+        suspended: () => controller.pause('Audio NEB sospeso: riprendi la conversazione.')
+      })
       engine.setVolume(settings.outputVolume)
       try {
         await streamS2SSpeech(window.neb, engine, {
@@ -77,7 +88,7 @@ export function useS2SAutomation(args: Arguments) {
           voice: settings.replicatedVoice?.id === settings.geminiVoiceId ? { mode: 'stateful', voiceId: settings.geminiVoiceId } : { mode: 'prebuilt', voiceId: settings.geminiVoiceId }
         }, settings.outputDeviceId, signal, onStarted)
         if (!signal.aborted && current === session.current) current.userText = text
-      } finally { engine.dispose() }
+      } finally { playbackTimeline.clear(); engine.dispose() }
     }
   }))
   const [snapshot, setSnapshot] = useState(controller.snapshot)
@@ -100,10 +111,8 @@ export function useS2SAutomation(args: Arguments) {
       if (session.current?.mode === 'simulation') return
       if (event.captureId !== capture.current.captureId || capture.current.state !== 'active') return
       lastPcmAt.current = performance.now()
-      const view = new DataView(event.pcm.buffer, event.pcm.byteOffset, event.pcm.byteLength)
-      let sum = 0
-      for (let i = 0; i < event.pcm.length; i += 2) { const value = view.getInt16(i, true) / 32768; sum += value * value }
-      const level = Math.sqrt(sum / (event.pcm.length / 2))
+      const level = pcmLevel(event.pcm)
+      if (controller.active) voiceActivity.current.model = { level, at: lastPcmAt.current }
       if (level >= 0.008) lastVoiceAt.current = lastPcmAt.current
       if (lastPcmAt.current - lastMeterAt.current > 500) { lastMeterAt.current = lastPcmAt.current; setAudioLevel(level) }
       if (event.captureId === session.current?.captureId) controller.feed(event.pcm)
@@ -111,13 +120,15 @@ export function useS2SAutomation(args: Arguments) {
     void window.neb.getS2SAudioStatus().then((status) => { if (!statusReceived) updateStatus(status) }).catch((error) => { if (mounted) setError(String(error)) })
     void window.neb.getS2SProviderStatus().then((status) => { if (mounted) setProviderReady(status.ready) }).catch((error) => { if (mounted) setError(String(error)) })
     const timer = setInterval(() => {
+      const now = performance.now()
+      voiceActivity.current.neb = { level: controller.active ? pcmLevel(nebTimeline.current.read(now)) : 0, at: now }
       if (session.current?.mode === 'simulation') {
         if (controller.active) {
-          const now = performance.now()
           if (now - lastSimulationTick.current > 500) controller.pause('Temporizzazione della simulazione sospesa: riporta NEB in primo piano e riprendi.')
           else {
             for (const pcm of timeline.current.drain(now)) {
               controller.feed(pcm)
+              voiceActivity.current.model = { level: pcmLevel(pcm), at: now }
               if (controller.snapshot.level >= 0.008) lastSimulationVoice.current = now
             }
           }
@@ -206,7 +217,7 @@ export function useS2SAutomation(args: Arguments) {
               if (!signal.aborted && !cached) lastModelAudio = { text, chunks }
             } finally { if (signal.aborted) playbackTimeline.clear(); engine.dispose() }
           },
-          cost: (reply) => session.current === ownedSession && controller.recordSimulationReply(reply), state: setSimulationMessage,
+          cost: (reply, accepted) => session.current === ownedSession && controller.recordSimulationReply(reply, accepted), state: setSimulationMessage,
           failed: (message) => controller.pause(message)
         })
       }
@@ -249,6 +260,7 @@ export function useS2SAutomation(args: Arguments) {
   }
   const isSimulation = session.current?.mode === 'simulation'
   return { snapshot, audioStatus, receiving: isSimulation ? controller.locked : receiving, audioLevel: isSimulation ? snapshot.level : audioLevel, providerReady, error, starting,
+    getVoiceActivity,
     isSimulation, simulationMessage,
     startSimulation: (lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, deviceId: string) => start(lines, scenario, options, deviceId),
     locked: controller.locked || starting, active: controller.active, start, resume, stop,
