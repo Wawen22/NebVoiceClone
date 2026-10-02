@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
 import type { ReadyLine, ReadyLinesTab } from './readyLines'
+import { ScriptImportPanel } from './ScriptImportPanel'
+import type { ScriptImportMode, ScriptImportResult } from './scriptImport'
 
 export interface ReadyLinesPanelProps {
   linesA: ReadyLine[]
@@ -19,6 +21,7 @@ export interface ReadyLinesPanelProps {
   singleRegeneratingId?: string | null
   onRegenerateLine?: (id: string, text: string, index: number) => void
   onAdd: (text: string) => void
+  onImport: (result: ScriptImportResult, mode: ScriptImportMode) => void
   onEdit: (id: string, text: string) => void
   onMove: (id: string, direction: -1 | 1) => void
   onToggleDone: (id: string) => void
@@ -47,6 +50,7 @@ export function ReadyLinesPanel({
   singleRegeneratingId,
   onRegenerateLine,
   onAdd,
+  onImport,
   onEdit,
   onMove,
   onToggleDone,
@@ -63,6 +67,8 @@ export function ReadyLinesPanel({
   const activeItemRef = useRef<HTMLLIElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importDirty, setImportDirty] = useState(false)
   const [deleted, setDeleted] = useState<{ line: ReadyLine; index: number; tab: ReadyLinesTab } | null>(null)
 
   const lines = activeTab === 'modelA' ? linesA : linesB
@@ -74,7 +80,7 @@ export function ReadyLinesPanel({
   }, [])
 
   const original = editingId && editingId !== 'new' ? lines.find((line) => line.id === editingId)?.text ?? '' : ''
-  const unsaved = editingId !== null && draft !== original
+  const unsaved = importDirty || (editingId !== null && draft !== original)
   const activeIndex = lines.findIndex((line) => line.id === activeLineId)
   const activeLine = activeIndex >= 0 && (busy || playing) ? lines[activeIndex] : null
 
@@ -103,6 +109,8 @@ export function ReadyLinesPanel({
     setEditingId(null)
     setDraft('')
     setDeleted(null)
+    setImporting(false)
+    setImportDirty(false)
     onTabChange(nextTab)
   }
 
@@ -118,6 +126,8 @@ export function ReadyLinesPanel({
   function beginEdit(id: string, text: string): void {
     if (unsaved && !window.confirm('Scartare il testo non salvato?')) return
     setEditingId(id)
+    setImporting(false)
+    setImportDirty(false)
     setDraft(text)
     requestAnimationFrame(() => editorRef.current?.focus())
   }
@@ -189,12 +199,19 @@ export function ReadyLinesPanel({
         </div>
 
         <div className="ready-toolbar">
-          <button className="secondary-button" onClick={() => beginEdit('new', '')}>
+          <button className="secondary-button" disabled={generatingModelB || Boolean(singleRegeneratingId) || busy || playing} onClick={() => {
+            if (importing) return
+            if (unsaved && !window.confirm('Scartare il testo non salvato?')) return
+            setEditingId(null)
+            setDraft('')
+            setImporting(true)
+          }}>Importa script</button>
+          <button className="secondary-button" disabled={importing} onClick={() => beginEdit('new', '')}>
             <Plus size={16} /> Nuova battuta
           </button>
           <button
             className="secondary-button"
-            disabled={!currentScript.trim()}
+            disabled={importing || !currentScript.trim()}
             onClick={() => { onAdd(currentScript); setDeleted(null) }}
           >
             <Plus size={16} /> Aggiungi testo corrente
@@ -202,7 +219,7 @@ export function ReadyLinesPanel({
           <button
             type="button"
             className="secondary-button ready-generate-btn"
-            disabled={linesA.length === 0 || generatingModelB}
+            disabled={linesA.length === 0 || generatingModelB || importing}
             onClick={handleGenerate}
             title={
               linesA.length === 0
@@ -258,7 +275,17 @@ export function ReadyLinesPanel({
           </section>
         )}
 
-        <div ref={listRef} className="ready-list" aria-label={`Battute preparate per ${activeTab === 'modelA' ? 'Model A' : 'Model B'}`}>
+        {importing && <ScriptImportPanel countA={linesA.length} countB={linesB.length} onDraftChange={setImportDirty} onCancel={() => {
+          if (importDirty && !window.confirm('Scartare lo script non importato?')) return
+          setImporting(false)
+          setImportDirty(false)
+        }} onImport={(result, mode) => {
+          onImport(result, mode)
+          setImporting(false)
+          setImportDirty(false)
+          setDeleted(null)
+        }} />}
+        <div ref={listRef} hidden={importing} className="ready-list" aria-label={`Battute preparate per ${activeTab === 'modelA' ? 'Model A' : 'Model B'}`}>
           {lines.length === 0 ? (
             <p className="ready-empty">
               {activeTab === 'modelA'
@@ -384,6 +411,7 @@ export function ReadyLinesPanel({
           {lines.length > 0 && (
             <button
               className="text-button ready-clear"
+              disabled={importing}
               onClick={() => {
                 if (window.confirm(`Eliminare tutte le ${lines.length} battute di ${activeTab === 'modelA' ? 'MODEL A' : 'MODEL B'}?`)) {
                   onClear()

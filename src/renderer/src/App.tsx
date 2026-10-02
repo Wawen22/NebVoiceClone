@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
 import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
+import { importReadyLines } from './scriptImport'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
 import { PanelLeftClose, PanelLeftOpen, Layers } from 'lucide-react'
@@ -447,6 +448,13 @@ export function App(): React.JSX.Element {
       onGenerateModelB={() => void generateModelBLines()}
       singleRegeneratingId={singleRegeneratingId}
       onRegenerateLine={(id, text, index) => void regenerateSingleLine(id, text, index)}
+      onImport={(result, mode) => {
+        setReadyLinesA((current) => importReadyLines(current, result.modelA, mode))
+        setReadyLinesB((current) => importReadyLines(current, result.modelB, mode))
+        setActiveReadyTab(result.modelA.length > 0 ? 'modelA' : 'modelB')
+        setError('')
+        setStatus(`Importate ${result.modelA.length} battute per MODEL A e ${result.modelB.length} per MODEL B`)
+      }}
       onAdd={(text) => { const id = crypto.randomUUID(); setLines((current) => addReadyLine(current, text, id)) }}
       onEdit={(id, text) => setLines((current) => editReadyLine(current, id, text))}
       onMove={(id, direction) => setLines((current) => moveReadyLine(current, id, direction))}
