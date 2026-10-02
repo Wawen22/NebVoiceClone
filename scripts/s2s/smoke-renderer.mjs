@@ -27,9 +27,17 @@ try {
   await page.addInitScript(() => {
     const target = { tabId: 1, windowId: 2, documentId: 'fixture-1', url: 'https://fixture.invalid/s2s', title: 'Synthetic S2S' }
     const listeners = new Set()
+    const insertionListeners = new Set()
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
-    const fixture = window.fixture = { spoken: [], adaptations: 0, holdAdapt: false, release: null,
+    const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
+    const fixture = window.fixture = { spoken: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null,
+      disconnect: () => {
+        capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
+        for (const listener of listeners) listener({ type: 'status', status: capture })
+        Object.assign(insertion, { connected: false, phase: 'idle', target: null })
+        for (const listener of insertionListeners) listener(insertion)
+      },
       voice: (frames = 3) => { voiceFrames = frames },
       replaceCapture: () => {
         capture = { ...capture, captureId: 'capture-2', target: { ...target, tabId: 99, documentId: 'fixture-2' } }
@@ -40,7 +48,7 @@ try {
     const settings = { schemaVersion: 1, providerId: 'gemini', geminiModel: 'gemini-3.8-flash-tts', geminiKeySource: 'environment', geminiVoiceId: 'Kore', replicatedVoice: null,
       voiceProfiles: { environment: profile, project: profile, saved: profile }, outputDeviceId: 'cable', outputVolume: 0.85, monitorDeviceId: '', saveScriptHistory: false }
     const noopSubscription = () => () => {}
-    Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { value: async () => [{ kind: 'audiooutput', deviceId: 'cable', label: 'CABLE Input (fixture)' }] })
+    Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { value: async () => [{ kind: 'audiooutput', deviceId: 'cable', label: 'CABLE Input (fixture)' }, { kind: 'audiooutput', deviceId: 'headphones', label: 'Headphones Realtek (fixture)' }] })
     class Audio {
       volume = 1; currentTime = 0; sinkId = 'default'; src = ''; srcObject = null
       async setSinkId(id) { this.sinkId = id }
@@ -65,9 +73,9 @@ try {
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, environmentLabel: 'Fixture', projectLabel: 'Fixture', savedLabel: null, secureStorageAvailable: false }),
       checkGemini: async () => ({ ready: true, message: 'Gemini connected' }),
       getOutlierData: async () => ({ schemaVersion: 1, projects: [{ id: 's2s', name: 'S2S', notes: '', integration: 's2s', archived: false }], charactersPerMinute: 600 }),
-      getInsertionStatus: async () => ({ supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }),
+      getInsertionStatus: async () => insertion,
       getOutlierSetup: async () => ({ installed: true, extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionPath: 'fixture' }),
-      onInsertionStatus: noopSubscription, onConversationRequested: noopSubscription, onStopRequested: noopSubscription,
+      onInsertionStatus: (listener) => { insertionListeners.add(listener); return () => insertionListeners.delete(listener) }, onConversationRequested: noopSubscription, onStopRequested: noopSubscription,
       setZoomFactor: () => {}, getZoomFactor: () => 1,
       getS2SProviderStatus: async () => ({ ready: true, model: 'qwen/qwen3.8-omni-flash' }),
       getS2SAudioStatus: async () => capture,
@@ -79,7 +87,19 @@ try {
         return result
       },
       cancelS2SAdaptation: async () => {}, stopS2SAudioCapture: async () => {}, stopGeneration: async () => {}, stopInsertion: async () => {},
-      synthesizeStream: async (request, onChunk) => { fixture.spoken.push(request.text); onChunk(new Uint8Array(4800)); return { generationMs: 10 } }
+      generateS2SSimulationReply: async (request) => {
+        fixture.modelRequests.push(request)
+        const result = { text: 'La soluzione è economica e puoi provarla con una classe.', modelMs: 30, costUsd: 0.001 }
+        if (fixture.holdModel) return new Promise((resolve) => { fixture.releaseModel = () => resolve(result) })
+        return result
+      },
+      cancelS2SSimulationReply: async () => {},
+      synthesizeStream: async (request, onChunk) => {
+        fixture.spoken.push(request.text)
+        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 9600 : 4800)
+        if (request.voice.voiceId === 'Puck') { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, 2000, true) }
+        onChunk(pcm); return { generationMs: 10 }
+      }
     }
     setInterval(() => {
       const pcm = new Uint8Array(3200)
@@ -130,9 +150,36 @@ try {
   await page.waitForTimeout(700)
   await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).click()
   await page.getByRole('region', { name: 'Conversazione automatica S2S' }).getByRole('alert').filter({ hasText: 'Scheda o task cambiata: premi Stop e avvia una nuova sessione.' }).waitFor()
+  await page.getByRole('button', { name: 'Stop automatico', exact: true }).click()
+  await page.evaluate(() => window.fixture.disconnect())
+  await addLine('Vorrei preparare una lezione. Da dove parto?')
+  await addLine('Quali limiti devo considerare?')
+  const simulate = page.getByRole('button', { name: 'Simulazione MODEL A', exact: true })
+  await simulate.click()
+  await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
+  assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), 2)
+  assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
+  await page.evaluate(() => { window.fixture.holdAdapt = true; window.fixture.release = null })
+  await simulate.click()
+  await page.waitForFunction(() => window.fixture.release !== null)
+  const modelBeforePause = await page.evaluate(() => window.fixture.modelRequests.length)
+  await page.getByRole('button', { name: 'Pausa', exact: true }).click()
+  await page.evaluate(() => { window.fixture.holdAdapt = false; window.fixture.release() })
+  await page.getByRole('button', { name: 'Riprendi simulazione', exact: true }).click()
+  await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
+  assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), modelBeforePause + 1)
+  await page.evaluate(() => { window.fixture.holdModel = true })
+  await simulate.click()
+  await page.waitForFunction(() => window.fixture.releaseModel !== null)
+  const spokenBeforeStop = await page.evaluate(() => window.fixture.spoken.length)
+  await page.getByRole('button', { name: 'Stop automatico', exact: true }).click()
+  await page.evaluate(() => window.fixture.releaseModel())
+  await page.waitForTimeout(500)
+  assert.equal(await page.evaluate(() => window.fixture.spoken.length), spokenBeforeStop)
+  assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   assert.deepEqual(errors, [])
   const artifacts = path.resolve('.superpowers/s2s-smoke')
   await mkdir(artifacts, { recursive: true })
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: renderer S2S end-to-end with synthetic audio/IPC; adaptation, final reply, script lock, stale result after Stop, destination-bound resume; no AI calls.')
+  console.log('PASS: renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
 } finally { await browser.close(); server.close() }

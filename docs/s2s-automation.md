@@ -4,6 +4,40 @@ La modalità Automatico delle Battute Pronte usa `qwen/qwen3.8-omni-flash`
 su OpenRouter per ascoltare le risposte e adattare il testo. La voce resta quella
 Gemini selezionata. Le battute originali non vengono sovrascritte.
 
+## Prima prova dentro NEB: Simulazione MODEL A
+
+Puoi provare il ciclo dalla **Console → Battute Pronte**, senza aprire una task
+Outlier né collegare Edge. Servono Gemini e `OPENROUTER_API_KEY` configurati.
+
+1. Prepara due o tre battute ancora pendenti, per esempio quelle della prova sotto.
+2. Abilita **Automatico**. In **Scenario e tempi** inserisci il contesto della
+   conversazione e lascia inizialmente 2,5 secondi di silenzio.
+3. In **Uscita simulazione** scegli cuffie o altoparlanti reali. Il pannello esclude
+   CABLE e le uscite predefinite, per scegliere esplicitamente il dispositivo locale.
+   La configurazione d'uscita della Console per Outlier non viene modificata.
+4. Premi **Simulazione MODEL A**. NEB pronuncia la prima battuta; MODEL A simulato
+   genera una risposta con Qwen e la pronuncia con Gemini, usando Puck (Kore se la
+   voce NEB è già Puck). L'audio PCM di MODEL A, sincronizzato con la riproduzione,
+   passa al controller e all'ascolto Qwen usati dalla conversazione automatica.
+5. Osserva la battuta adattata e la risposta finale. La cronologia riporta il testo
+   MODEL A generato, la trascrizione del regista Qwen, i tempi e i costi OpenRouter.
+   **Esporta cronologia** identifica la sessione come `simulation`.
+6. Prova **Pausa** mentre MODEL A prepara/parla e **Riprendi simulazione**:
+   la risposta ancora in preparazione viene rigenerata. Dopo una risposta già
+   terminata, viene riascoltato l'audio memorizzato per riprendere la verifica Qwen,
+   senza rigenerare MODEL A/Gemini. Se metti in pausa mentre parla NEB,
+   scegli **Ripeti battuta pendente** per ripartire dalla battuta interrotta.
+7. Prova **Stop automatico** durante l'elaborazione: nessuna risposta tardiva deve
+   riavviare la voce. Ripeti la simulazione per confrontare i tempi.
+
+Le righe originali non sono segnate completate dalla simulazione: restano pronte
+per Outlier. Il conteggio nel pannello automatico riguarda la singola prova.
+Il limite OpenRouter include sia MODEL A simulato sia il regista Qwen; Gemini
+resta escluso, come nella modalità Outlier. Questa prova usa API reali ed è fatturata
+dai provider. Non misura la velocità o la qualità del vero modello Outlier, né
+verifica la cattura audio Edge e il percorso VB-CABLE. Questi ultimi richiedono
+la prova Windows seguente.
+
 ## Configurazione
 
 1. Chiudi la versione NEB attualmente aperta e riavviala da Windows PowerShell:
@@ -114,7 +148,9 @@ npm run typecheck
 
 `scripts/s2s/smoke-renderer.mjs` usa Edge headless con API e audio sintetici:
 verifica l'interfaccia e il percorso automatico senza task reali, chiavi o chiamate
-AI. Non sostituisce la prova con estensione caricata, audio Outlier e VB-CABLE.
+AI. Include la simulazione senza Edge, conservazione delle battute originali,
+Pausa/Ripresa durante Qwen e Stop durante una risposta MODEL A tardiva.
+Non sostituisce la prova con estensione caricata, audio Outlier e VB-CABLE.
 
 Per ripeterlo da PowerShell nel repository Windows, dopo la build:
 
@@ -132,3 +168,16 @@ $0,00013719. Una chiamata precedente era stata rifiutata dal validatore per una
 decisione incoerente; il flusso si è fermato. Questo è un controllo di compatibilità,
 non una misura di affidabilità o latenza su Outlier. Gemini e il routing audio reale
 restano da provare con la procedura sopra.
+
+Verifica successiva della simulazione: 149 test WSL e 5 test bridge Windows;
+build, typecheck e smoke dell'interfaccia passati. Catena API reale su un esempio
+didattico: risposta MODEL A generata in 2205 ms; Gemini ha prodotto 18,04 s di
+audio (generazione complessiva 10558 ms); Qwen ha trascritto la risposta e
+restituito la battuta successiva in 3753 ms. OpenRouter ha riportato $0,00005652
+per MODEL A e $0,00016889 per il regista, escluso Gemini. Il tempo di generazione
+Gemini non è il tempo al primo audio né la durata totale della conversazione.
+
+La revisione indipendente ha portato a tre regressioni aggiuntive: riascolto della
+risposta completata dopo Pausa, conservazione di tutti i campioni PCM durante
+brevi ritardi del timer, conteggio dei costi conosciuti di risposte annullate
+arrivate durante la stessa sessione. I relativi test sono passati dopo le correzioni.

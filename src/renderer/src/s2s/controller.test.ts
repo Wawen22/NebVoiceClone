@@ -161,3 +161,17 @@ it('requires explicit replay when Qwen proposes the identical whole original lin
   expect(s.spoken).toHaveLength(1)
   expect(s.controller.snapshot.phase).toBe('paused')
 })
+it('counts MODEL A simulation replies in the shared OpenRouter budget', async () => {
+  const s = session({ maxCostUsd: 0.001 })
+  s.plays[0].resolve(); await flush()
+  expect(s.controller.recordSimulationReply({ text: 'Risposta simulata.', modelMs: 30, costUsd: 0.001 })).toBe(false)
+  expect(s.controller.snapshot.phase).toBe('paused')
+  expect(s.controller.snapshot.costUsd).toBe(0.001)
+})
+it('records late simulation cost during pause and refuses resume when the observed budget is exhausted', () => {
+  const s = session({ maxCostUsd: 0.001 }); s.controller.pause()
+  s.controller.recordSimulationReply({ text: 'Risposta tardiva.', modelMs: 100, costUsd: 0.001 })
+  expect(s.controller.snapshot.costUsd).toBe(0.001)
+  s.controller.resume()
+  expect(s.controller.snapshot.phase).toBe('paused')
+})

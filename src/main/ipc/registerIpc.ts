@@ -11,7 +11,8 @@ import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProf
 import type { WindowPresentationController } from '../windowPresentation'
 import { paraphraseSingleLine, paraphraseWithNemotron } from '../providers/openrouter'
 import { adaptS2STurn, S2S_QWEN_MODEL } from '../providers/qwen'
-import { parseS2SAdaptRequest } from '../../shared/s2s'
+import { parseS2SAdaptRequest, parseS2SSimulationRequest } from '../../shared/s2s'
+import { generateSimulatedReply } from '../providers/s2sSimulation'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -21,6 +22,7 @@ export function registerIpc(
   let activeGeneration: AbortController | null = null
   let activeVoiceCreation = false
   let activeAdaptation: { id: string; controller: AbortController } | null = null
+  let activeSimulation: { id: string; controller: AbortController } | null = null
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
@@ -187,6 +189,19 @@ export function registerIpc(
   ipcMain.handle('s2s:cancelAdaptation', (event, id: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
     if (id === undefined || id === activeAdaptation?.id) { activeAdaptation?.controller.abort(); activeAdaptation = null }
+  })
+  ipcMain.handle('s2s:simulateReply', async (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    const request = parseS2SSimulationRequest(value)
+    activeSimulation?.controller.abort()
+    const operation = { id: request.requestId, controller: new AbortController() }
+    activeSimulation = operation
+    try { return await generateSimulatedReply(request, { signal: operation.controller.signal }) }
+    finally { if (activeSimulation === operation) activeSimulation = null }
+  })
+  ipcMain.handle('s2s:cancelSimulation', (event, id: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (id === activeSimulation?.id) { activeSimulation?.controller.abort(); activeSimulation = null }
   })
   ipcMain.handle('openrouter:paraphraseSingleLine', async (event, text: unknown, avoid: unknown) => {
     assertTrusted(event.sender, event.senderFrame)

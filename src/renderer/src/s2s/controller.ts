@@ -169,6 +169,19 @@ export class S2SController {
     if (this.snapshot.phase !== 'idle') { this.log('stop', 'Sessione fermata.'); this.setPhase('stopped', 'Automatico fermato.') }
   }
 
+  recordSimulationReply(reply: { text: string; modelMs: number; costUsd: number | null }): boolean {
+    if (reply.costUsd === null) this.snapshot.costKnown = false
+    else this.snapshot.costUsd += reply.costUsd
+    this.log('simulation-model', `MODEL A simulato · risposta generata in ${reply.modelMs} ms.`, { transcript: reply.text, costUsd: reply.costUsd })
+    if (!this.snapshot.costKnown || this.snapshot.costUsd >= this.options.maxCostUsd) {
+      if (this.locked) this.pause('Limite di costo simulazione raggiunto o costo non disponibile.')
+      else this.publish()
+      return false
+    }
+    this.publish()
+    return this.active
+  }
+
   private async adapt(): Promise<void> {
     const token = ++this.serial, session = this.sessionId
     const operation = new AbortController()

@@ -17,6 +17,8 @@ export interface S2SDecision {
   costUsd: number | null
   qwenMs: number
 }
+export interface S2SSimulationRequest { requestId: string; scenario: string; history: S2SHistoryItem[] }
+export interface S2SSimulationReply { text: string; modelMs: number; costUsd: number | null }
 export interface S2SAudioStatus {
   state: 'inactive' | 'active' | 'error'
   captureId: string | null
@@ -31,9 +33,20 @@ export interface S2SApi {
   getS2SProviderStatus(): Promise<{ ready: boolean; model: string }>
   adaptS2STurn(request: S2SAdaptRequest): Promise<S2SDecision>
   cancelS2SAdaptation(requestId?: string): Promise<void>
+  generateS2SSimulationReply(request: S2SSimulationRequest): Promise<S2SSimulationReply>
+  cancelS2SSimulationReply(requestId: string): Promise<void>
   getS2SAudioStatus(): Promise<S2SAudioStatus>
   onS2SAudio(callback: (event: S2SAudioEvent) => void): () => void
   stopS2SAudioCapture(): Promise<void>
+}
+
+export function parseS2SSimulationRequest(value: unknown): S2SSimulationRequest {
+  if (!value || typeof value !== 'object') throw new Error('Richiesta simulazione non valida.')
+  const v = value as S2SSimulationRequest
+  if (typeof v.requestId !== 'string' || !v.requestId || v.requestId.length > 100 || typeof v.scenario !== 'string' || v.scenario.length > 4000 ||
+      !Array.isArray(v.history) || !v.history.length || v.history.length > 60 || v.history.at(-1)?.role !== 'user' ||
+      v.history.some((item) => !item || !['user', 'assistant'].includes(item.role) || typeof item.text !== 'string' || !item.text.trim() || item.text.length > 16000)) throw new Error('Contesto simulazione non valido.')
+  return { requestId: v.requestId, scenario: v.scenario, history: v.history.map(({ role, text }) => ({ role, text })) }
 }
 
 export const MAX_S2S_AUDIO_BYTES = 16000 * 2 * 120

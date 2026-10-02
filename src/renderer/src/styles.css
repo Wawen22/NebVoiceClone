@@ -268,6 +268,8 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 .s2s-controls button { font-size: 11px; }
 .s2s-configuration summary, .s2s-history summary { cursor: pointer; color: #8adbd2; padding: 5px 0; }
 .s2s-configuration label { display: grid; gap: 4px; margin: 8px 0; }
+.s2s-simulation-config label { display: grid; gap: 6px; margin: 8px 0; }
+.s2s-simulation-config select { width: 100%; min-height: 30px; padding: 5px 8px; border: 1px solid #3d5361; border-radius: 6px; background: var(--field); color: #f0f6f7; }
 .s2s-configuration textarea { width: 100%; min-height: 60px; resize: vertical; }
 .s2s-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .s2s-settings-grid input, .s2s-settings-grid select { width: 100%; min-width: 0; }

@@ -4,6 +4,7 @@ import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
 import { AutomationPanel } from './s2s/AutomationPanel'
 import { useS2SAutomation } from './s2s/useS2SAutomation'
+import { localSimulationOutputs } from './s2s/simulation'
 import { importReadyLines } from './scriptImport'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
@@ -74,6 +75,9 @@ export function App(): React.JSX.Element {
     : !gemini.ready ? 'Configura la voce Gemini prima di avviare.'
     : !routingStatus(outputs, settings.outputDeviceId, info?.platform).routed ? 'Seleziona CABLE Input come uscita NEB e CABLE Output come microfono in Edge.' : ''
   const automation = useS2SAutomation({ settings, available: !s2sUnavailableReason, unavailableReason: s2sUnavailableReason,
+    simulationAvailable: gemini.ready && !outlierWorkspace.locked,
+    simulationUnavailableReason: !gemini.ready ? 'Configura la voce Gemini prima della simulazione.' : 'Ferma l’inserimento Rationale prima della simulazione.',
+    localOutputs: localSimulationOutputs(outputs),
     manualBusy: busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy,
     tab: activeReadyTab, projectId: outlierWorkspace.selectedId, target: outlierWorkspace.status?.target ?? null,
     onComplete: (tab, id) => (tab === 'modelA' ? setReadyLinesA : setReadyLinesB)((lines) => completeReadyLine(lines, id))
@@ -496,7 +500,7 @@ export function App(): React.JSX.Element {
   const readyPanel = readyOpen && (
     <ReadyLinesPanel
       automationLocked={automation.locked}
-      automation={(editorReady) => <AutomationPanel automation={automation} lines={activeReadyTab === 'modelA' ? readyLinesA : readyLinesB} tab={activeReadyTab} available={!s2sUnavailableReason} unavailableReason={s2sUnavailableReason} editorReady={editorReady} />}
+      automation={(editorReady) => <AutomationPanel automation={automation} lines={activeReadyTab === 'modelA' ? readyLinesA : readyLinesB} tab={activeReadyTab} available={!s2sUnavailableReason} unavailableReason={s2sUnavailableReason} simulationAvailable={gemini.ready && !outlierWorkspace.locked} localOutputs={localSimulationOutputs(outputs)} editorReady={editorReady} />}
       linesA={readyLinesA}
       linesB={readyLinesB}
       activeTab={activeReadyTab}

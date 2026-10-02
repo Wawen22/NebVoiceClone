@@ -31,6 +31,11 @@ export class BrowserAudioEngine implements AudioEngine {
   private streamComplete = false
   private endedCallback: () => void = () => {}
 
+  constructor(private readonly streamObserver?: {
+    scheduled(pcm: Uint8Array, startAt: number, currentTime: number): void
+    suspended(): void
+  }) {}
+
   async listOutputs(): Promise<AudioOutput[]> {
     const devices = await navigator.mediaDevices.enumerateDevices()
     return devices
@@ -57,6 +62,9 @@ export class BrowserAudioEngine implements AudioEngine {
     this.stop()
     const context = new AudioContext({ sampleRate: 24000 })
     this.streamContext = context
+    if (this.streamObserver) context.addEventListener?.('statechange', () => {
+      if (this.streamContext === context && context.state === 'suspended') this.streamObserver?.suspended()
+    })
     const output = context.createMediaStreamDestination()
     this.streamOutput = output
     this.streamElement.srcObject = output.stream
@@ -94,6 +102,7 @@ export class BrowserAudioEngine implements AudioEngine {
     }
     const startAt = Math.max(this.nextChunkTime, context.currentTime + 0.04)
     source.start(startAt)
+    this.streamObserver?.scheduled(copy, startAt, context.currentTime)
     this.nextChunkTime = startAt + samples.duration
   }
 
