@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react'
 import { nextReadyLine, type ReadyLine, type ReadyLinesTab } from './readyLines'
 import { PrepareLineDialog } from './PrepareLineDialog'
 import { ScriptImportPanel } from './ScriptImportPanel'
@@ -80,7 +80,11 @@ export function ReadyLinesPanel({
 }: ReadyLinesPanelProps): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
+  const listScrollRef = useRef(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const importButtonRef = useRef<HTMLButtonElement>(null)
+  const newButtonRef = useRef<HTMLButtonElement>(null)
+  const optionsRef = useRef<HTMLDetailsElement>(null)
   const activeItemRef = useRef<HTMLLIElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -95,7 +99,7 @@ export function ReadyLinesPanel({
   const nextLine = nextReadyLine(lines)
   const preparedIndex = lines.findIndex((line) => line.id === preparedId)
   const preparedLine = lines[preparedIndex]
-  const canPrepare = !busy && !playing && !generatingModelB && !singleRegeneratingId && !importing && editingId === null
+  const canPrepare = !automationLocked && !busy && !playing && !generatingModelB && !singleRegeneratingId && !importing && editingId === null
 
   useEffect(() => {
     if (!prepareRequested) return
@@ -106,6 +110,7 @@ export function ReadyLinesPanel({
   useEffect(() => {
     function dismiss(event: PointerEvent): void {
       if (!(event.target instanceof Element) || !event.target.closest('.ready-more')) setMenuId(null)
+      if (event.target instanceof Node && !optionsRef.current?.contains(event.target) && optionsRef.current) optionsRef.current.open = false
     }
     window.addEventListener('pointerdown', dismiss)
     return () => window.removeEventListener('pointerdown', dismiss)
@@ -173,7 +178,15 @@ export function ReadyLinesPanel({
     setImportDirty(false)
     setMenuId(null)
     setExpandedId(null)
+    if (optionsRef.current) optionsRef.current.open = false
     onTabChange(nextTab)
+  }
+
+  function closeOptions(): void {
+    const options = optionsRef.current
+    if (!options?.open) return
+    options.open = false
+    options.querySelector('summary')?.focus({ preventScroll: true })
   }
 
   function handleGenerate(): void {
@@ -187,11 +200,35 @@ export function ReadyLinesPanel({
 
   function beginEdit(id: string, text: string): void {
     if (unsaved && !window.confirm('Scartare il testo non salvato?')) return
+    listScrollRef.current = listRef.current?.scrollTop ?? 0
+    setMenuId(null)
+    if (optionsRef.current) optionsRef.current.open = false
     setEditingId(id)
     setImporting(false)
     setImportDirty(false)
     setDraft(text)
     requestAnimationFrame(() => editorRef.current?.focus())
+  }
+
+  function restoreListFocus(id: string | null, fromImport = false, newLine = false): void {
+    requestAnimationFrame(() => {
+      const list = listRef.current
+      if (list) list.scrollTop = listScrollRef.current
+      const target = newLine ? list?.querySelector<HTMLButtonElement>('.ready-item:last-child .ready-copy') : id && id !== 'new' ? list?.querySelector<HTMLButtonElement>(`[data-ready-id="${CSS.escape(id)}"] .ready-copy`) : null
+      if (newLine) target?.scrollIntoView({ block: 'nearest' })
+      const fallback = (fromImport ? importButtonRef : newButtonRef).current
+      const focusTarget = target ?? fallback
+      focusTarget?.focus({ preventScroll: true })
+    })
+  }
+
+  function returnToList(): void {
+    if (unsaved && !window.confirm(importing ? 'Scartare lo script non importato?' : 'Scartare il testo non salvato?')) return
+    setEditingId(null)
+    setDraft('')
+    setImporting(false)
+    setImportDirty(false)
+    restoreListFocus(editingId, importing)
   }
 
   function save(): void {
@@ -200,6 +237,7 @@ export function ReadyLinesPanel({
     else if (editingId) onEdit(editingId, draft)
     setEditingId(null)
     setDraft('')
+    restoreListFocus(editingId, false, editingId === 'new')
   }
 
   function remove(line: ReadyLine, index: number): void {
@@ -215,17 +253,29 @@ export function ReadyLinesPanel({
 
   return (
     <dialog ref={dialogRef} className="ready-dialog" aria-labelledby="ready-heading" onKeyDown={(event) => {
-      if (event.key === 'Escape' && menuId && !preparedId) { event.preventDefault(); setMenuId(null) }
+      if (event.key === 'Escape' && !preparedId) {
+        if (menuId) {
+          event.preventDefault()
+          const trigger = dialogRef.current?.querySelector<HTMLButtonElement>(`[data-ready-id="${CSS.escape(menuId)}"] .ready-more > button`)
+          setMenuId(null)
+          trigger?.focus()
+        }
+        else if (optionsRef.current?.open) {
+          event.preventDefault()
+          closeOptions()
+        }
+      }
     }} onCancel={(event) => { event.preventDefault(); close() }}>
       <div className={`ready-panel ${activeTab}`}>
         <header className="ready-header">
           <div>
-            <span className="eyebrow">IN QUESTA SESSIONE</span>
+            <span className="eyebrow">{importing ? 'SCRIPT DELLA CONVERSAZIONE' : editingId !== null ? (activeTab === 'modelA' ? 'MODEL A' : 'MODEL B') : 'LA TUA CONVERSAZIONE'}</span>
             <h2 id="ready-heading">
-              Battute pronte <span>{lines.length}</span>
+              {importing ? 'Importa script' : editingId === 'new' ? 'Nuova battuta' : editingId !== null ? 'Modifica battuta' : <>Battute pronte <span className="ready-total">{lines.length}</span></>}
             </h2>
           </div>
           <div className="ready-header-actions">
+            {importing || editingId !== null ? <button className="secondary-button ready-back" onClick={returnToList}><ArrowLeft size={16} /> Torna alle battute</button> : automation?.(!preparedId && !generatingModelB && !singleRegeneratingId)}
             {activeLineId && (busy || playing) && (
               <button className="ready-icon" aria-label="Interrompi battuta attiva" title="Interrompi" onClick={onStop}>
                 <Square size={16} />
@@ -237,8 +287,8 @@ export function ReadyLinesPanel({
           </div>
         </header>
 
-        {automation?.(!unsaved && !importing && editingId === null && !preparedId && !generatingModelB && !singleRegeneratingId)}
         <fieldset className="ready-script-fields" disabled={automationLocked} aria-label="Script e battute">
+        {!importing && editingId === null && <>
         <div className="ready-tabs" role="tablist" aria-label="Seleziona modello battute">
           <button
             role="tab"
@@ -264,29 +314,27 @@ export function ReadyLinesPanel({
           </button>
         </div>
 
-        <section className="ready-next" aria-label="Prossima battuta">
-          <div><strong>{lines.length === 0 ? 'Importa o aggiungi le tue battute' : nextLine ? `Prossima · ${activeTab === 'modelA' ? 'MODEL A' : 'MODEL B'} · Battuta ${lines.indexOf(nextLine) + 1} di ${lines.length}` : 'Tutte le battute completate'}</strong>
-            {nextLine && <p>{nextLine.text}</p>}
-          </div>
-          <button className="secondary-button ready-save" disabled={!nextLine || !canPrepare} title="Ctrl + Shift + Spazio" onClick={() => setPreparedId(nextLine?.id ?? null)}><Pencil size={16} /> Prepara prossima</button>
-          <label className="ready-auto"><input type="checkbox" checked={autoPrepare} onChange={(event) => onAutoPrepareChange(event.target.checked)} /> Apri automaticamente la prossima</label>
-        </section>
-
         <div className="ready-toolbar">
-          <button className="secondary-button" disabled={generatingModelB || Boolean(singleRegeneratingId) || busy || playing} onClick={() => {
+          <button ref={importButtonRef} className="secondary-button" disabled={generatingModelB || Boolean(singleRegeneratingId) || busy || playing} onClick={() => {
             if (importing) return
             if (unsaved && !window.confirm('Scartare il testo non salvato?')) return
             setEditingId(null)
             setDraft('')
+            listScrollRef.current = listRef.current?.scrollTop ?? 0
+            setMenuId(null)
+            if (optionsRef.current) optionsRef.current.open = false
             setImporting(true)
           }}>Importa script</button>
-          <button className="secondary-button" disabled={importing} onClick={() => beginEdit('new', '')}>
+          <button ref={newButtonRef} className="secondary-button" onClick={() => beginEdit('new', '')}>
             <Plus size={16} /> Nuova battuta
           </button>
+          <details className="ready-options" ref={optionsRef}>
+            <summary aria-disabled={automationLocked} tabIndex={automationLocked ? -1 : 0} onClick={(event) => { if (automationLocked) event.preventDefault() }}>Altre opzioni <MoreHorizontal size={17} /></summary>
+            <div className="ready-options-menu">
           <button
             className="secondary-button"
-            disabled={importing || !currentScript.trim()}
-            onClick={() => { onAdd(currentScript); setDeleted(null) }}
+            disabled={!currentScript.trim()}
+            onClick={() => { onAdd(currentScript); setDeleted(null); closeOptions() }}
           >
             <Plus size={16} /> Aggiungi testo corrente
           </button>
@@ -294,7 +342,7 @@ export function ReadyLinesPanel({
             type="button"
             className="secondary-button ready-generate-btn"
             disabled={linesA.length === 0 || generatingModelB || importing || busy || playing || Boolean(singleRegeneratingId)}
-            onClick={handleGenerate}
+            onClick={() => { closeOptions(); handleGenerate() }}
             title={
               linesA.length === 0
                 ? 'Aggiungi prima delle battute in MODEL A'
@@ -313,24 +361,26 @@ export function ReadyLinesPanel({
               </>
             )}
           </button>
-        </div>
 
-        <div className={error ? 'ready-feedback error' : 'ready-feedback'} role={error ? 'alert' : 'status'}>
-          <span className="status-dot" />
-          {generatingModelB ? 'Rielaborazione battute con Nemotron (OpenRouter) in corso…' : (error || status)}
-        </div>
-
-        {activeLine && (
-          <div className="ready-active-cue">
-            <div>
-              <strong>
-                {playing ? 'In riproduzione' : 'In preparazione'} · Battuta {activeIndex + 1} ({activeTab === 'modelA' ? 'Model A' : 'Model B'})
-              </strong>
-              <span>{activeLine.text.trim().split(/\r?\n/, 1)[0]}</span>
+            <label className="ready-auto"><input type="checkbox" checked={autoPrepare} onChange={(event) => onAutoPrepareChange(event.target.checked)} /> Apri automaticamente la prossima</label>
+            {lines.length > 0 && <button className="text-button ready-clear" onClick={() => {
+              if (window.confirm(`Eliminare tutte le ${lines.length} battute di ${activeTab === 'modelA' ? 'MODEL A' : 'MODEL B'}?`)) {
+                onClear()
+                setDeleted(null)
+                closeOptions()
+              }
+            }}><Trash2 size={15} /> Elimina tutte ({activeTab === 'modelA' ? 'A' : 'B'})</button>}
             </div>
-            <button className="text-button" onClick={revealActive}>Vai alla battuta</button>
-          </div>
-        )}
+          </details>
+          {lines.length > 0 && <button className="secondary-button ready-prepare" disabled={!nextLine || !canPrepare} title="Ctrl + Shift + Spazio" onClick={() => setPreparedId(nextLine?.id ?? null)}><Pencil size={16} /> Prepara prossima</button>}
+        </div>
+        </>}
+
+        {(error || generatingModelB || singleRegeneratingId || activeLine) && <div className={error ? 'ready-feedback error' : 'ready-feedback'} role={error ? 'alert' : 'status'}>
+          <span className="status-dot" />
+          {error || (generatingModelB ? 'Nemotron prepara le battute per MODEL B…' : activeLine ? `${playing ? 'In riproduzione' : 'In preparazione'} · Battuta ${activeIndex + 1}` : status)}
+          {activeLine && <button className="text-button" onClick={revealActive}>Vai alla battuta</button>}
+        </div>}
 
         {editingId !== null && (
           <section className="ready-editor" aria-label={editingId === 'new' ? 'Nuova battuta' : 'Modifica battuta'}>
@@ -342,30 +392,28 @@ export function ReadyLinesPanel({
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Scrivi esattamente ciò che vuoi pronunciare…"
             />
+            <p className="ready-editor-hint">Scrivi le parole da dire: potrai prepararle prima di pronunciarle o usarle nel player automatico.</p>
             <div className="ready-editor-actions">
-              <button className="secondary-button" onClick={() => { setEditingId(null); setDraft('') }}>Annulla</button>
+              <button className="secondary-button" onClick={returnToList}>Annulla</button>
               <button className="secondary-button ready-save" disabled={!draft.trim()} onClick={save}>Salva battuta</button>
             </div>
           </section>
         )}
 
-        {importing && <ScriptImportPanel countA={linesA.length} countB={linesB.length} onDraftChange={setImportDirty} onCancel={() => {
-          if (importDirty && !window.confirm('Scartare lo script non importato?')) return
-          setImporting(false)
-          setImportDirty(false)
-        }} onImport={(result, mode) => {
+        {importing && <ScriptImportPanel countA={linesA.length} countB={linesB.length} onDraftChange={setImportDirty} onCancel={returnToList} onImport={(result, mode) => {
           onImport(result, mode)
           setImporting(false)
           setImportDirty(false)
           setDeleted(null)
+          requestAnimationFrame(() => importButtonRef.current?.focus())
         }} />}
-        <div ref={listRef} hidden={importing} className="ready-list" aria-label={`Battute preparate per ${activeTab === 'modelA' ? 'Model A' : 'Model B'}`}>
+        {!importing && editingId === null && <>
+        <div ref={listRef} className="ready-list" aria-label={`Battute preparate per ${activeTab === 'modelA' ? 'Model A' : 'Model B'}`}>
           {lines.length === 0 ? (
-            <p className="ready-empty">
-              {activeTab === 'modelA'
-                ? 'Nessuna battuta preparata per MODEL A.'
-                : 'Nessuna battuta in MODEL B. Clicca "Genera per MODEL B" per rielaborare le battute di MODEL A.'}
-            </p>
+            <div className="ready-empty">
+              <strong>{activeTab === 'modelA' ? 'Da dove iniziamo?' : 'Prepara la conversazione con MODEL B'}</strong>
+              <p>{activeTab === 'modelA' ? 'Importa il tuo script oppure scrivi la prima battuta.' : 'Importa uno script per MODEL B oppure generalo da MODEL A in Altre opzioni.'}</p>
+            </div>
           ) : (
             <ol>
               {lines.map((line, index) => {
@@ -375,6 +423,7 @@ export function ReadyLinesPanel({
                     ref={active ? activeItemRef : null}
                     className={`ready-item${active ? ' active' : ''}${line.done ? ' done' : ''}${nextLine?.id === line.id && !active ? ' next' : ''}`}
                     key={line.id}
+                    data-ready-id={line.id}
                   >
                     <label className="ready-number">
                       {index + 1}
@@ -385,10 +434,10 @@ export function ReadyLinesPanel({
                         title="Segna come fatta"
                         onChange={() => onToggleDone(line.id)}
                       />
-                      <small>Fatta</small>
+
                     </label>
                     <button type="button" className={`ready-copy${expandedId === line.id ? ' expanded' : ''}`} aria-expanded={expandedId === line.id} aria-label={`Espandi o riduci testo battuta ${index + 1}`} onClick={() => setExpandedId(expandedId === line.id ? null : line.id)}>
-                      <span className="ready-line-state">{active ? (playing ? 'In riproduzione' : 'In preparazione') : line.done ? 'Completata' : nextLine?.id === line.id ? 'Prossima' : `Battuta ${index + 1}`}</span>
+                      <span className="ready-line-state">{active ? (playing ? 'In riproduzione' : 'In preparazione') : line.done ? 'Completata' : nextLine?.id === line.id ? 'Prossima' : 'Da pronunciare'}</span>
                       <p>{line.text}</p>
                     </button>
                     <div className="ready-item-actions">
@@ -421,7 +470,7 @@ export function ReadyLinesPanel({
                       </button>
                       <div className="ready-more">
                         <button className="ready-icon" aria-label={`Altre azioni battuta ${index + 1}`} aria-expanded={menuId === line.id} onClick={() => setMenuId(menuId === line.id ? null : line.id)}><MoreHorizontal size={18} /></button>
-                        {menuId === line.id && <div className={`ready-more-menu${index >= lines.length - 2 ? ' above' : ''}`}>
+                        {menuId === line.id && <div className={`ready-more-menu${index > 0 && index >= lines.length - 2 ? ' above' : ''}`}>
                       {onRegenerateLine && (
                         <button
                           className="ready-icon ready-sparkle-btn"
@@ -489,25 +538,11 @@ export function ReadyLinesPanel({
               <RotateCcw size={15} /> Annulla eliminazione
             </button>
           ) : (
-            <span>Le battute spariscono quando chiudi l’app.</span>
+            <span>Solo per questa sessione · Reimporta lo script quando riapri l’app.</span>
           )}
-          {lines.length > 0 && (
-            <button
-              className="text-button ready-clear"
-              disabled={importing}
-              onClick={() => {
-                if (window.confirm(`Eliminare tutte le ${lines.length} battute di ${activeTab === 'modelA' ? 'MODEL A' : 'MODEL B'}?`)) {
-                  onClear()
-                  setDeleted(null)
-                  setEditingId(null)
-                  setDraft('')
-                }
-              }}
-            >
-              <Trash2 size={15} /> Elimina tutte ({activeTab === 'modelA' ? 'A' : 'B'})
-            </button>
-          )}
+          <span className="ready-footer-progress" role="status">{lines.filter((line) => line.done).length} di {lines.length} completate</span>
         </footer>
+        </>}
         </fieldset>
         {preparedLine && <PrepareLineDialog key={preparedLine.id} line={preparedLine} index={preparedIndex} total={lines.length} tab={activeTab} canPlay={ready && canPrepare} onClose={() => setPreparedId(null)} onNavigate={(direction) => setPreparedId(lines[preparedIndex + direction]?.id ?? null)} onPlay={(text) => {
           onEdit(preparedLine.id, text)

@@ -9,6 +9,19 @@ Gemini selezionata. Le battute originali non vengono sovrascritte.
 Puoi provare il ciclo dalla **Console → Battute Pronte**, senza aprire una task
 Outlier né collegare Edge. Servono Gemini e `OPENROUTER_API_KEY` configurati.
 
+**Battute pronte** si apre in una finestra centrale: seleziona MODEL A/B e usa
+**Importa script**, **Nuova battuta** o **Prepara prossima**. **Automatico** apre il
+player dedicato. In **Altre opzioni** trovi la generazione di MODEL B, l’aggiunta
+del testo corrente, l’apertura automatica della prossima battuta e l’eliminazione
+dell’intero elenco. La spunta accanto al numero segna una battuta completata.
+
+L’importazione ha una vista dedicata, con lo script a sinistra e l’anteprima a
+destra (uno sotto l’altro nelle finestre piccole). Scegli se aggiungere o
+sostituire le battute dei modelli presenti nell’anteprima, quindi premi
+**Importa battute**. Tornare all’elenco o chiudere la finestra chiede conferma se
+hai testo non salvato. Anche la modifica di una singola battuta usa una vista
+separata, con più spazio per scrivere.
+
 Uno script pronto da incollare in **Importa script** è [s2s-demo.txt](s2s-demo.txt).
 Contiene cinque battute sul ciclo dell’acqua. La riga `SCENARIO:` non viene
 importata come battuta: copia quel contesto nel campo **Contesto della task**.

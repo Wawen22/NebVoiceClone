@@ -11,9 +11,7 @@ import { DEFAULT_S2S_TASK_CONTEXT, isS2SAdaptiveInstruction, type S2STaskContext
 
 export function AutomationLauncher({ editorReady, onOpen }: { editorReady: boolean; onOpen: () => void }): React.JSX.Element {
   return <section className="s2s-launcher" aria-label="Conversazione S2S">
-    <div><strong>Conversazione S2S</strong><p>Player automatico con trascrizione e battute adattate.</p></div>
-    <button className="secondary-button" disabled={!editorReady} onClick={onOpen}><Play size={14} /> Automatico</button>
-    {!editorReady && <p>Salva o chiudi la modifica prima di aprire il player.</p>}
+    <button className="secondary-button ready-save" disabled={!editorReady} title={editorReady ? 'Apri il player automatico con trascrizione e battute adattate' : 'Attendi la fine della preparazione prima di aprire il player'} onClick={onOpen}><Play size={14} /> Automatico</button>
   </section>
 }
 
