@@ -62,7 +62,9 @@ Use **Modalità conversazione** from the Console when an AI conversation is open
 
 Shortcuts: `Ctrl+Enter` speaks, `Escape` stops, `Ctrl+R` replays, and `Ctrl+Alt+V` toggles Conversation Mode from NEB or Edge. `Ctrl+Alt+S` is the global emergency stop for generation or playback while Edge is active. If another app owns a global shortcut, NEB continues normally and the window controls still work.
 
-Use **Volume di uscita** under **Dove si sente** to set the level NEB sends to CABLE Input. It is saved locally and affects Pronuncia and Riascolta only; it never changes the Windows volume, headset volume, or Edge microphone level. Open **Test e istruzioni di routing** for a spoken test phrase, local WAV test, and Edge setup steps.
+The Console and Outlier voice workspace use a full-width text editor. Open **Voce e audio** to change voice, output or volume; the collapsed bar shows the current selection. **Modello vocale**, **Test audio e istruzioni** and keyboard shortcuts expand on demand.
+
+Use **Volume di uscita** under **Voce e audio → Uscita audio** to set the level NEB sends to CABLE Input. It is saved locally and affects Pronuncia and Riascolta only; it never changes the Windows volume, headset volume, or Edge microphone level. Open **Test audio e istruzioni** for a spoken test phrase, local WAV test, and Edge setup steps.
 
 ## Battute pronte
 

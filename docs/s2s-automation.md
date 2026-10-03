@@ -114,7 +114,7 @@ progressivo; una bozza parziale andrebbe invalidata quando cambia la risposta.
    `OPENROUTER_API_KEY=...`. Riavvia NEB dopo una modifica della chiave.
    Non inserire la chiave nell'estensione. Servono anche Gemini configurato
    e la voce selezionata nella Console.
-3. In NEB seleziona **CABLE Input** come uscita. In Outlier/Edge seleziona
+3. In NEB apri **Voce e audio** e seleziona **CABLE Input** come uscita. In Outlier/Edge seleziona
    **CABLE Output** come microfono, mantenendo cuffie/altoparlanti reali come
    uscita Edge. Il percorso è descritto in [audio-routing.md](audio-routing.md).
 4. Apri `edge://extensions`, ricarica **NEB Outlier Connector** (versione 1.1.0)
@@ -383,3 +383,24 @@ errore di avvio, conservazione dei campi e della posizione di lettura, nuovo cic
 finestra 540×620 senza scorrimento orizzontale, Pausa/Ripresa, Stop, risposta finale,
 anticipo e attesa di 31 secondi per il primo audio MODEL. Nessuna chiamata AI in
 questa verifica dell’interfaccia.
+
+## Console e Voce & Battute semplificate
+
+L’editor usa tutta la larghezza disponibile. La barra **Voce e audio** mostra
+la voce, l’uscita e il volume attuali; aprila per modificare questi valori.
+**Modello vocale** raccoglie la scelta del modello e **Test audio e istruzioni**
+contiene frase di prova, verifica Edge e test WAV locale. Le scorciatoie sono
+consultabili nella sezione chiusa **Scorciatoie da tastiera**.
+
+Pronuncia, Stop e Riascolta restano sotto il testo, insieme a un unico stato.
+Durante la generazione o una sessione automatica i campi audio sono disabilitati.
+Se l’uscita non è quella virtuale, l’avviso resta visibile anche con impostazioni
+chiuse. Le impostazioni aperte scorrono dentro la Console; la pagina Rationale e
+la modalità conversazione compatta conservano il loro layout.
+
+Verifica grafica e funzionale: 196 test WSL passati (3 saltati), build e typecheck
+passati. Smoke Edge Windows passato con impostazioni voce/modello/uscita/volume,
+scroll interno, finestre piccole, pagina Outlier, generazione manuale del testo
+esatto, campi disabilitati durante la generazione, Riascolta senza rigenerazione
+AI e Stop. La stessa prova copre ancora il ciclo S2S, anticipo e primo audio lento.
+Audio e IPC sono sintetici; questa verifica non invoca API a pagamento.

@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { Icon } from './Icons'
-import { ListMusic } from 'lucide-react'
+import { ListMusic, ChevronDown } from 'lucide-react'
 import type { AudioOutput } from './audio/AudioEngine'
 import type { AppSettings, ConversationModeStatus, ProviderStatus } from '../../shared/contracts'
 import { GEMINI_MODELS, GEMINI_PREBUILT_VOICES } from '../../shared/contracts'
@@ -48,39 +48,32 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
 
-  return <div className="console-page">
+  return <div className="console-page console-clean">
     <div className="console-heading">
-      <div><span className="eyebrow">CONSOLE / GENERAZIONE</span><h2>Dai voce alle tue parole.</h2><p>Scrivi esattamente ciò che vuoi dire. La voce parte sul dispositivo selezionato.</p></div>
-      <div className="console-heading-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={16} /> Battute pronte <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-trigger" aria-keyshortcuts="Control+Alt+V" onClick={onOpenConversation}><Icon name="external" /> Modalità conversazione <kbd>Ctrl+Alt+V</kbd></button></div>
+      <div><h2>Scrivi e pronuncia.</h2><p>La tua voce, sul dispositivo scelto.</p></div>
+      <div className="console-heading-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={16} /> Battute pronte <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-trigger" aria-keyshortcuts="Control+Alt+V" onClick={onOpenConversation}><Icon name="external" /> Modalità conversazione</button></div>
     </div>
-
-    <div className="console-grid">
-      <section className="editor-card" aria-labelledby="script-heading">
-        <div className="card-heading"><div><span className="eyebrow">01 / TESTO</span><h3 id="script-heading">Il tuo messaggio</h3></div><span className={playing ? 'subtle-badge playing' : 'subtle-badge'}>{playing ? <><VoiceWave /> In riproduzione</> : 'Testo esatto'}</span></div>
-        <textarea ref={scriptInput} aria-label="Testo da pronunciare" value={script} onChange={(event) => onScriptChange(event.target.value)} placeholder="Scrivi o incolla qui le parole da pronunciare…" />
-        <div className="editor-meta"><span>{script.length} caratteri</span><span>{estimatedSeconds ? `~${estimatedSeconds} s stimati` : 'Pronto per scrivere'}</span></div>
-        <ActionButtons busy={busy} ready={gemini.ready} hasAudio={hasAudio} hasScript={Boolean(script.trim())} onSpeak={() => onSpeak()} onStop={onStop} onReplay={onReplay} />
-        <StatusNotice error={error} status={status} playing={playing} />
-        <MetricDetails metrics={metrics} />
-      </section>
-
-      <aside className="console-side" aria-label="Controlli voce e audio">
+    <details className="console-audio-settings">
+      <summary><span className="console-audio-title"><Icon name="settings" /> Voce e audio</span><span className="console-audio-value"><small>VOCE</small><strong title={selectedVoice}>{selectedVoice}</strong></span><span className="console-audio-value"><small>USCITA</small><strong title={routing.label}><i className={routing.routed ? 'status-dot green' : 'status-dot amber'} />{routing.routed ? virtualName : routing.label}</strong></span><span className="console-audio-volume"><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> {Math.round(settings.outputVolume * 100)}%</span><ChevronDown className="console-audio-chevron" size={16} /></summary>
+      <div className="console-audio-grid" aria-label="Controlli voce e audio">
         <section className="control-card">
-          <span className="eyebrow">02 / VOCE</span><h3>Come suona</h3>
-          <label className="field">Voce<select value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></label>
-          <p className="field-note">Solo {activeKeyName}: <strong>{selectedVoice}</strong></p>
-          <label className="field">Modello<select value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
-          <p className="field-note">Modello condiviso tra le chiavi.</p>
+          <h3>Profilo vocale</h3>
+          <div className="field"><label htmlFor="console-voice">Voce</label><select id="console-voice" disabled={busy} value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></div>
+          <p className="field-note">Profilo associato a {activeKeyName}.</p>
+          <details className="console-model-details"><summary>Modello vocale</summary><div className="field"><label htmlFor="console-model">Modello</label><select id="console-model" disabled={busy} value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
+          </details>
         </section>
 
         <section className="control-card routing-card">
-          <div className="card-heading"><div><span className="eyebrow">03 / USCITA</span><h3>Dove si sente</h3></div><button className="icon-button" aria-label="Aggiorna dispositivi audio" title="Aggiorna dispositivi audio" onClick={onRefreshOutputs}><Icon name="refresh" /></button></div>
+          <div className="card-heading"><div><h3>Uscita audio</h3></div><button className="icon-button" aria-label="Aggiorna dispositivi audio" title="Aggiorna dispositivi audio" onClick={onRefreshOutputs}><Icon name="refresh" /></button></div>
+
+          <div className="field"><label htmlFor="console-output">Dispositivo di uscita</label><select id="console-output" disabled={busy} value={settings.outputDeviceId} onChange={(event) => onUpdate({ outputDeviceId: event.target.value })}>{!outputs.some((output) => output.deviceId === settings.outputDeviceId) && <option value={settings.outputDeviceId}>{outputLabel(outputs, settings.outputDeviceId)}</option>}{outputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}</select></div>
+          <label className="field volume-field"><span><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> Volume di uscita <strong>{Math.round(settings.outputVolume * 100)}%</strong></span><input aria-label="Volume di uscita" type="range" disabled={busy} min="0" max="1" step="0.05" value={settings.outputVolume} onChange={(event) => onPreviewVolume(Number(event.target.value))} onPointerUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onKeyUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onBlur={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} /></label>
+
+          {!outputs.some((output) => output.deviceId === settings.outputDeviceId) && settings.outputDeviceId !== 'default' && virtualOutput && <button className="secondary-button" onClick={() => onUpdate({ outputDeviceId: virtualOutput.deviceId })} disabled={busy}>Usa {virtualName}</button>}
+          {!routing.routed && <div className="console-routing-warning" role="status"><span className="status-dot amber" /><p>{routing.message}</p></div>}
+          <details className="support-details"><summary>Test audio e istruzioni</summary>
           <div className={routing.routed ? 'route-status ready' : 'route-status'}><span className="status-dot" /><div><strong>{routing.routed ? `${virtualName} selezionato` : 'Routing da verificare'}</strong><p>{routing.message}</p></div></div>
-          <label className="field">Dispositivo di uscita<select value={settings.outputDeviceId} onChange={(event) => onUpdate({ outputDeviceId: event.target.value })}>{!outputs.some((output) => output.deviceId === settings.outputDeviceId) && <option value={settings.outputDeviceId}>{outputLabel(outputs, settings.outputDeviceId)}</option>}{outputs.map((output) => <option key={output.deviceId} value={output.deviceId}>{output.label}</option>)}</select></label>
-          <label className="field volume-field"><span><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> Volume di uscita <strong>{Math.round(settings.outputVolume * 100)}%</strong></span><input aria-label="Volume di uscita" type="range" min="0" max="1" step="0.05" value={settings.outputVolume} onChange={(event) => onPreviewVolume(Number(event.target.value))} onPointerUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onKeyUp={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} onBlur={(event) => onUpdate({ outputVolume: Number(event.currentTarget.value) })} /></label>
-          <p className="field-note">Uscita e volume condivisi tra le chiavi.</p>
-          {!outputs.some((output) => output.deviceId === settings.outputDeviceId) && settings.outputDeviceId !== 'default' && virtualOutput && <button className="secondary-button" onClick={() => onUpdate({ outputDeviceId: virtualOutput.deviceId })}>Usa {virtualName}</button>}
-          <details className="support-details"><summary>Test e istruzioni di routing</summary>
             <p>NEB può verificare il dispositivo selezionato. Controlla il microfono di Edge con una registrazione di prova.</p>
             <button className="secondary-button" disabled={!gemini.ready || busy || !routing.routed} onClick={() => onSpeak(testPhrase)}><Icon name="play" /> Pronuncia frase di prova</button>
             <ol><li>Seleziona {virtualName} come uscita in NEB.</li><li>In Edge scegli {isLinux ? 'Monitor of NEB Voice' : 'CABLE Output'} come microfono.</li><li>Registra la frase e riascoltala in Edge.</li></ol>
@@ -88,9 +81,16 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
             <div className="local-test"><strong>Test WAV locale</strong><div className="file-row"><label className="file-button"><Icon name="upload" /> Scegli WAV<input type="file" accept=".wav,audio/wav" disabled={busy} onChange={(event) => { onLoadFile(event.target.files?.[0]); event.target.value = '' }} /></label><button className="secondary-button" onClick={onPlayFile} disabled={!fileName || busy}><Icon name="play" /> Riproduci</button></div><span className="file-name">{fileName || 'Nessun file selezionato'}{duration !== null ? ` · ${duration.toFixed(1)} s` : ''}</span></div>
           </details>
         </section>
-      </aside>
-    </div>
-    <div className="shortcut-strip"><span>Scorciatoie</span><kbd>Ctrl + Invio</kbd> pronuncia <kbd>Esc</kbd> interrompi <kbd>Ctrl + R</kbd> riascolta <kbd>Ctrl + Alt + V</kbd> conversazione <kbd>Ctrl + Alt + S</kbd> stop globale</div>
+      </div>
+    </details>
+    {!routing.routed && <div className="console-routing-hint"><span className="status-dot amber" /><p>Controlla l’uscita audio prima di inviare la voce a Edge.</p></div>}
+    <section className="editor-card console-composer" aria-labelledby="script-heading">
+      <div className="card-heading"><h3 id="script-heading">Il tuo messaggio</h3><span className="editor-meta">{script.length} caratteri{estimatedSeconds > 0 && ` · ~${estimatedSeconds} s`}</span></div>
+      <textarea ref={scriptInput} aria-label="Testo da pronunciare" value={script} onChange={(event) => onScriptChange(event.target.value)} placeholder="Scrivi o incolla le parole da pronunciare…" />
+      <div className="console-composer-footer"><ActionButtons busy={busy} ready={gemini.ready} hasAudio={hasAudio} hasScript={Boolean(script.trim())} onSpeak={() => onSpeak()} onStop={onStop} onReplay={onReplay} /><StatusNotice error={error} status={status} playing={playing} /></div>
+      <MetricDetails metrics={metrics} />
+    </section>
+    <details className="console-shortcuts"><summary>Scorciatoie da tastiera</summary><div className="shortcut-strip"><kbd>Ctrl + Invio</kbd> pronuncia <kbd>Esc</kbd> interrompi <kbd>Ctrl + R</kbd> riascolta <kbd>Ctrl + Alt + V</kbd> conversazione <kbd>Ctrl + Alt + S</kbd> stop globale</div></details>
   </div>
 }
 

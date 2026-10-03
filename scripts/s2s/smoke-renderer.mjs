@@ -32,7 +32,7 @@ try {
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
     const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
-    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, providerUnavailable: false, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null,
+    const fixture = window.fixture = { spoken: [], played: [], filePlays: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, providerUnavailable: false, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null, holdUserVoice: false, releaseUserVoice: null,
       disconnect: () => {
         capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
         for (const listener of listeners) listener({ type: 'status', status: capture })
@@ -53,7 +53,7 @@ try {
     class Audio {
       volume = 1; currentTime = 0; sinkId = 'default'; src = ''; srcObject = null
       async setSinkId(id) { this.sinkId = id }
-      async play() {}
+      async play() { if (this.src && !this.srcObject) fixture.filePlays.push({ sinkId: this.sinkId, volume: this.volume }) }
       pause() {}
       load() {}
       removeAttribute() {}
@@ -70,7 +70,7 @@ try {
     window.AudioContext = AudioContext
     window.neb = {
       getAppInfo: async () => ({ electron: 'fixture', node: 'fixture', platform: 'win32', geminiConfigured: true }),
-      getSettings: async () => settings, updateSettings: async (patch) => Object.assign(settings, patch),
+      getSettings: async () => ({ ...settings }), updateSettings: async (patch) => ({ ...Object.assign(settings, patch) }),
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, environmentLabel: 'Fixture', projectLabel: 'Fixture', savedLabel: null, secureStorageAvailable: false }),
       checkGemini: async () => ({ ready: true, message: 'Gemini connected' }),
       getOutlierData: async () => ({ schemaVersion: 1, projects: [{ id: 's2s', name: 'S2S', notes: '', integration: 's2s', archived: false }], charactersPerMinute: 600 }),
@@ -97,6 +97,7 @@ try {
       cancelS2SSimulationReply: async () => {},
       synthesizeStream: async (request, onChunk) => {
         fixture.spoken.push(request.text)
+        if (request.voice.voiceId === 'Kore' && fixture.holdUserVoice) await new Promise((resolve) => { fixture.releaseUserVoice = resolve })
         if (request.voice.voiceId === 'Puck' && fixture.holdVoice) await new Promise((resolve) => { fixture.releaseVoice = resolve })
         const code = 2000 + fixture.spoken.length
         fixture.speechCodes[code] = { text: request.text, voice: request.voice.voiceId }
@@ -112,6 +113,51 @@ try {
     }, 100)
   })
   await page.goto(`http://127.0.0.1:${server.address().port}`)
+  await page.locator('.console-audio-settings > summary').waitFor({ timeout: 5000 })
+  assert.equal(await page.locator('.console-audio-settings').getAttribute('open'), null)
+  const artifacts = path.resolve('.superpowers/s2s-smoke')
+  await mkdir(artifacts, { recursive: true })
+  await page.screenshot({ path: path.join(artifacts, 'console-clean.png') })
+  assert(await page.locator('.console-composer textarea').evaluate((element) => element.clientWidth > 700))
+  await page.locator('.console-audio-settings > summary').click()
+  await page.getByLabel('Voce', { exact: true }).selectOption('Puck')
+  await page.waitForFunction(() => document.querySelector('.console-audio-value strong')?.textContent === 'Puck')
+  await page.getByLabel('Voce', { exact: true }).selectOption('Kore')
+  await page.waitForFunction(() => document.querySelector('.console-audio-value strong')?.textContent === 'Kore')
+  await page.getByLabel('Dispositivo di uscita', { exact: true }).selectOption('headphones')
+  await page.locator('.console-routing-hint').waitFor()
+  assert.equal(await page.locator('.console-audio-value strong').nth(1).textContent(), 'Headphones Realtek (fixture)')
+  await page.getByLabel('Dispositivo di uscita', { exact: true }).selectOption('cable')
+  await page.waitForFunction(() => !document.querySelector('.console-routing-hint'))
+  await page.getByLabel('Volume di uscita', { exact: true }).focus()
+  await page.getByLabel('Volume di uscita', { exact: true }).press('ArrowLeft')
+  await page.waitForFunction(() => document.querySelector('.console-audio-volume')?.textContent.includes('80%'))
+  await page.getByLabel('Volume di uscita', { exact: true }).press('ArrowRight')
+  await page.waitForFunction(() => document.querySelector('.console-audio-volume')?.textContent.includes('85%'))
+  await page.locator('.console-model-details > summary').click()
+  await page.getByLabel('Modello', { exact: true }).selectOption('gemini-3.8-flash-lite-tts')
+  assert.equal(await page.getByLabel('Modello', { exact: true }).inputValue(), 'gemini-3.8-flash-lite-tts')
+  await page.getByLabel('Modello', { exact: true }).selectOption('gemini-3.8-flash-tts')
+  await page.locator('.console-model-details > summary').click()
+  await page.locator('.support-details > summary').click()
+  await page.getByText('Test WAV locale', { exact: true }).waitFor()
+  assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), 'Audio setup must scroll inside Console without moving the app frame')
+  await page.screenshot({ path: path.join(artifacts, 'console-audio-settings.png') })
+  await page.locator('.support-details > summary').click()
+  await page.locator('.console-audio-settings > summary').click()
+  await page.getByRole('button', { name: 'Outlier', exact: true }).click()
+  await page.getByRole('button', { name: 'Voce & Battute', exact: true }).click()
+  if (await page.getByRole('button', { name: 'Nascondi barra progetti', exact: true }).count()) await page.getByRole('button', { name: 'Nascondi barra progetti', exact: true }).click()
+  await page.screenshot({ path: path.join(artifacts, 'outlier-console-clean.png') })
+  assert(await page.locator('.console-composer textarea').evaluate((element) => element.clientWidth > 650))
+  await page.getByRole('button', { name: 'Console', exact: true }).click()
+  await page.setViewportSize({ width: 540, height: 620 })
+  assert(await page.locator('.console-clean').evaluate((element) => element.scrollWidth <= element.clientWidth))
+  await page.locator('.console-audio-settings > summary').click()
+  await page.getByLabel('Voce', { exact: true }).waitFor()
+  await page.screenshot({ path: path.join(artifacts, 'console-clean-compact.png') })
+  await page.locator('.console-audio-settings > summary').click()
+  await page.setViewportSize({ width: 1260, height: 850 })
   await page.getByRole('button', { name: /Battute pronte/i }).click()
   const addLine = async (text) => {
     if (await page.getByRole('button', { name: 'Torna alle battute', exact: true }).count()) await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
@@ -157,8 +203,6 @@ try {
   assert.deepEqual(await page.locator('.s2s-message.neb > p').allTextContents(), ['Descrivi la soluzione.', 'E quali limiti ha?'])
   assert.equal(await page.locator('.s2s-message.model').count(), 2)
   assert.equal(await page.getByText('2/2 battute completate', { exact: true }).count(), 1)
-  const artifacts = path.resolve('.superpowers/s2s-smoke')
-  await mkdir(artifacts, { recursive: true })
   await page.screenshot({ path: path.join(artifacts, 'automatic-player.png') })
   await page.getByRole('tab', { name: 'Script', exact: true }).click()
   assert.equal(await page.locator('.s2s-transcript').count(), 0)
@@ -285,11 +329,32 @@ try {
   assert.equal(await page.getByRole('dialog', { name: 'Conversazione automatica', exact: true }).count(), 0)
   await page.getByRole('button', { name: /Battute pronte/i }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
+  await page.getByRole('button', { name: 'Chiudi battute pronte', exact: true }).click()
+  await page.getByLabel('Testo da pronunciare', { exact: true }).fill('Questa è una prova della Console semplificata.')
+  await page.evaluate(() => { window.fixture.holdUserVoice = true })
+  await page.locator('.console-composer .primary').click()
+  await page.waitForFunction(() => window.fixture.releaseUserVoice !== null)
+  await page.locator('.console-audio-settings > summary').click()
+  assert(await page.getByLabel('Voce', { exact: true }).isDisabled())
+  assert(await page.getByLabel('Dispositivo di uscita', { exact: true }).isDisabled())
+  assert(await page.getByLabel('Volume di uscita', { exact: true }).isDisabled())
+  await page.evaluate(() => { window.fixture.holdUserVoice = false; window.fixture.releaseUserVoice() })
+  await page.waitForFunction(() => !document.querySelector('#console-voice')?.disabled)
+  await page.locator('.console-audio-settings > summary').click()
+  assert.equal(await page.evaluate(() => window.fixture.spoken.at(-1)), 'Questa è una prova della Console semplificata.')
+  assert.equal(await page.getByLabel('Testo da pronunciare', { exact: true }).inputValue(), 'Questa è una prova della Console semplificata.')
+  const playedBeforeReplay = await page.evaluate(() => window.fixture.filePlays.length)
+  const callsBeforeReplay = await page.evaluate(() => window.fixture.spoken.length)
+  await page.locator('.console-composer').getByRole('button', { name: /Riascolta/ }).click()
+  await page.waitForFunction((before) => window.fixture.filePlays.length > before, playedBeforeReplay)
+  assert.equal(await page.evaluate(() => window.fixture.spoken.length), callsBeforeReplay)
+  assert.equal(await page.evaluate(() => window.fixture.filePlays.at(-1).sinkId), 'cable')
+  await page.locator('.console-composer').getByRole('button', { name: /Stop/ }).click()
   assert.deepEqual(errors, [])
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: uncluttered player views and keyboard navigation, startup failure restores preserved configuration, reading position across tabs, follow reset on new session, compact viewport without horizontal overflow; MODEL first audio delayed 31s stays active, explicit voice preparation status, pause/resume reuses generated MODEL text, audio-only simulation adaptation; anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+  console.log('PASS: focused Console and Outlier editor, collapsible audio settings, voice/model/output/keyboard volume updates, routing hint and local WAV controls, manual speech preserves exact text, busy audio settings lock and replay/Stop, compact viewport; uncluttered player views and keyboard navigation, startup failure restores preserved configuration, reading position across tabs, follow reset on new session, compact viewport without horizontal overflow; MODEL first audio delayed 31s stays active, explicit voice preparation status, pause/resume reuses generated MODEL text, audio-only simulation adaptation; anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
 } catch (error) {
   await page?.screenshot({ path: path.resolve('.superpowers/s2s-smoke/player-failure.png') })
-  console.error(await page?.locator('.s2s-player').innerText())
+  if (page && await page.locator('.s2s-player').count()) console.error(await page.locator('.s2s-player').innerText({ timeout: 1000 }))
   throw error
 } finally { await browser.close(); server.close() }

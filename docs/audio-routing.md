@@ -5,12 +5,12 @@ The audio engine plays imported WAV files and Gemini generated WAV through the s
 ## Browser / Edge setup with VB-CABLE
 
 1. Install [VB-Audio VB-CABLE](https://vb-audio.com/Cable/) on Windows and restart Windows if the installer asks.
-2. Reopen NEB Voice Console and press the refresh icon in **Dove si sente**. Its output list must contain **CABLE Input (VB-Audio Virtual Cable)**.
+2. Reopen NEB Voice Console and press the refresh icon in **Voce e audio → Uscita audio**. Its output list must contain **CABLE Input (VB-Audio Virtual Cable)**.
 3. In NEB, choose **CABLE Input** as the output device. This sends generated speech into the virtual cable instead of speakers.
 4. In the Edge site where the AI conversation runs, open its microphone/device settings and choose **CABLE Output (VB-Audio Virtual Cable)**. Keep Windows speakers on the real headset so you can hear the model.
 5. In NEB, open **Modalità conversazione**, paste a short sentence and press **Pronuncia**. The browser's microphone test or conversation should receive the synthesized voice.
 
-For a guided check in the full Console, open **Test e istruzioni di routing** under **Dove si sente**. Select CABLE Input in NEB, select CABLE Output as the microphone in Edge, start Edge's microphone test or recording, then press **Pronuncia frase di prova** in NEB. Listen to the recording to confirm the phrase arrived. The test phrase does not replace your script. NEB can verify only its selected output; it cannot detect or verify Edge's microphone selection. If a saved output is disconnected, refresh the device list; when CABLE Input is detected, **Usa CABLE Input** selects it again.
+For a guided check in the full Console, open **Test audio e istruzioni** under **Voce e audio → Uscita audio**. Select CABLE Input in NEB, select CABLE Output as the microphone in Edge, start Edge's microphone test or recording, then press **Pronuncia frase di prova** in NEB. Listen to the recording to confirm the phrase arrived. The test phrase does not replace your script. NEB can verify only its selected output; it cannot detect or verify Edge's microphone selection. If a saved output is disconnected, refresh the device list; when CABLE Input is detected, **Usa CABLE Input** selects it again.
 
 Teams uses the same pairing: choose **CABLE Input** in NEB and **CABLE Output** as the Teams microphone.
 
