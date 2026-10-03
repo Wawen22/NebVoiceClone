@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { S2SController } from './controller'
+import { SimulatedModel } from './simulation'
 import type { S2SAdaptRequest, S2SDecision } from '../../../shared/s2s'
 
 const decision: S2SDecision = { action: 'speak', transcript: 'La soluzione è economica.', nextText: 'E quali limiti ha?', reason: 'Risposta conclusa', costUsd: 0.002, qwenMs: 100 }
@@ -276,4 +277,59 @@ it('never reads a pending adaptive instruction when explicitly replaying after p
   s.controller.pause(); s.controller.resume(true)
   expect(s.spoken).toEqual(['Descrivi la soluzione.', 'Ciao.'])
   expect(s.controller.snapshot.phase).toBe('paused')
+})
+
+it('keeps the simulation active while its text and first audio are being prepared', async () => {
+  const s = session({ anticipateText: false }); s.plays[0].resolve(); await flush()
+  s.controller.setSimulationStage('text')
+  s.feed(false, 200)
+  s.controller.setSimulationStage('voice')
+  s.feed(false, 200)
+  expect(s.controller.active).toBe(true)
+  expect(s.controller.snapshot.phase).toBe('listening')
+  expect(s.requests).toHaveLength(0)
+  s.controller.setSimulationStage('playing'); s.feed(true, 10)
+  s.controller.setSimulationStage('idle'); s.feed(false, 25)
+  expect(s.requests).toHaveLength(1)
+})
+
+it('bounds a simulation that produces no first audio with an explicit Gemini error', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.controller.setSimulationStage('voice'); s.feed(false, 601)
+  expect(s.controller.snapshot.phase).toBe('paused')
+  expect(s.controller.snapshot.message).toContain('Gemini')
+})
+
+it('does not mistake a pause inside MODEL playback for its completed answer', async () => {
+  const s = session({ anticipateText: false }); s.plays[0].resolve(); await flush()
+  s.controller.setSimulationStage('playing')
+  s.feed(true, 3); s.feed(false, 30)
+  expect(s.requests).toHaveLength(0)
+  s.controller.setSimulationStage('idle'); s.feed(false)
+  expect(s.requests).toHaveLength(1)
+})
+
+it('does not abort MODEL A while its generated reply is waiting for slow Gemini audio', async () => {
+  const s = session({ anticipateText: false }); s.plays[0].resolve(); await flush()
+  const model = new SimulatedModel('', {
+    reply: async () => ({ text: 'Risposta pronta.', modelMs: 20000, costUsd: 0.001 }),
+    play: async () => { await new Promise<void>(() => {}) }, cost: () => true, state: () => {}, failed: () => {},
+    stage: (stage) => s.controller.setSimulationStage(stage)
+  })
+  model.respond('Descrivi la soluzione.'); await flush()
+  s.feed(false, 400)
+  expect(s.controller.snapshot.phase).toBe('listening')
+  expect(s.controller.active).toBe(true)
+  model.stop()
+})
+
+it('keeps an anticipatory proposal alive when slow MODEL synthesis starts with leading silence', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.controller.prepareTranscript('Risposta pronta.')
+  s.requests[0].resolve(decision); await flush()
+  s.controller.setSimulationStage('voice'); s.feed(false, 400)
+  s.controller.setSimulationStage('playing'); s.feed(false, 3)
+  expect(s.controller.active).toBe(true)
+  s.feed(true, 10); s.controller.setSimulationStage('idle'); s.controller.finishTranscriptPlayback(); s.feed(false, 4)
+  expect(s.spoken).toHaveLength(2)
 })

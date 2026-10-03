@@ -31,7 +31,7 @@ try {
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
     const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
-    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null,
+    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null,
       disconnect: () => {
         capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
         for (const listener of listeners) listener({ type: 'status', status: capture })
@@ -96,6 +96,7 @@ try {
       cancelS2SSimulationReply: async () => {},
       synthesizeStream: async (request, onChunk) => {
         fixture.spoken.push(request.text)
+        if (request.voice.voiceId === 'Puck' && fixture.holdVoice) await new Promise((resolve) => { fixture.releaseVoice = resolve })
         const code = 2000 + fixture.spoken.length
         fixture.speechCodes[code] = { text: request.text, voice: request.voice.voiceId }
         const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 96000 : 14400)
@@ -194,6 +195,24 @@ try {
   const modelEnd = audioEvents.findLast((event) => event.event === 'end' && event.voice === 'Puck' && event.at < adaptedStart.at)
   assert(modelEnd && adaptedStart.at - modelEnd.at >= 290, 'NEB must wait for actual MODEL end and quiet guard')
   assert(adaptedStart.at - modelEnd.at < 1500, 'Ready audio should avoid Qwen/TTS waits after MODEL end')
+  // Reproduce the real stall: generated text exists but Gemini's first audio takes >30s.
+  await page.getByLabel('Prepara battuta e voce mentre MODEL A parla', { exact: true }).uncheck()
+  await page.evaluate(() => { window.fixture.holdVoice = true; window.fixture.releaseVoice = null })
+  await simulate.click()
+  await page.waitForFunction(() => window.fixture.releaseVoice !== null)
+  await page.getByText('Testo MODEL A pronto · Gemini prepara la voce…', { exact: true }).first().waitFor()
+  const requestsBeforeVoicePause = await page.evaluate(() => window.fixture.modelRequests.length)
+  await page.waitForTimeout(31000)
+  assert.equal(await page.getByRole('button', { name: 'Pausa', exact: true }).count(), 1)
+  assert.equal(await page.getByRole('button', { name: 'Riprendi simulazione', exact: true }).count(), 0)
+  await page.screenshot({ path: path.join(artifacts, 'slow-model-voice.png') })
+  await page.getByRole('button', { name: 'Pausa', exact: true }).click()
+  await page.evaluate(() => { window.fixture.holdVoice = false; window.fixture.releaseVoice() })
+  await page.getByRole('button', { name: 'Riprendi simulazione', exact: true }).click()
+  await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
+  assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), requestsBeforeVoicePause + 1)
+  assert((await page.evaluate(() => window.fixture.adaptationRequests)).some((request) => request.audioPcm && request.taskContext.skillsTested.includes('socratico')))
+  await page.getByLabel('Prepara battuta e voce mentre MODEL A parla', { exact: true }).check()
   await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   await openAutomatic('simulation')
@@ -224,5 +243,5 @@ try {
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+  console.log('PASS: MODEL first audio delayed 31s stays active, explicit voice preparation status, pause/resume reuses generated MODEL text, audio-only simulation adaptation; anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
 } finally { await browser.close(); server.close() }

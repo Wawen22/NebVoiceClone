@@ -42,7 +42,8 @@ importata come battuta: copia quel contesto nel campo **Contesto della task**.
    **Tempi, costi e decisioni** riporta tempi e costi OpenRouter.
    **Esporta cronologia** identifica la sessione come `simulation`.
 6. Prova **Pausa** mentre MODEL A prepara/parla e **Riprendi simulazione**:
-   la risposta ancora in preparazione viene rigenerata. Dopo una risposta già
+   una richiesta di testo non ancora completata viene rifatta. Se il testo MODEL A
+   è già pronto, viene conservato e si riprova soltanto la voce. Dopo una risposta già
    terminata, viene riascoltato l'audio memorizzato per riprendere la verifica Qwen,
    senza rigenerare MODEL A/Gemini. Se metti in pausa mentre parla NEB,
    scegli **Ripeti battuta pendente** per ripartire dalla battuta interrotta.
@@ -282,3 +283,33 @@ socratiche, ha prodotto una battuta contestuale senza leggere l’istruzione
 ADAPT LIVE: 3021 ms, costo OpenRouter $0,0002388. Il testo MODEL A era già completo:
 la prova verifica la compatibilità del percorso testuale, non una trascrizione
 streaming, né la latenza del vero Outlier. Il brano usato era creato per il test.
+
+## Se MODEL A mostra il testo ma non parla
+
+La simulazione distingue ora **Qwen prepara il testo**, **Gemini prepara la voce**
+e **MODEL A parla**. Il testo può essere già visibile mentre la voce è ancora in
+preparazione: l’indicatore di parlato e le onde iniziano con i campioni audio reali.
+
+L’attesa iniziale della simulazione ha limiti separati: 35 secondi per ottenere
+il testo, 60 secondi per ricevere il primo audio Gemini. L’attesa senza risposta
+configurata per Outlier non interrompe più questa preparazione. Se Gemini non
+produce audio entro il limite, la simulazione va in pausa con un errore esplicito;
+**Riprendi simulazione** conserva il testo già ottenuto e ritenta la voce. Gli
+errori restituiti da Gemini restano visibili nella cronologia.
+
+La verifica audio della risposta simulata aspetta anche la fine effettiva della
+riproduzione; una pausa interna non avvia una nuova battuta. Su Outlier restano
+la cattura audio, il silenzio configurato e la verifica Qwen, senza anticipazione.
+
+Correzione del blocco: 188 test WSL passati (3 Windows saltati in WSL), build e
+typecheck passati. Le regressioni coprono prima voce lenta con anticipo attivo e
+spento, limite del primo audio, pause interne alla risposta e riuso del testo
+dopo Pausa. Lo smoke Windows ritarda appositamente la prima voce MODEL A di
+31 secondi per verificare il percorso dell’interfaccia.
+
+Lo smoke dell’interfaccia Windows è passato anche con il primo audio ritardato
+31 secondi, anticipo disattivato e Pausa/Ripresa durante la preparazione della
+voce. Una prova reale separata con Gemini/Puck su un testo sintetico italiano ha
+ricevuto il primo audio in 3884 ms e generato 17,2 secondi di audio in 11055 ms.
+Sono misure della singola chiamata con la chiave d’ambiente, senza ascolto hardware;
+non attestano la quota o la velocità della chiave personale selezionata nell’app.

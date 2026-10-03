@@ -57,7 +57,7 @@ export function AutomationPanel({ open, onClose, onScript, automation: a, lines,
         <div><span className="eyebrow">{a.locked ? a.isSimulation ? 'SIMULAZIONE IN CONSOLE' : 'CONVERSAZIONE OUTLIER' : 'NEB VOICE / S2S'}</span><h2 id="s2s-heading">Conversazione automatica</h2><p>{model} · obiettivo e ordine dello script conservati</p></div>
         {a.locked ? <button className="secondary-button" onClick={onClose}><Minimize2 size={15} /> Riduci</button> : <button className="secondary-button" onClick={onScript}><ArrowLeft size={15} /> Torna alle battute</button>}
       </header>
-      <div className="s2s-player-status"><span className={`status-dot ${a.active ? 'green' : 'amber'}`} /><p role="status">{a.starting ? 'Verifica configurazione…' : a.snapshot.message}</p><strong>{a.snapshot.lineIndex}/{a.snapshot.total || pending} battute completate</strong></div>
+      <div className="s2s-player-status"><span className={`status-dot ${a.active ? 'green' : 'amber'}`} /><p role="status">{a.starting ? 'Verifica configurazione…' : a.active && a.isSimulation && a.snapshot.simulationStage !== 'idle' ? a.simulationMessage : a.snapshot.message}</p><strong>{a.snapshot.lineIndex}/{a.snapshot.total || pending} battute completate</strong></div>
       {a.error && <p className="notice error" role="alert">{a.error}</p>}
       <div className="s2s-speakers">
         <article className={a.snapshot.phase === 'speaking' ? 's2s-speaker neb speaking' : 's2s-speaker neb'}><div><strong>NEB · la tua voce</strong><span>{a.snapshot.phase === 'speaking' ? 'Parla' : a.snapshot.phase === 'preparing-voice' ? 'Prepara la voce' : 'In attesa'}</span></div><VoiceWave speaker="neb" enabled={a.active} getActivity={a.getVoiceActivity} /></article>
@@ -72,7 +72,7 @@ export function AutomationPanel({ open, onClose, onScript, automation: a, lines,
               <p>{item.text}</p>
               {item.original && item.original !== item.text && <details><summary>Confronta con la battuta originale</summary><p>{item.original}</p></details>}
             </article>)}
-            {a.active && ['listening', 'waiting', 'adapting'].includes(a.snapshot.phase) && <p className="s2s-transcribing">{a.snapshot.preparation === 'rewriting' ? 'Qwen riscrive in parallelo al parlato MODEL A…' : ['ready', 'voice-ready'].includes(a.snapshot.preparation) ? 'Battuta preparata · NEB attende la fine della risposta MODEL A.' : a.snapshot.phase === 'adapting' ? 'Qwen verifica la risposta e riscrive la prossima battuta…' : 'Ascolto MODEL A. La trascrizione audio arriva dopo la verifica di Qwen.'}</p>}
+            {a.active && ['listening', 'waiting', 'adapting'].includes(a.snapshot.phase) && <p className="s2s-transcribing">{a.isSimulation && ['text', 'voice'].includes(a.snapshot.simulationStage) ? a.simulationMessage : a.snapshot.preparation === 'rewriting' ? 'Qwen riscrive in parallelo al parlato MODEL A…' : ['ready', 'voice-ready'].includes(a.snapshot.preparation) ? 'Battuta preparata · NEB attende la fine della risposta MODEL A.' : a.snapshot.phase === 'adapting' ? 'Qwen verifica la risposta e riscrive la prossima battuta…' : 'Ascolto MODEL A. La trascrizione audio arriva dopo la verifica di Qwen.'}</p>}
           </div>
         </div>
         <aside className="s2s-session-script">

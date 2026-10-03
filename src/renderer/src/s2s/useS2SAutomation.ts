@@ -209,7 +209,7 @@ export function useS2SAutomation(args: Arguments) {
             try { return await window.neb.generateS2SSimulationReply(request) }
             finally { signal.removeEventListener('abort', abort) }
           },
-          play: async (text, signal) => {
+          play: async (text, signal, onStarted) => {
             const generationFinished = finishModelGeneration.current
             const settings = session.current!.settings
             const playbackTimeline = timeline.current
@@ -230,7 +230,7 @@ export function useS2SAutomation(args: Arguments) {
               stopGeneration: () => cached ? Promise.resolve() : window.neb.stopGeneration()
             }
             try {
-              await streamS2SSpeech(speechApi, engine, { providerId: 'gemini', modelId: settings.geminiModel, text, voice: { mode: 'prebuilt', voiceId: settings.geminiVoiceId === 'Puck' ? 'Kore' : 'Puck' } }, settings.outputDeviceId, signal, () => controller.active)
+              await streamS2SSpeech(speechApi, engine, { providerId: 'gemini', modelId: settings.geminiModel, text, voice: { mode: 'prebuilt', voiceId: settings.geminiVoiceId === 'Puck' ? 'Kore' : 'Puck' } }, settings.outputDeviceId, signal, () => controller.active && onStarted())
               if (!signal.aborted && !cached) lastModelAudio = { text, chunks }
             } finally { generationFinished(); if (signal.aborted) playbackTimeline.clear(); engine.dispose() }
           },
@@ -239,6 +239,7 @@ export function useS2SAutomation(args: Arguments) {
             modelGeneration.current = new Promise<void>((resolve) => { finishModelGeneration.current = resolve })
             controller.prepareTranscript(text)
           },
+          stage: (stage) => controller.setSimulationStage(stage),
           ended: () => controller.finishTranscriptPlayback(),
           failed: (message) => controller.pause(message)
         }, context)

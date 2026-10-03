@@ -1,5 +1,6 @@
 import { MAX_S2S_AUDIO_BYTES, DEFAULT_S2S_TASK_CONTEXT, parseS2STaskContext, isS2SAdaptiveInstruction, isUnchangedS2SLine, type S2SAdaptRequest, type S2SDecision, type S2SHistoryItem, type S2SLine, type S2STaskContext } from '../../../shared/s2s'
 
+export type SimulationStage = 'idle' | 'text' | 'voice' | 'playing'
 export type S2SPhase = 'idle' | 'preparing-voice' | 'speaking' | 'listening' | 'waiting' | 'adapting' | 'ready' | 'paused' | 'stopped' | 'completed'
 export interface S2SOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number; anticipateText: boolean }
 export const DEFAULT_S2S_OPTIONS: S2SOptions = { silenceMs: 2500, responseTimeoutMs: 30000, maxDurationMs: 20 * 60000, maxTurns: 40, maxCostUsd: 1, anticipateText: true }
@@ -10,6 +11,7 @@ export interface S2SLogEntry {
 }
 export interface S2SSnapshot {
   phase: S2SPhase; message: string; lineIndex: number; total: number; spokenTurns: number
+  simulationStage: SimulationStage
   script: S2SLine[]; scenario: string; taskContext: S2STaskContext; liveState: string; preparation: 'idle' | 'rewriting' | 'ready' | 'voice-ready'; costUsd: number; costKnown: boolean; nextText: string; level: number; log: S2SLogEntry[]
 }
 export interface S2SDependencies {
@@ -22,7 +24,7 @@ export interface S2SDependencies {
 }
 
 export class S2SController {
-  snapshot: S2SSnapshot = { phase: 'idle', message: 'Automatico pronto da configurare.', lineIndex: 0, total: 0, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], scenario: '', taskContext: { ...DEFAULT_S2S_TASK_CONTEXT }, liveState: '', preparation: 'idle', log: [] }
+  snapshot: S2SSnapshot = { simulationStage: 'idle', phase: 'idle', message: 'Automatico pronto da configurare.', lineIndex: 0, total: 0, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], scenario: '', taskContext: { ...DEFAULT_S2S_TASK_CONTEXT }, liveState: '', preparation: 'idle', log: [] }
   private lines: S2SLine[] = []
   private history: S2SHistoryItem[] = []
   private scenario = ''
@@ -51,6 +53,7 @@ export class S2SController {
   private proposal: S2SDecision | null = null
   private proposalFromText = false
   private adaptationAt = 0
+  private simulationStageAt = 0
 
   constructor(private readonly dependencies: S2SDependencies) {}
   get active(): boolean { return ['preparing-voice', 'speaking', 'listening', 'waiting', 'adapting', 'ready'].includes(this.snapshot.phase) }
@@ -77,7 +80,7 @@ export class S2SController {
     this.responseId = 0
     this.startedAt = this.dependencies.now()
     this.lastPacketAt = this.startedAt
-    this.snapshot = { phase: 'idle', message: '', lineIndex: 0, total: lines.length, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], scenario, taskContext: { ...DEFAULT_S2S_TASK_CONTEXT }, liveState: '', preparation: 'idle', log: [] }
+    this.snapshot = { simulationStage: 'idle', phase: 'idle', message: '', lineIndex: 0, total: lines.length, spokenTurns: 0, costUsd: 0, costKnown: true, nextText: '', level: 0, script: [], scenario, taskContext: { ...DEFAULT_S2S_TASK_CONTEXT }, liveState: '', preparation: 'idle', log: [] }
     this.snapshot.taskContext = { ...context }
     this.snapshot.script = this.lines.map((line) => ({ ...line }))
     this.resetResponse()
@@ -138,6 +141,15 @@ export class S2SController {
     if (this.dependencies.now() - this.lastPublishAt >= 500) this.publish()
   }
 
+  setSimulationStage(stage: SimulationStage): void {
+    if (!this.active) return
+    this.snapshot.simulationStage = stage
+    this.simulationStageAt = this.dependencies.now()
+    if (stage === 'idle') this.listeningAt = this.simulationStageAt
+    this.log('simulation-stage', stage === 'text' ? 'MODEL A prepara il testo con Qwen.' : stage === 'voice' ? 'Testo MODEL A pronto · Gemini prepara la voce.' : stage === 'playing' ? 'Primo audio MODEL A · riproduzione avviata.' : 'Riproduzione MODEL A terminata · attendo il silenzio e la verifica Qwen.')
+    this.publish()
+  }
+
   tick(): void {
     if (!this.active) return
     const now = this.dependencies.now()
@@ -145,6 +157,11 @@ export class S2SController {
     if (now - this.startedAt >= this.options.maxDurationMs) { this.pause('Limite di durata della sessione raggiunto.'); return }
     if (now - this.lastPacketAt > 1500) { this.pause('Flusso audio assente: riavvia l’ascolto in Edge.'); return }
     if (this.snapshot.phase === 'adapting' && now - this.adaptationAt > 35000) { this.pause('Qwen non ha risposto entro il tempo previsto.'); return }
+    const stage = this.snapshot.simulationStage
+    if (stage === 'text' || stage === 'voice') {
+      if (now - this.simulationStageAt > (stage === 'text' ? 35000 : 60000)) this.pause(stage === 'text' ? 'Qwen non ha generato la risposta MODEL A entro 35 secondi.' : 'Gemini non ha prodotto il primo audio MODEL A entro 60 secondi. Riprendi per riprovare la voce.')
+      return
+    }
     if (this.preparation) {
       const prepared = this.preparation
       if (now - prepared.at > 35000 && !prepared.decision) { this.pause('Preparazione Qwen oltre il tempo previsto.'); return }
@@ -155,9 +172,10 @@ export class S2SController {
         this.acceptDecision(prepared.decision)
         this.proposalFromText = true
         this.proposalAt = Math.min(prepared.decidedAt, now - 300)
-      } else if (!this.voiceVersion && now - this.listeningAt >= this.options.responseTimeoutMs) this.pause('Nessun audio MODEL A: controlla la simulazione prima di riprendere.')
+      } else if (stage === 'idle' && !this.voiceVersion && now - this.listeningAt >= this.options.responseTimeoutMs) this.pause('Nessun audio MODEL A: controlla la simulazione prima di riprendere.')
       return
     }
+    if (stage === 'playing') return
     if (['listening', 'waiting'].includes(this.snapshot.phase)) {
       if (this.voiceVersion > this.analyzedVersion && this.audioMs - this.lastVoiceMs >= this.options.silenceMs) {
         void this.adapt()
@@ -370,7 +388,7 @@ export class S2SController {
   }
   private clearBuffer(): void { this.frames = []; this.bytes = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity }
   private resetResponse(): void { this.clearBuffer(); this.preRoll = []; this.audioMs = 0; this.voiceVersion = 0; this.analyzedVersion = 0 }
-  private setPhase(phase: S2SPhase, message: string): void { this.snapshot.phase = phase; this.snapshot.message = message; this.publish() }
+  private setPhase(phase: S2SPhase, message: string): void { if (['paused', 'stopped', 'completed'].includes(phase)) this.snapshot.simulationStage = 'idle'; this.snapshot.phase = phase; this.snapshot.message = message; this.publish() }
   private log(kind: string, text: string, details: Partial<S2SLogEntry> = {}): void {
     this.snapshot.log = [...this.snapshot.log, { atMs: Math.max(0, this.dependencies.now() - this.startedAt), kind, text, ...details }].slice(-500)
   }

@@ -1,4 +1,5 @@
 import type { S2SHistoryItem, S2SSimulationReply, S2SSimulationRequest, S2STaskContext } from '../../../shared/s2s'
+import type { SimulationStage } from './controller'
 import type { AudioOutput } from '../audio/AudioEngine'
 
 export function localSimulationOutputs(outputs: AudioOutput[]): AudioOutput[] {
@@ -42,10 +43,11 @@ export class PcmTimeline {
 
 interface SimulationDependencies {
   reply(request: S2SSimulationRequest, signal: AbortSignal): Promise<S2SSimulationReply>
-  play(text: string, signal: AbortSignal): Promise<void>
+  play(text: string, signal: AbortSignal, onStarted: () => boolean): Promise<void>
   cost(reply: S2SSimulationReply, accepted: boolean): boolean
   state(message: string): void
   failed(message: string): void
+  stage?(stage: SimulationStage): void
   ready?(text: string): void
   ended?(): void
 }
@@ -56,29 +58,31 @@ export class SimulatedModel {
   private serial = 0
   private operation: AbortController | null = null
   private readonly id = crypto.randomUUID()
+  private pendingReply: S2SSimulationReply | null = null
   private completedReply: S2SSimulationReply | null = null
   private repeating = false
   constructor(private readonly scenario: string, private readonly deps: SimulationDependencies, private readonly taskContext?: S2STaskContext) {}
   respond(text: string): void {
     if (this.disposed) return
     this.pause()
-    this.completedReply = null; this.repeating = false
+    this.completedReply = null; this.pendingReply = null; this.repeating = false
     this.history.push({ role: 'user', text })
     this.pending = true
     void this.run()
   }
   resume(): void {
     if (this.disposed || this.operation) return
-    if (this.completedReply && (this.repeating || !this.pending)) void this.run(this.completedReply)
-    else if (this.pending) void this.run()
+    if (this.completedReply && (this.repeating || !this.pending)) void this.run(this.completedReply, true)
+    else if (this.pending) void this.run(this.pendingReply ?? undefined)
   }
   pause(): void { this.serial++; this.operation?.abort(); this.operation = null }
   stop(): void { this.pause(); this.disposed = true; this.pending = false }
-  private async run(cached?: S2SSimulationReply): Promise<void> {
+  private async run(cached?: S2SSimulationReply, completedReplay = false): Promise<void> {
     const token = ++this.serial, operation = new AbortController()
     this.operation = operation
-    this.repeating = Boolean(cached); this.pending = true
-    this.deps.state(cached ? 'Riascolto l’ultima risposta MODEL A per riprendere la verifica…' : 'MODEL A simulato prepara la risposta…')
+    this.repeating = completedReplay; this.pending = true
+    this.deps.stage?.(cached ? 'voice' : 'text')
+    this.deps.state(cached ? 'Testo MODEL A disponibile · preparo di nuovo la voce…' : 'MODEL A prepara il testo con Qwen…')
     try {
       const reply = cached ?? await this.deps.reply({ requestId: `simulation-${this.id}-${token}`, scenario: this.scenario, history: this.history.slice(-60), taskContext: this.taskContext }, operation.signal)
       // Known costs belong to this session even if Pause/Stop invalidated playback.
@@ -86,14 +90,22 @@ export class SimulatedModel {
       if (token !== this.serial || operation.signal.aborted || this.disposed) return
       if (!canContinue) { this.pause(); return }
       operation.signal.throwIfAborted()
+      if (!completedReplay) this.pendingReply = reply
       this.deps.ready?.(reply.text)
-      this.deps.state('MODEL A simulato parla…')
-      await this.deps.play(reply.text, operation.signal)
+      this.deps.stage?.('voice')
+      this.deps.state('Testo MODEL A pronto · Gemini prepara la voce…')
+      await this.deps.play(reply.text, operation.signal, () => {
+        if (token !== this.serial || operation.signal.aborted || this.disposed) return false
+        this.deps.stage?.('playing')
+        this.deps.state('MODEL A simulato parla…')
+        return true
+      })
       if (token !== this.serial || operation.signal.aborted || this.disposed) return
-      if (!cached) { this.history.push({ role: 'assistant', text: reply.text }); this.completedReply = reply }
-      this.pending = false
+      if (!completedReplay) { this.history.push({ role: 'assistant', text: reply.text }); this.completedReply = reply }
+      this.pending = false; this.pendingReply = null
       this.repeating = false
       this.operation = null
+      this.deps.stage?.('idle')
       this.deps.ended?.()
       this.deps.state('MODEL A ha terminato · Qwen ascolta la risposta.')
     } catch (error) {

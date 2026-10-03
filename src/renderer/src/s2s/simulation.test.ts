@@ -122,3 +122,20 @@ it('publishes complete MODEL text before playback and signals the end only after
   ended(); await flush()
   expect(events.at(-1)).toBe('ended')
 })
+
+it('reuses an already generated reply after pause during voice preparation without another paid text request', async () => {
+  let calls = 0, release!: () => void
+  const played: string[] = []
+  const simulation = new SimulatedModel('', {
+    reply: async () => { calls++; return reply },
+    play: async (text, signal) => {
+      played.push(text)
+      if (played.length === 1) { await new Promise<void>((resolve) => { release = resolve }); signal.throwIfAborted() }
+    }, cost: () => true, state: () => {}, failed: () => {}
+  })
+  simulation.respond('Ciao'); await flush()
+  simulation.pause(); release(); await flush()
+  simulation.resume(); await flush()
+  expect(calls).toBe(1)
+  expect(played).toEqual([reply.text, reply.text])
+})
