@@ -613,6 +613,14 @@ code { color: #9eede4; overflow-wrap: anywhere; }
 .s2s-player-footer > span { font-size: 10px; color: var(--muted); }
 .s2s-player-footer .s2s-controls button { font-size: 12px; }
 .s2s-stop { color: #ffa2a2; }
+.s2s-anticipate { display: flex; align-items: flex-start; gap: 7px; color: var(--soft); font-size: 12px; line-height: 1.5; margin: 10px 0; }
+.s2s-task-context { padding: 8px 0 16px; border-top: 1px solid var(--border); }
+.s2s-task-context input, .s2s-task-context select, .s2s-task-context textarea { width: 100%; box-sizing: border-box; color: var(--soft); background: var(--field); border: 1px solid #3d5361; border-radius: 6px; padding: 7px; font-size: 12px; }
+.s2s-task-context textarea { min-height: 90px; }
+.s2s-preparation { padding: 10px; color: #99efd8; border: 1px solid #2c6053; background: #10362e; border-radius: 6px; font-size: 12px; line-height: 1.5; }
+.s2s-live-state { margin: 14px 0; font-size: 12px; color: var(--soft); }
+.s2s-live-state summary { cursor: pointer; color: #8adbd2; }
+.s2s-live-state p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .s2s-reopen { position: fixed; bottom: 22px; right: 24px; display: flex; align-items: center; gap: 10px; padding: 14px 20px; background: #183c37; color: #abf4df; border: 1px solid #58b59c; border-radius: 8px; box-shadow: 0 8px 30px #0007; cursor: pointer; z-index: 100; }
 @media (max-width: 800px) {
   .s2s-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); }

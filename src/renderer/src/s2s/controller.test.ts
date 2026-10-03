@@ -66,7 +66,7 @@ it('invalidates a Qwen proposal when Outlier starts speaking again', async () =>
   expect(s.spoken).toHaveLength(1)
   s.feed(false, 25)
   expect(s.requests).toHaveLength(2)
-  expect(s.requests[1].request.audioPcm.length).toBeGreaterThan(s.requests[0].request.audioPcm.length)
+  expect(s.requests[1].request.audioPcm!.length).toBeGreaterThan(s.requests[0].request.audioPcm!.length)
 })
 
 it('prevents a late API result from restarting voice after Stop', async () => {
@@ -207,5 +207,73 @@ it('accounts for the known initial charge when a cancelled repair has uncertain 
   s.requests[0].resolve({ ...decision, action: 'pause', nextText: '', costUsd: null, knownCostUsd: 0.001 }); await flush(); s.feed(false)
   expect(s.controller.snapshot.costUsd).toBe(0.001)
   expect(s.controller.snapshot.costKnown).toBe(false)
+  expect(s.controller.snapshot.phase).toBe('paused')
+})
+
+it('prepares from MODEL text during speech but waits for actual playback completion before using it', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.controller.prepareTranscript('La soluzione è economica.')
+  expect(s.requests[0].request.transcript).toBe('La soluzione è economica.')
+  expect(s.requests[0].request.audioPcm).toBeUndefined()
+  s.requests[0].resolve(decision); await flush()
+  expect(s.controller.snapshot.nextText).toBe('E quali limiti ha?')
+  s.feed(true, 30); s.feed(false, 30)
+  expect(s.spoken).toHaveLength(1)
+  s.controller.finishTranscriptPlayback(); s.feed(false, 4)
+  expect(s.spoken).toHaveLength(2)
+  expect(s.requests).toHaveLength(1)
+})
+
+it('discards prepared text when stopped and still counts its late cost', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.controller.prepareTranscript('Risposta completa.')
+  s.controller.stop(); s.requests[0].resolve(decision); await flush()
+  s.controller.finishTranscriptPlayback(); s.feed(false, 40)
+  expect(s.spoken).toHaveLength(1)
+  expect(s.controller.snapshot.costUsd).toBe(0.002)
+})
+
+it('refuses an adaptive instruction as opener rather than reading the plan aloud', () => {
+  const s = session(); s.controller.stop()
+  expect(() => s.controller.start([{ id: 'x', text: '[ADAPT LIVE — react to MODEL A]' }], '')).toThrow()
+})
+
+it('freezes task context and refuses a script with too few required user turns', () => {
+  const s = session(); s.controller.stop()
+  const context = { scenarioType: 'IQ', skillsTested: 'Metodo socratico', adaptationLevel: 'L1' as const, minimumUserTurns: 3, material: 'Brano preparato' }
+  expect(() => s.controller.start([{ id: 'a', text: 'Ciao' }], 'What to do', {}, context)).toThrow(/almeno 3 turni/)
+  const lines = ['Ciao', 'Domanda', 'Conclusione'].map((text, id) => ({ id: String(id), text }))
+  s.controller.start(lines, 'What to do', {}, context)
+  context.skillsTested = 'Modificato dopo avvio'
+  expect(s.controller.snapshot.taskContext.skillsTested).toBe('Metodo socratico')
+  expect(s.controller.snapshot.scenario).toBe('What to do')
+})
+
+it('does not declare completion from the final text before the last MODEL audio finishes', async () => {
+  const s = session(); s.plays[0].resolve(); await flush()
+  s.controller.prepareTranscript('Prima risposta.'); s.requests[0].resolve(decision); await flush()
+  s.feed(true, 3); s.controller.finishTranscriptPlayback(); s.feed(false, 4)
+  s.plays[1].resolve(); await flush()
+  s.controller.prepareTranscript('Risposta finale.'); s.requests[1].resolve({ ...decision, action: 'complete', nextText: '' }); await flush()
+  s.feed(true, 3); s.feed(false, 30)
+  expect(s.controller.snapshot.phase).toBe('listening')
+  s.controller.finishTranscriptPlayback(); s.feed(false, 4)
+  expect(s.controller.snapshot.phase).toBe('completed')
+})
+
+it('falls back to the audio route when anticipatory preparation is disabled', async () => {
+  const s = session({ anticipateText: false }); s.plays[0].resolve(); await flush()
+  s.controller.prepareTranscript('Testo disponibile.'); s.controller.finishTranscriptPlayback()
+  expect(s.requests).toHaveLength(0)
+  s.feed(true, 3); s.feed(false, 25)
+  expect(s.requests[0].request.audioPcm?.length).toBeGreaterThan(0)
+})
+
+it('never reads a pending adaptive instruction when explicitly replaying after pause', async () => {
+  const s = session(); s.controller.stop()
+  s.controller.start([{ id: 'open', text: 'Ciao.' }, { id: 'plan', text: '[ADAPT LIVE — ask for a hint]' }], '')
+  s.plays[1].resolve(); await flush()
+  s.controller.pause(); s.controller.resume(true)
+  expect(s.spoken).toEqual(['Descrivi la soluzione.', 'Ciao.'])
   expect(s.controller.snapshot.phase).toBe('paused')
 })

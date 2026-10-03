@@ -31,7 +31,7 @@ try {
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
     const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
-    const fixture = window.fixture = { spoken: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null,
+    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null,
       disconnect: () => {
         capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
         for (const listener of listeners) listener({ type: 'status', status: capture })
@@ -60,8 +60,8 @@ try {
     class AudioContext {
       currentTime = 0
       createMediaStreamDestination() { return { stream: {} } }
-      createBuffer(_channels, length) { return { duration: length / 24000, getChannelData: () => new Float32Array(length) } }
-      createBufferSource() { let timer; return { buffer: null, onended: null, connect() {}, start() { timer = setTimeout(() => this.onended?.(), this.buffer.duration * 1000) }, stop() { clearTimeout(timer); this.onended?.() } } }
+      createBuffer(_channels, length) { const data = new Float32Array(length); return { data, duration: length / 24000, getChannelData: () => data } }
+      createBufferSource() { let timer; return { buffer: null, onended: null, connect() {}, start(at) { const speech = fixture.speechCodes[Math.round(this.buffer.data[0] * 32768)]; fixture.played.push(speech.text); fixture.audioEvents.push({ ...speech, event: 'start', at: performance.now() }); timer = setTimeout(() => { fixture.audioEvents.push({ ...speech, event: 'end', at: performance.now() }); this.onended?.() }, (at + this.buffer.duration) * 1000) }, stop() { clearTimeout(timer); this.onended?.() } } }
       async resume() {}
       async close() {}
     }
@@ -81,23 +81,25 @@ try {
       getS2SAudioStatus: async () => capture,
       onS2SAudio: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
       adaptS2STurn: async (request) => {
-        fixture.adaptations++
-        const result = { action: request.nextLine ? 'speak' : 'complete', transcript: 'La soluzione è economica.', nextText: request.nextLine ? 'E quali limiti ha?' : '', reason: 'Risposta conclusa', qwenMs: 80, costUsd: 0.002 }
+        fixture.adaptations++; fixture.adaptationRequests.push(request)
+        const result = { action: request.nextLine ? 'speak' : 'complete', transcript: request.transcript ?? 'La soluzione è economica.', liveState: 'Il modello propone una soluzione economica per la classe.', nextText: request.nextLine ? 'E quali limiti ha?' : '', reason: 'Risposta conclusa', qwenMs: 80, costUsd: 0.002 }
         if (fixture.holdAdapt) return new Promise((resolve) => { fixture.release = () => resolve(result) })
         return result
       },
       cancelS2SAdaptation: async () => {}, stopS2SAudioCapture: async () => {}, stopGeneration: async () => {}, stopInsertion: async () => {},
       generateS2SSimulationReply: async (request) => {
         fixture.modelRequests.push(request)
-        const result = { text: 'La soluzione è economica e puoi provarla con una classe.', modelMs: 30, costUsd: 0.001 }
+        const result = { text: `La soluzione è economica e puoi provarla con una classe. Risposta ${fixture.modelRequests.length}.`, modelMs: 30, costUsd: 0.001 }
         if (fixture.holdModel) return new Promise((resolve) => { fixture.releaseModel = () => resolve(result) })
         return result
       },
       cancelS2SSimulationReply: async () => {},
       synthesizeStream: async (request, onChunk) => {
         fixture.spoken.push(request.text)
-        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 24000 : 14400)
-        { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, 2000, true) }
+        const code = 2000 + fixture.spoken.length
+        fixture.speechCodes[code] = { text: request.text, voice: request.voice.voiceId }
+        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 96000 : 14400)
+        { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, code, true) }
         onChunk(pcm); return { generationMs: 10 }
       }
     }
@@ -170,15 +172,35 @@ try {
   await addLine('Quali limiti devo considerare?')
   await openAutomatic('simulation')
   const simulate = page.getByRole('button', { name: 'Simulazione MODEL A', exact: true })
+  await page.getByLabel('Tipo di scenario', { exact: true }).fill('Knowledge & Learning · IQ-focused')
+  await page.getByLabel('Skills tested', { exact: true }).fill('Guida pedagogica, metodo socratico')
+  await page.getByLabel('What to do / Scenario', { exact: true }).fill('Aiutami a capire una soluzione, guidandomi con domande.')
+  const callsBeforeFast = await page.evaluate(() => window.fixture.spoken.length)
   await simulate.click()
+  await page.getByText('Battuta e audio pronti · attendo la fine MODEL A', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.fixture.played.filter((text) => text === 'E quali limiti ha?').length), 1)
+  assert.equal(await page.evaluate(() => window.fixture.spoken.length), callsBeforeFast + 3)
+  await page.waitForFunction(() => Number(document.querySelector('canvas[aria-label="Onde audio MODEL A"]')?.dataset.level) > 0)
+  await page.screenshot({ path: path.join(artifacts, 'anticipation-player.png') })
   await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), 2)
+  assert.equal(await page.evaluate(() => window.fixture.spoken.length), callsBeforeFast + 4)
+  const fastRequests = await page.evaluate(() => window.fixture.adaptationRequests.filter((request) => request.transcript))
+  assert.equal(fastRequests.length, 2)
+  assert(fastRequests.every((request) => !request.audioPcm && request.taskContext.skillsTested.includes('socratico')))
+  assert((await page.evaluate(() => window.fixture.modelRequests)).every((request) => request.taskContext.scenarioType.includes('IQ-focused')))
+  const audioEvents = await page.evaluate(() => window.fixture.audioEvents)
+  const adaptedStart = audioEvents.findLast((event) => event.event === 'start' && event.text === 'E quali limiti ha?')
+  const modelEnd = audioEvents.findLast((event) => event.event === 'end' && event.voice === 'Puck' && event.at < adaptedStart.at)
+  assert(modelEnd && adaptedStart.at - modelEnd.at >= 290, 'NEB must wait for actual MODEL end and quiet guard')
+  assert(adaptedStart.at - modelEnd.at < 1500, 'Ready audio should avoid Qwen/TTS waits after MODEL end')
   await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   await openAutomatic('simulation')
   await page.evaluate(() => { window.fixture.holdAdapt = true; window.fixture.release = null })
   await simulate.click()
   await page.waitForFunction(() => window.fixture.release !== null)
+  await page.getByText('MODEL A ha terminato · Qwen ascolta la risposta.', { exact: false }).first().waitFor()
   const modelBeforePause = await page.evaluate(() => window.fixture.modelRequests.length)
   await page.getByRole('button', { name: 'Riduci', exact: true }).click()
   await page.getByRole('button', { name: /Apri player/ }).click()
@@ -202,5 +224,5 @@ try {
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+  console.log('PASS: anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
 } finally { await browser.close(); server.close() }

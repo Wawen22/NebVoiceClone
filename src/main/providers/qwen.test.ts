@@ -106,3 +106,44 @@ it('reports provider failures without returning a speech proposal', async () => 
   vi.stubGlobal('fetch', async () => new Response('{}', { status: 429 }))
   await expect(adaptS2STurn(request, { apiKey: 'test' })).rejects.toThrow('429')
 })
+
+it('prepares a compact text decision with the task skills and preserves the supplied transcript', async () => {
+  let payload: any
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    payload = JSON.parse(String(options.body))
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'speak', nextText: 'Oltre al costo, quali limiti ha?', reason: 'Approfondimento', liveState: 'Soluzione costosa; limiti ancora da chiarire.' }) } }], usage: { cost: 0.001 } }))
+  })
+  const result = await adaptS2STurn({ ...request, audioPcm: undefined, transcript: 'La soluzione costa molto.', taskContext: { scenarioType: 'IQ', skillsTested: 'Metodo socratico', adaptationLevel: 'L1', minimumUserTurns: 3, material: '' } }, { apiKey: 'test' })
+  expect(result.transcript).toBe('La soluzione costa molto.')
+  expect(result.liveState).toContain('costosa')
+  expect(JSON.stringify(payload)).not.toContain('input_audio')
+  expect(JSON.stringify(payload)).toContain('Metodo socratico')
+  expect(payload.response_format.json_schema.schema.required).not.toContain('transcript')
+})
+
+it('allows task-required fixed wording only in L0', async () => {
+  const fetcher = vi.fn(async () => reply(request.nextLine.text))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await adaptS2STurn({ ...request, taskContext: { scenarioType: 'Voice steerability', skillsTested: '', adaptationLevel: 'L0', minimumUserTurns: null, material: '' } }, { apiKey: 'test' })
+  expect(result.action).toBe('speak')
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('retains the known charge when cancelled while decoding the response', async () => {
+  const abort = new AbortController()
+  vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => {
+    abort.abort()
+    return { choices: [{ message: { content: JSON.stringify({ action: 'speak', transcript: 'Costa molto.', nextText: 'Quanto costa?', reason: 'Approfondimento' }) } }], usage: { cost: 0.002 } }
+  } }))
+  const result = await adaptS2STurn(request, { apiKey: 'test', signal: abort.signal })
+  expect(result.action).toBe('pause')
+  expect(result.nextText).toBe('')
+  expect(result.costUsd).toBe(0.002)
+})
+
+it('retains the known charge when the returned decision is invalid', async () => {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: 'invalid' } }], usage: { cost: 0.002 } })))
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('pause')
+  expect(result.costUsd).toBe(0.002)
+})

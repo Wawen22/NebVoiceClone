@@ -27,3 +27,8 @@ it('shows adaptation and session progress independently of source script complet
     { original: 'Limiti?', text: 'E per il costo?', state: 'pending', adapted: true }
   ])
 })
+
+it('labels a decision from generated MODEL text distinctly from audio transcription', () => {
+  const entry: S2SLogEntry = { atMs: 1, kind: 'decision', text: 'Pronta', responseId: 1, accepted: true, transcript: 'Risposta generata', transcriptSource: 'simulation-text' }
+  expect(conversationMessages({ ...base, log: [entry] })).toMatchObject([{ role: 'model', text: 'Risposta generata', state: 'text' }])
+})

@@ -109,3 +109,16 @@ it('reports obsolete paid replies as discarded even after the model has resumed'
   releases[1](reply); await flush()
   expect(accepted).toEqual([false, true])
 })
+
+it('publishes complete MODEL text before playback and signals the end only after playback finishes', async () => {
+  const events: string[] = []
+  let ended!: () => void
+  const simulation = new SimulatedModel('', {
+    reply: async () => reply, play: async () => { events.push('playing'); await new Promise<void>((resolve) => { ended = resolve }) },
+    ready: (text) => events.push(text), ended: () => events.push('ended'), cost: () => true, state: () => {}, failed: () => {}
+  })
+  simulation.respond('Ciao'); await flush()
+  expect(events).toEqual([reply.text, 'playing'])
+  ended(); await flush()
+  expect(events.at(-1)).toBe('ended')
+})

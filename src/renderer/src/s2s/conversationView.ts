@@ -3,7 +3,7 @@ import type { S2SSnapshot } from './controller'
 
 export interface ConversationMessage {
   id: string; role: 'neb' | 'model'; text: string; original?: string; atMs: number
-  state: 'speaking' | 'spoken' | 'partial' | 'simulated' | 'transcribed'
+  state: 'speaking' | 'spoken' | 'partial' | 'simulated' | 'transcribed' | 'text'
 }
 
 export function conversationMessages(snapshot: S2SSnapshot): ConversationMessage[] {
@@ -18,8 +18,8 @@ export function conversationMessages(snapshot: S2SSnapshot): ConversationMessage
     } else if (['simulation-model', 'decision'].includes(entry.kind) && entry.accepted && entry.transcript && entry.responseId !== undefined) {
       const id = `model-${entry.responseId}`, previous = messages.get(id)
       // A late simulated text must never overwrite an accepted audio transcription.
-      if (entry.kind === 'simulation-model' && previous?.state === 'transcribed') continue
-      messages.set(id, { id, role: 'model', text: entry.transcript, atMs: previous?.atMs ?? entry.atMs, state: entry.kind === 'decision' ? 'transcribed' : 'simulated' })
+      if (entry.kind === 'simulation-model' && ['transcribed', 'text'].includes(previous?.state ?? '')) continue
+      messages.set(id, { id, role: 'model', text: entry.transcript, atMs: previous?.atMs ?? entry.atMs, state: entry.kind === 'decision' ? entry.transcriptSource === 'simulation-text' ? 'text' : 'transcribed' : 'simulated' })
     }
   }
   return [...messages.values()]

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings, DesktopApi } from '../../../shared/contracts'
-import type { S2SAudioStatus } from '../../../shared/s2s'
+import { parseS2STaskContext, type S2SAudioStatus, type S2STaskContext } from '../../../shared/s2s'
 import type { BrowserTarget } from '../../../shared/outlier'
 import type { ReadyLine, ReadyLinesTab } from '../readyLines'
 import { BrowserAudioEngine, type AudioOutput } from '../audio/AudioEngine'
@@ -9,6 +9,7 @@ import { streamS2SSpeech } from './speechPlayer'
 import { assertS2STarget } from './sessionTarget'
 import { PcmTimeline, SimulatedModel } from './simulation'
 import { pcmLevel, type VoiceActivity, type VoiceSpeaker } from './voiceActivity'
+import { SilentSpeechPreparation } from './preparedSpeech'
 
 interface Arguments {
   settings: AppSettings; available: boolean; unavailableReason: string; manualBusy: boolean
@@ -27,6 +28,9 @@ export function useS2SAutomation(args: Arguments) {
   const lastMeterAt = useRef(0)
   const session = useRef<{ mode: 'outlier' | 'simulation'; tab: ReadyLinesTab; projectId: string; target: BrowserTarget | null; captureId: string | null; settings: AppSettings; silenceMs: number; userText: string } | null>(null)
   const simulation = useRef<SimulatedModel | null>(null)
+  const preparedSpeech = useRef<SilentSpeechPreparation | null>(null)
+  const modelGeneration = useRef<Promise<void>>(Promise.resolve())
+  const finishModelGeneration = useRef<() => void>(() => undefined)
   const timeline = useRef(new PcmTimeline())
   const nebTimeline = useRef(new PcmTimeline())
   const voiceActivity = useRef<Record<VoiceSpeaker, VoiceActivity>>({ neb: { level: 0, at: 0 }, model: { level: 0, at: 0 } })
@@ -50,6 +54,7 @@ export function useS2SAutomation(args: Arguments) {
       previousPhase.current = next.phase
       setSnapshot(next)
       if (['paused', 'stopped', 'completed'].includes(next.phase)) {
+        preparedSpeech.current?.clear()
         nebTimeline.current = new PcmTimeline()
         voiceActivity.current = { neb: { level: 0, at: 0 }, model: { level: 0, at: 0 } }
         simulation.current?.pause(); timeline.current = new PcmTimeline()
@@ -72,6 +77,13 @@ export function useS2SAutomation(args: Arguments) {
       try { return await window.neb.adaptS2STurn(request) }
       finally { signal.removeEventListener('abort', abort) }
     },
+    prepareSpeech: async (text, signal) => {
+      const settings = session.current?.settings
+      if (!settings || !preparedSpeech.current) throw new Error('Preparazione della voce non disponibile.')
+      await preparedSpeech.current.prepare({ providerId: 'gemini', modelId: settings.geminiModel, text,
+        voice: settings.replicatedVoice?.id === settings.geminiVoiceId ? { mode: 'stateful', voiceId: settings.geminiVoiceId } : { mode: 'prebuilt', voiceId: settings.geminiVoiceId }
+      }, signal, modelGeneration.current)
+    },
     speak: async (text, signal, onStarted) => {
       const current = session.current, settings = current?.settings
       if (!current || !settings) throw new Error('Sessione vocale non disponibile.')
@@ -83,7 +95,7 @@ export function useS2SAutomation(args: Arguments) {
       })
       engine.setVolume(settings.outputVolume)
       try {
-        await streamS2SSpeech(window.neb, engine, {
+        await streamS2SSpeech(preparedSpeech.current?.playbackApi(text) ?? window.neb, engine, {
           providerId: 'gemini', modelId: settings.geminiModel, text,
           voice: settings.replicatedVoice?.id === settings.geminiVoiceId ? { mode: 'stateful', voiceId: settings.geminiVoiceId } : { mode: 'prebuilt', voiceId: settings.geminiVoiceId }
         }, settings.outputDeviceId, signal, onStarted)
@@ -155,16 +167,18 @@ export function useS2SAutomation(args: Arguments) {
     if (capture.current.state !== 'active' || !capture.current.captureId || now - lastPcmAt.current > 1500 || now - capturedAt.current < 500) throw new Error('Avvia l’ascolto della scheda in Edge e attendi che arrivi l’audio.')
     if (now - lastVoiceAt.current < silenceMs) throw new Error('Outlier sta ancora parlando: attendi prima di avviare la voce NEB.')
   }
-  async function start(lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, simulationOutput?: string): Promise<void> {
+  async function start(lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, simulationOutput?: string, taskContext?: S2STaskContext): Promise<void> {
     if (startPending.current || controller.locked) return
     const token = ++startup.current
     startPending.current = true; setStarting(true); setError('')
     try {
       const current = latest.current
+      const context = parseS2STaskContext(taskContext)
       const simulating = simulationOutput !== undefined
       if (!(simulating ? current.simulationAvailable : current.available)) throw new Error(simulating ? current.simulationUnavailableReason : current.unavailableReason)
       if (current.manualBusy) throw new Error('Attendi la fine della voce o rielaborazione manuale.')
       if (simulating) {
+        preparedSpeech.current = new SilentSpeechPreparation(window.neb)
         if (!current.localOutputs.some((output) => output.deviceId === simulationOutput)) throw new Error('Scegli cuffie o altoparlanti reali per la simulazione.')
       } else {
         requireAudio(options.silenceMs ?? DEFAULT_S2S_OPTIONS.silenceMs)
@@ -196,6 +210,7 @@ export function useS2SAutomation(args: Arguments) {
             finally { signal.removeEventListener('abort', abort) }
           },
           play: async (text, signal) => {
+            const generationFinished = finishModelGeneration.current
             const settings = session.current!.settings
             const playbackTimeline = timeline.current
             const engine = new BrowserAudioEngine({
@@ -207,21 +222,28 @@ export function useS2SAutomation(args: Arguments) {
             const chunks: Uint8Array[] = []
             const speechApi: Pick<DesktopApi, 'synthesizeStream' | 'stopGeneration'> = {
               synthesizeStream: async (request, onChunk) => {
-                if (cached) { cached.chunks.forEach(onChunk); return { generationMs: 0 } }
-                return window.neb.synthesizeStream(request, (pcm) => { chunks.push(Uint8Array.from(pcm)); onChunk(pcm) })
+                try {
+                  if (cached) { cached.chunks.forEach(onChunk); return { generationMs: 0 } }
+                  return await window.neb.synthesizeStream(request, (pcm) => { chunks.push(Uint8Array.from(pcm)); onChunk(pcm) })
+                } finally { generationFinished() }
               },
               stopGeneration: () => cached ? Promise.resolve() : window.neb.stopGeneration()
             }
             try {
               await streamS2SSpeech(speechApi, engine, { providerId: 'gemini', modelId: settings.geminiModel, text, voice: { mode: 'prebuilt', voiceId: settings.geminiVoiceId === 'Puck' ? 'Kore' : 'Puck' } }, settings.outputDeviceId, signal, () => controller.active)
               if (!signal.aborted && !cached) lastModelAudio = { text, chunks }
-            } finally { if (signal.aborted) playbackTimeline.clear(); engine.dispose() }
+            } finally { generationFinished(); if (signal.aborted) playbackTimeline.clear(); engine.dispose() }
           },
           cost: (reply, accepted) => session.current === ownedSession && controller.recordSimulationReply(reply, accepted), state: setSimulationMessage,
+          ready: (text) => {
+            modelGeneration.current = new Promise<void>((resolve) => { finishModelGeneration.current = resolve })
+            controller.prepareTranscript(text)
+          },
+          ended: () => controller.finishTranscriptPlayback(),
           failed: (message) => controller.pause(message)
-        })
-      }
-      controller.start(lines.filter((line) => !line.done), scenario, options)
+        }, context)
+      } else { preparedSpeech.current?.clear(); preparedSpeech.current = null }
+      controller.start(lines.filter((line) => !line.done), scenario, options, context)
     } catch (error) {
       if (token === startup.current) {
         simulation.current?.stop(); simulation.current = null; timeline.current.clear()
@@ -262,8 +284,8 @@ export function useS2SAutomation(args: Arguments) {
   return { snapshot, audioStatus, receiving: isSimulation ? controller.locked : receiving, audioLevel: isSimulation ? snapshot.level : audioLevel, providerReady, error, starting,
     getVoiceActivity,
     isSimulation, simulationMessage,
-    startSimulation: (lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, deviceId: string) => start(lines, scenario, options, deviceId),
-    locked: controller.locked || starting, active: controller.active, start, resume, stop,
+    startSimulation: (lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, deviceId: string, context?: S2STaskContext) => start(lines, scenario, options, deviceId, context),
+    locked: controller.locked || starting, active: controller.active, start: (lines: ReadyLine[], scenario: string, options: Partial<S2SOptions>, context?: S2STaskContext) => start(lines, scenario, options, undefined, context), resume, stop,
     pause: () => controller.pause('Pausa manuale. Riprendi l’ascolto o ripeti esplicitamente la battuta pendente.'),
     exportLog, sessionTab: session.current?.tab, controller,
     isLocked: () => controller.locked || startPending.current }

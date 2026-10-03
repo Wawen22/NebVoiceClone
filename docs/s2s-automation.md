@@ -11,26 +11,34 @@ Outlier né collegare Edge. Servono Gemini e `OPENROUTER_API_KEY` configurati.
 
 Uno script pronto da incollare in **Importa script** è [s2s-demo.txt](s2s-demo.txt).
 Contiene cinque battute sul ciclo dell’acqua. La riga `SCENARIO:` non viene
-importata come battuta: copia quel contesto nel campo **Scenario e tempi**.
+importata come battuta: copia quel contesto nel campo **Contesto della task**.
 
 1. Prepara due o tre battute ancora pendenti, per esempio quelle della prova sotto.
 2. Premi **Automatico**: l’editor si chiude e apre il modale **Conversazione
-   automatica**. Scegli **Simulazione**. In **Scenario e tempi** inserisci il
-   contesto della conversazione e lascia inizialmente 2,5 secondi di silenzio.
+   automatica**. Scegli **Simulazione**. In **Contesto della task** inserisci il
+   What to do, tipo di scenario e Skills tested. In **Tempi e limiti** lascia
+   inizialmente 2,5 secondi di silenzio per il percorso audio.
 3. In **Uscita simulazione** scegli cuffie o altoparlanti reali. Il pannello esclude
    CABLE e le uscite predefinite, per scegliere esplicitamente il dispositivo locale.
    La configurazione d'uscita della Console per Outlier non viene modificata.
 4. Premi **Simulazione MODEL A**. NEB pronuncia la prima battuta; MODEL A simulato
    genera una risposta con Qwen e la pronuncia con Gemini, usando Puck (Kore se la
    voce NEB è già Puck). L'audio PCM di MODEL A, sincronizzato con la riproduzione,
-   passa al controller e all'ascolto Qwen usati dalla conversazione automatica.
+   passa al controller. Con **Prepara battuta e voce mentre MODEL A parla**
+   attivo, Qwen usa subito il testo completo generato per riscrivere la prossima
+   battuta. Gemini ne prepara i campioni in silenzio, dopo aver terminato la
+   generazione audio MODEL A; la riproduzione MODEL A può continuare nel frattempo.
+   NEB parte soltanto dopo la fine effettiva MODEL A e almeno 300 ms di quiete.
+   Se testo o voce non sono ancora pronti, attende il completamento.
 5. Osserva **Trascrizione della conversazione** e **Script della sessione**:
    la prima battuta parte originale, le successive mostrano il confronto
    **Originale → Adattata da Qwen**. Il transcript NEB contiene le battute la cui
    riproduzione è iniziata, con indicazione delle eventuali interruzioni.
    Le onde NEB e MODEL A usano l’ampiezza del PCM sincronizzato alla riproduzione.
-   Il testo simulato è distinto dalla trascrizione Qwen dell’audio: quest’ultima
-   arriva dopo la verifica della risposta, non parola per parola in tempo reale.
+   **Testo MODEL A · usato da Qwen** identifica la preparazione dal testo,
+   senza riascolto audio. Disattivando l’anticipo, **Trascritto da Qwen**
+   identifica la verifica audio dopo il silenzio: usa questo percorso per provare
+   anche il riconoscimento della voce, degli intercalari e delle pause.
    **Tempi, costi e decisioni** riporta tempi e costi OpenRouter.
    **Esporta cronologia** identifica la sessione come `simulation`.
 6. Prova **Pausa** mentre MODEL A prepara/parla e **Riprendi simulazione**:
@@ -50,6 +58,45 @@ resta escluso, come nella modalità Outlier. Questa prova usa API reali ed è fa
 dai provider. Non misura la velocità o la qualità del vero modello Outlier, né
 verifica la cattura audio Edge e il percorso VB-CABLE. Questi ultimi richiedono
 la prova Windows seguente.
+
+## Contesto della task e playbook
+
+Prima di avviare, apri **Contesto della task** e incolla separatamente:
+
+- **What to do / Scenario**: istruzioni effettive della task e ruolo da interpretare.
+- **Tipo di scenario**: per esempio Knowledge & Learning · IQ-focused.
+- **Skills tested**: le competenze elencate nella task.
+- **Materiale preparato / brano**: testo scelto, domanda e fatti necessari, quando previsti.
+- **Minimo turni utente richiesti**: facoltativo; se lo script pendente è troppo corto, l’avvio viene rifiutato. Si contano solo le tue battute.
+
+Il Rationale e le note del progetto non vengono aggiunti automaticamente.
+Questi campi vengono fissati per la sessione e inviati al regista Qwen, oltre
+alla cronologia reale. MODEL A simulato riceve lo stesso contesto ma non lo
+script dei tuoi turni futuri.
+
+Il livello **L1** mantiene funzione e ordine, adattando le parole alla risposta.
+**L2** segue lo stato della scena: una battuta può descrivere una funzione da
+esercitare, anziché imporre un oggetto o un evento che il modello non ha introdotto.
+**L0** consente il testo fisso quando richiesto dalla task; non impone una riscrittura.
+Un’istruzione `[ADAPT LIVE — ... | FALLBACK ONLY IF COMPATIBLE: ...]` nei turni
+successivi serve a Qwen e non deve essere pronunciata. Il primo turno deve essere
+una battuta concreta, già pronta da dire.
+
+Le indicazioni sono ricavate dal playbook fornito: priorità allo scenario della
+pagina, competenze effettivamente esercitate, continuità dei fatti e adattamento
+alla risposta. **Stato attuale rilevato da Qwen** rende visibile ciò che il regista
+ha ricostruito. Rimane una valutazione del modello, da controllare in simulazione.
+
+Per lo scenario di comprensione del testo del tuo esempio, prepara il brano e
+la domanda prima di parlare: inseriscili nel materiale e usa la prima battuta per
+leggere il riassunto e la domanda. I turni seguenti possono chiedere un indizio,
+provare una risposta e motivarla, seguendo le domande realmente ricevute.
+
+L’anticipo è disponibile nella **simulazione**, che possiede il testo completo
+prima di pronunciarlo. Il connettore Outlier attuale inoltra l’audio e non una
+trascrizione durante il parlato: su Outlier resta la verifica audio dopo il
+silenzio. Per estendere l’anticipo servirebbe una sorgente verificata di testo
+progressivo; una bozza parziale andrebbe invalidata quando cambia la risposta.
 
 ## Configurazione
 
@@ -80,9 +127,8 @@ la prova Windows seguente.
    Prepara MODEL A o MODEL B e premi **Automatico**. Nel player scegli
    **Outlier / Edge**. La cattura deve risultare
    collegata e il misuratore deve muoversi quando Outlier parla.
-8. Scegli **Scenario e tempi** per definire ruolo e fatti da mantenere. Il Rationale
-   e le note del progetto non vengono aggiunti automaticamente al contesto Qwen.
-   Impostazione iniziale consigliata: silenzio 2,5 s, attesa 30 s.
+8. Compila **Contesto della task** come descritto sopra. In **Tempi e limiti**,
+   impostazione iniziale consigliata: silenzio 2,5 s, attesa 30 s.
 9. Avvia/attiva la conversazione con il modello desiderato nella task Outlier,
    lasciando pronto il microfono virtuale. In NEB premi **Avvia MODEL A/B**.
    La prima battuta ancora pendente parte originale; le successive vengono adattate.
@@ -104,7 +150,7 @@ Atteso: prima battuta → risposta → verifica Qwen → seconda battuta adattat
 risposta → terza adattata → risposta finale → Conversazione completata.
 Le righe sono segnate completate solo a riproduzione interamente terminata.
 Originale e testo adattato sono visibili nel player e nel JSON esportato.
-Qwen deve riscrivere la battuta collegandola alla risposta, mantenendo obiettivo
+In L1/L2 Qwen deve riscrivere la battuta collegandola alla risposta, mantenendo obiettivo
 e ordine. Se restituisce il testo originale (anche con maiuscole o punteggiatura
 diverse), viene tentata una sola verifica testuale con la trascrizione già ottenuta,
 senza caricare nuovamente l’audio. Se la riscrittura resta identica, NEB va in pausa
@@ -148,9 +194,12 @@ costo OpenRouter riportato. Non esporta le registrazioni audio.
 
 - Prova dapprima con 2,5 s di silenzio e risposte brevi.
 - Annota tempo Qwen e primo audio Gemini su almeno cinque turni.
-- Il ritardo totale comprende silenzio, invio/elaborazione Qwen, 300 ms di verifica
+- Nel percorso audio, il ritardo totale comprende silenzio, invio/elaborazione Qwen, 300 ms di verifica
   finale e preparazione Gemini. I 2,5 s non sono il ritardo totale.
-- Solo dopo una prova senza sovrapposizioni valuta 2 s o 1,5 s di silenzio.
+- In simulazione con anticipo, Qwen e Gemini lavorano durante MODEL A. Il JSON
+  distingue `simulation-text` da `audio` e registra `prepared-decision`, il
+  contesto e `preparationLeadMs` (tempo tra proposta pronta e fine MODEL A).
+- Solo dopo una prova senza sovrapposizioni valuta 2 s o 1,5 s di silenzio nel percorso audio.
 
 I costi visualizzati sono quelli restituiti da OpenRouter e non includono Gemini.
 Una richiesta già partita può superare il limite; richieste annullate possono
@@ -219,3 +268,17 @@ trascrizione delle battute effettivamente avviate, confronto originale/adattata,
 onde che rispondono al PCM NEB e MODEL A, Riduci/riapri, Pausa/Ripresa,
 Stop e uscita con Esc. La prova è isolata e usa audio/IPC sintetici;
 resta da verificare l’ascolto nelle cuffie e il routing hardware sul PC dell’utente.
+
+Aggiornamento della preparazione anticipata e del contesto: 182 test WSL passati
+(3 test Windows saltati in WSL), build e typecheck passati; 5 test bridge Windows
+passati. Lo smoke Edge verifica preparazione silenziosa, testo e skills inoltrati,
+riuso dell’audio senza una seconda sintesi NEB e riproduzione soltanto dopo la fine
+MODEL A e la quiete; restano coperti Stop, Pausa/Ripresa e risposta finale.
+La revisione indipendente ha verificato anche il blocco delle istruzioni durante
+Ripeti battuta pendente e il conteggio dei costi noti dopo cancellazione/JSON invalido.
+
+Una chiamata reale su testo sintetico italiano, con scenario IQ-focused e skills
+socratiche, ha prodotto una battuta contestuale senza leggere l’istruzione
+ADAPT LIVE: 3021 ms, costo OpenRouter $0,0002388. Il testo MODEL A era già completo:
+la prova verifica la compatibilità del percorso testuale, non una trascrizione
+streaming, né la latenza del vero Outlier. Il brano usato era creato per il test.

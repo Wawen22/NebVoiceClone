@@ -1,4 +1,4 @@
-import type { S2SHistoryItem, S2SSimulationReply, S2SSimulationRequest } from '../../../shared/s2s'
+import type { S2SHistoryItem, S2SSimulationReply, S2SSimulationRequest, S2STaskContext } from '../../../shared/s2s'
 import type { AudioOutput } from '../audio/AudioEngine'
 
 export function localSimulationOutputs(outputs: AudioOutput[]): AudioOutput[] {
@@ -46,6 +46,8 @@ interface SimulationDependencies {
   cost(reply: S2SSimulationReply, accepted: boolean): boolean
   state(message: string): void
   failed(message: string): void
+  ready?(text: string): void
+  ended?(): void
 }
 export class SimulatedModel {
   private history: S2SHistoryItem[] = []
@@ -56,7 +58,7 @@ export class SimulatedModel {
   private readonly id = crypto.randomUUID()
   private completedReply: S2SSimulationReply | null = null
   private repeating = false
-  constructor(private readonly scenario: string, private readonly deps: SimulationDependencies) {}
+  constructor(private readonly scenario: string, private readonly deps: SimulationDependencies, private readonly taskContext?: S2STaskContext) {}
   respond(text: string): void {
     if (this.disposed) return
     this.pause()
@@ -78,12 +80,13 @@ export class SimulatedModel {
     this.repeating = Boolean(cached); this.pending = true
     this.deps.state(cached ? 'Riascolto l’ultima risposta MODEL A per riprendere la verifica…' : 'MODEL A simulato prepara la risposta…')
     try {
-      const reply = cached ?? await this.deps.reply({ requestId: `simulation-${this.id}-${token}`, scenario: this.scenario, history: this.history.slice(-60) }, operation.signal)
+      const reply = cached ?? await this.deps.reply({ requestId: `simulation-${this.id}-${token}`, scenario: this.scenario, history: this.history.slice(-60), taskContext: this.taskContext }, operation.signal)
       // Known costs belong to this session even if Pause/Stop invalidated playback.
       const canContinue = cached ? true : this.deps.cost(reply, token === this.serial && !operation.signal.aborted && !this.disposed)
       if (token !== this.serial || operation.signal.aborted || this.disposed) return
       if (!canContinue) { this.pause(); return }
       operation.signal.throwIfAborted()
+      this.deps.ready?.(reply.text)
       this.deps.state('MODEL A simulato parla…')
       await this.deps.play(reply.text, operation.signal)
       if (token !== this.serial || operation.signal.aborted || this.disposed) return
@@ -91,6 +94,7 @@ export class SimulatedModel {
       this.pending = false
       this.repeating = false
       this.operation = null
+      this.deps.ended?.()
       this.deps.state('MODEL A ha terminato · Qwen ascolta la risposta.')
     } catch (error) {
       if (token === this.serial && !operation.signal.aborted && !this.disposed) {
