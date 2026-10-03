@@ -15,7 +15,7 @@ importata come battuta: copia quel contesto nel campo **Contesto della task**.
 
 1. Prepara due o tre battute ancora pendenti, per esempio quelle della prova sotto.
 2. Premi **Automatico**: l’editor si chiude e apre il modale **Conversazione
-   automatica**. Scegli **Simulazione**. In **Contesto della task** inserisci il
+   automatica** nella vista **Configurazione**. Scegli **Simulazione**. In **Contesto della task** inserisci il
    What to do, tipo di scenario e Skills tested. In **Tempi e limiti** lascia
    inizialmente 2,5 secondi di silenzio per il percorso audio.
 3. In **Uscita simulazione** scegli cuffie o altoparlanti reali. Il pannello esclude
@@ -30,17 +30,18 @@ importata come battuta: copia quel contesto nel campo **Contesto della task**.
    generazione audio MODEL A; la riproduzione MODEL A può continuare nel frattempo.
    NEB parte soltanto dopo la fine effettiva MODEL A e almeno 300 ms di quiete.
    Se testo o voce non sono ancora pronti, attende il completamento.
-5. Osserva **Trascrizione della conversazione** e **Script della sessione**:
-   la prima battuta parte originale, le successive mostrano il confronto
-   **Originale → Adattata da Qwen**. Il transcript NEB contiene le battute la cui
-   riproduzione è iniziata, con indicazione delle eventuali interruzioni.
-   Le onde NEB e MODEL A usano l’ampiezza del PCM sincronizzato alla riproduzione.
-   **Testo MODEL A · usato da Qwen** identifica la preparazione dal testo,
-   senza riascolto audio. Disattivando l’anticipo, **Trascritto da Qwen**
-   identifica la verifica audio dopo il silenzio: usa questo percorso per provare
-   anche il riconoscimento della voce, degli intercalari e delle pause.
-   **Tempi, costi e decisioni** riporta tempi e costi OpenRouter.
-   **Esporta cronologia** identifica la sessione come `simulation`.
+5. All’avvio il player passa a **Conversazione**: una sola indicazione di stato,
+   avanzamento, onde compatte e trascrizione a tutta larghezza. Le battute NEB adattate
+   hanno l’etichetta **Adattata** e **Vedi battuta originale**. **Script** mostra
+   tutti i turni e il confronto con gli originali; **Dettagli** raccoglie contesto,
+   stato Qwen, **Tempi, costi e decisioni** ed **Esporta cronologia**.
+   Il transcript NEB contiene le battute la cui riproduzione è iniziata, con
+   indicazione delle eventuali interruzioni. Le onde usano il PCM sincronizzato
+   alla riproduzione. Il testo simulato è distinto dalla trascrizione audio.
+   Disattivando l’anticipo si verifica l’audio dopo il silenzio: usa questo percorso
+   per provare anche riconoscimento della voce, intercalari e pause.
+   Se scorri indietro, il player smette di seguire i nuovi messaggi: premi
+   **Vai all’ultimo messaggio** per tornare alla conversazione attuale.
 6. Prova **Pausa** mentre MODEL A prepara/parla e **Riprendi simulazione**:
    una richiesta di testo non ancora completata viene rifatta. Se il testo MODEL A
    è già pronto, viene conservato e si riprova soltanto la voce. Dopo una risposta già
@@ -48,7 +49,7 @@ importata come battuta: copia quel contesto nel campo **Contesto della task**.
    senza rigenerare MODEL A/Gemini. Se metti in pausa mentre parla NEB,
    scegli **Ripeti battuta pendente** per ripartire dalla battuta interrotta.
 7. Prova **Stop automatico** durante l'elaborazione: nessuna risposta tardiva deve
-   riavviare la voce. Ripeti la simulazione per confrontare i tempi.
+   riavviare la voce. Premi **Nuova sessione** o apri **Configurazione** per ripetere la simulazione; i campi inseriti restano disponibili.
 
 Le righe originali non sono segnate completate dalla simulazione: restano pronte
 per Outlier. Il conteggio nel player riguarda la singola prova. **Torna alle battute** riapre
@@ -62,7 +63,7 @@ la prova Windows seguente.
 
 ## Contesto della task e playbook
 
-Prima di avviare, apri **Contesto della task** e incolla separatamente:
+Prima di avviare, in **Configurazione** apri **Contesto della task** e incolla separatamente:
 
 - **What to do / Scenario**: istruzioni effettive della task e ruolo da interpretare.
 - **Tipo di scenario**: per esempio Knowledge & Learning · IQ-focused.
@@ -75,6 +76,7 @@ Questi campi vengono fissati per la sessione e inviati al regista Qwen, oltre
 alla cronologia reale. MODEL A simulato riceve lo stesso contesto ma non lo
 script dei tuoi turni futuri.
 
+In **Adattamento e materiale** trovi livello, minimo turni e materiale facoltativo.
 Il livello **L1** mantiene funzione e ordine, adattando le parole alla risposta.
 **L2** segue lo stato della scena: una battuta può descrivere una funzione da
 esercitare, anziché imporre un oggetto o un evento che il modello non ha introdotto.
@@ -85,7 +87,7 @@ una battuta concreta, già pronta da dire.
 
 Le indicazioni sono ricavate dal playbook fornito: priorità allo scenario della
 pagina, competenze effettivamente esercitate, continuità dei fatti e adattamento
-alla risposta. **Stato attuale rilevato da Qwen** rende visibile ciò che il regista
+alla risposta. **Dettagli → Stato attuale rilevato da Qwen** rende visibile ciò che il regista
 ha ricostruito. Rimane una valutazione del modello, da controllare in simulazione.
 
 Per lo scenario di comprensione del testo del tuo esempio, prepara il brano e
@@ -126,8 +128,8 @@ progressivo; una bozza parziale andrebbe invalidata quando cambia la risposta.
    nell'estensione; NEB non può avviare questa acquisizione senza quel gesto.
 7. Torna a NEB → Outlier, seleziona il progetto S2S attivo e apri **Battute Pronte**.
    Prepara MODEL A o MODEL B e premi **Automatico**. Nel player scegli
-   **Outlier / Edge**. La cattura deve risultare
-   collegata e il misuratore deve muoversi quando Outlier parla.
+   **Configurazione → Outlier / Edge**. La cattura deve risultare
+   collegata. Dopo l’avvio, le onde MODEL A/B mostrano l’audio ricevuto.
 8. Compila **Contesto della task** come descritto sopra. In **Tempi e limiti**,
    impostazione iniziale consigliata: silenzio 2,5 s, attesa 30 s.
 9. Avvia/attiva la conversazione con il modello desiderato nella task Outlier,
@@ -286,7 +288,8 @@ streaming, né la latenza del vero Outlier. Il brano usato era creato per il tes
 
 ## Se MODEL A mostra il testo ma non parla
 
-La simulazione distingue ora **Qwen prepara il testo**, **Gemini prepara la voce**
+La simulazione distingue la preparazione del testo e della voce; nella vista
+Conversazione mostra **MODEL A prepara la risposta** e **Preparo la voce di MODEL A**
 e **MODEL A parla**. Il testo può essere già visibile mentre la voce è ancora in
 preparazione: l’indicatore di parlato e le onde iniziano con i campioni audio reali.
 
@@ -359,3 +362,24 @@ e `repairAttempted` presenti. Sono singole prove, non una garanzia semantica.
 Lo smoke Windows dell’interfaccia è passato, includendo il motivo specifico
 della validazione e il tentativo unico nella cronologia, oltre ai controlli di
 Stop, Pausa/Ripresa, audio MODEL lento e preparazione anticipata.
+
+## Player semplificato — 3 ottobre 2026
+
+Le quattro viste separano le attività: **Configurazione** prima dell’avvio,
+**Conversazione** durante il ciclo, **Script** per le battute originali/adattate,
+**Dettagli** per contesto, decisioni, tempi, costi ed esportazione. La configurazione
+non è modificabile durante una sessione attiva o in pausa. Pausa, Riprendi e Stop
+restano disponibili anche quando si consulta Script o Dettagli.
+
+La vista Conversazione elimina la colonna laterale e gli stati ripetuti, usa
+messaggi più grandi, onde compatte e una barra di avanzamento. Il punto di lettura
+si conserva tra le viste; ogni nuova sessione ripristina il seguito automatico.
+Un avvio fallito ritorna alla configurazione mantenendo i campi già inseriti.
+Il motore di ascolto, i tempi, le decisioni Qwen e la riproduzione restano invariati.
+
+Verifica: build e typecheck passati, 196 test WSL passati (3 saltati). Lo smoke Edge
+Windows con audio/IPC sintetici è passato: navigazione delle viste anche da tastiera,
+errore di avvio, conservazione dei campi e della posizione di lettura, nuovo ciclo,
+finestra 540×620 senza scorrimento orizzontale, Pausa/Ripresa, Stop, risposta finale,
+anticipo e attesa di 31 secondi per il primo audio MODEL. Nessuna chiamata AI in
+questa verifica dell’interfaccia.

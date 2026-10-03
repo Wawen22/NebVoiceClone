@@ -20,8 +20,9 @@ const server = createServer(async (req, res) => {
 })
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
+let page
 try {
-  const page = await browser.newPage({ viewport: { width: 1260, height: 850 } })
+  page = await browser.newPage({ viewport: { width: 1260, height: 850 } })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {
@@ -31,7 +32,7 @@ try {
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
     const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
-    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null,
+    const fixture = window.fixture = { spoken: [], played: [], audioEvents: [], speechCodes: {}, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, providerUnavailable: false, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null,
       disconnect: () => {
         capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
         for (const listener of listeners) listener({ type: 'status', status: capture })
@@ -77,7 +78,7 @@ try {
       getOutlierSetup: async () => ({ installed: true, extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionPath: 'fixture' }),
       onInsertionStatus: (listener) => { insertionListeners.add(listener); return () => insertionListeners.delete(listener) }, onConversationRequested: noopSubscription, onStopRequested: noopSubscription,
       setZoomFactor: () => {}, getZoomFactor: () => 1,
-      getS2SProviderStatus: async () => ({ ready: true, model: 'qwen/qwen3.8-omni-flash' }),
+      getS2SProviderStatus: async () => ({ ready: !fixture.providerUnavailable, model: 'qwen/qwen3.8-omni-flash' }),
       getS2SAudioStatus: async () => capture,
       onS2SAudio: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
       adaptS2STurn: async (request) => {
@@ -120,13 +121,27 @@ try {
   }
   await addLine('Descrivi la soluzione.'); await addLine('Quali limiti ha?')
   await page.getByRole('button', { name: 'Automatico', exact: true }).click()
+  await page.getByRole('tab', { name: 'Configurazione', exact: true }).waitFor({ timeout: 5000 })
+  assert.equal(await page.getByRole('tab', { name: 'Configurazione', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await page.locator('.s2s-transcript').count(), 0)
   const openAutomatic = async (source = 'outlier') => {
     if (await page.getByRole('button', { name: 'Automatico', exact: true }).count()) await page.getByRole('button', { name: 'Automatico', exact: true }).click()
+    await page.getByRole('tab', { name: 'Configurazione', exact: true }).click()
     await page.getByRole('button', { name: source === 'outlier' ? 'Outlier / Edge' : 'Simulazione', exact: true }).click()
   }
   await openAutomatic()
   const start = page.getByRole('button', { name: /Avvia MODEL A/ })
+  await page.getByLabel('What to do / Scenario', { exact: true }).fill('Contesto conservato dopo un errore di avvio.')
+  await page.evaluate(() => { window.fixture.providerUnavailable = true })
   await start.click()
+  await page.getByRole('region', { name: 'Conversazione automatica S2S' }).getByRole('alert').filter({ hasText: 'Configura OPENROUTER_API_KEY' }).waitFor()
+  assert.equal(await page.getByRole('tab', { name: 'Configurazione', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await page.getByLabel('What to do / Scenario', { exact: true }).inputValue(), 'Contesto conservato dopo un errore di avvio.')
+  await page.evaluate(() => { window.fixture.providerUnavailable = false })
+  await start.click()
+  assert.equal(await page.getByRole('tab', { name: 'Conversazione', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await page.getByRole('tab', { name: 'Configurazione', exact: true }).count(), 0)
+  assert.equal(await page.locator('.s2s-history, .s2s-current-turn').count(), 0)
   await page.waitForFunction(() => Number(document.querySelector('canvas[aria-label="Onde audio NEB"]')?.dataset.level) > 0)
   await page.getByText('Attendo la risposta di Outlier.', { exact: false }).first().waitFor()
   assert.equal(await page.getByRole('tab', { name: /MODEL B/ }).count(), 0)
@@ -145,10 +160,36 @@ try {
   const artifacts = path.resolve('.superpowers/s2s-smoke')
   await mkdir(artifacts, { recursive: true })
   await page.screenshot({ path: path.join(artifacts, 'automatic-player.png') })
+  await page.getByRole('tab', { name: 'Script', exact: true }).click()
+  assert.equal(await page.locator('.s2s-transcript').count(), 0)
+  assert.equal(await page.locator('.s2s-turns li').count(), 2)
+  await page.getByRole('tab', { name: 'Dettagli', exact: true }).click()
+  await page.getByText('Tempi, costi e decisioni', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Esporta cronologia', exact: true }).count(), 1)
+  await page.getByRole('tab', { name: 'Dettagli', exact: true }).press('Home')
+  assert.equal(await page.getByRole('tab', { name: 'Conversazione', exact: true }).getAttribute('aria-selected'), 'true')
+  await page.setViewportSize({ width: 540, height: 620 })
+  await page.waitForTimeout(100)
+  assert(await page.locator('.s2s-transcript').evaluate((element) => element.scrollHeight > element.clientHeight))
+  await page.locator('.s2s-transcript').evaluate((element) => { element.scrollTop = 35 })
+  await page.getByRole('button', { name: 'Vai all’ultimo messaggio', exact: true }).waitFor()
+  await page.getByRole('tab', { name: 'Script', exact: true }).click()
+  await page.getByRole('tab', { name: 'Conversazione', exact: true }).click()
+  assert.equal(await page.locator('.s2s-transcript').evaluate((element) => element.scrollTop), 35)
+  await page.getByRole('button', { name: 'Vai all’ultimo messaggio', exact: true }).click()
+  assert(await page.locator('.s2s-transcript').evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight < 2))
+  assert(await page.locator('.s2s-dialog').evaluate((element) => element.scrollWidth <= element.clientWidth))
+  await page.screenshot({ path: path.join(artifacts, 'automatic-player-compact.png') })
+  await page.setViewportSize({ width: 1260, height: 850 })
 
+  await page.setViewportSize({ width: 540, height: 620 })
+  await page.locator('.s2s-transcript').evaluate((element) => { element.scrollTop = 0 })
+  await page.getByRole('button', { name: 'Vai all’ultimo messaggio', exact: true }).waitFor()
   await addLine('Fammi un esempio concreto.')
   await page.evaluate(() => { window.fixture.holdAdapt = true })
   await openAutomatic(); await start.click()
+  assert.equal(await page.getByRole('button', { name: 'Vai all’ultimo messaggio', exact: true }).count(), 0)
+  await page.setViewportSize({ width: 1260, height: 850 })
   await page.getByText('Ascolto la risposta finale di Outlier.', { exact: false }).first().waitFor()
   await page.evaluate(() => window.fixture.voice())
   await page.waitForFunction(() => window.fixture.release !== null)
@@ -178,7 +219,7 @@ try {
   await page.getByLabel('What to do / Scenario', { exact: true }).fill('Aiutami a capire una soluzione, guidandomi con domande.')
   const callsBeforeFast = await page.evaluate(() => window.fixture.spoken.length)
   await simulate.click()
-  await page.getByText('Battuta e audio pronti · attendo la fine MODEL A', { exact: true }).waitFor()
+  await page.getByText('Prossima battuta pronta', { exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.played.filter((text) => text === 'E quali limiti ha?').length), 1)
   assert.equal(await page.evaluate(() => window.fixture.spoken.length), callsBeforeFast + 3)
   await page.waitForFunction(() => Number(document.querySelector('canvas[aria-label="Onde audio MODEL A"]')?.dataset.level) > 0)
@@ -195,12 +236,13 @@ try {
   const modelEnd = audioEvents.findLast((event) => event.event === 'end' && event.voice === 'Puck' && event.at < adaptedStart.at)
   assert(modelEnd && adaptedStart.at - modelEnd.at >= 290, 'NEB must wait for actual MODEL end and quiet guard')
   assert(adaptedStart.at - modelEnd.at < 1500, 'Ready audio should avoid Qwen/TTS waits after MODEL end')
+  await page.getByRole('tab', { name: 'Configurazione', exact: true }).click()
   // Reproduce the real stall: generated text exists but Gemini's first audio takes >30s.
   await page.getByLabel('Prepara battuta e voce mentre MODEL A parla', { exact: true }).uncheck()
   await page.evaluate(() => { window.fixture.holdVoice = true; window.fixture.releaseVoice = null })
   await simulate.click()
   await page.waitForFunction(() => window.fixture.releaseVoice !== null)
-  await page.getByText('Testo MODEL A pronto · Gemini prepara la voce…', { exact: true }).first().waitFor()
+  await page.getByText('Preparo la voce di MODEL A…', { exact: true }).first().waitFor()
   const requestsBeforeVoicePause = await page.evaluate(() => window.fixture.modelRequests.length)
   await page.waitForTimeout(31000)
   assert.equal(await page.getByRole('button', { name: 'Pausa', exact: true }).count(), 1)
@@ -212,6 +254,7 @@ try {
   await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), requestsBeforeVoicePause + 1)
   assert((await page.evaluate(() => window.fixture.adaptationRequests)).some((request) => request.audioPcm && request.taskContext.skillsTested.includes('socratico')))
+  await page.getByRole('tab', { name: 'Configurazione', exact: true }).click()
   await page.getByLabel('Prepara battuta e voce mentre MODEL A parla', { exact: true }).check()
   await page.getByRole('button', { name: 'Torna alle battute', exact: true }).click()
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
@@ -219,7 +262,7 @@ try {
   await page.evaluate(() => { window.fixture.holdAdapt = true; window.fixture.release = null })
   await simulate.click()
   await page.waitForFunction(() => window.fixture.release !== null)
-  await page.getByText('MODEL A ha terminato · Qwen ascolta la risposta.', { exact: false }).first().waitFor()
+  await page.getByText('Adatto la prossima battuta alla risposta…', { exact: true }).waitFor()
   const modelBeforePause = await page.evaluate(() => window.fixture.modelRequests.length)
   await page.getByRole('button', { name: 'Riduci', exact: true }).click()
   await page.getByRole('button', { name: /Apri player/ }).click()
@@ -230,6 +273,7 @@ try {
   await page.getByText('Conversazione completata · risposta finale ascoltata.', { exact: false }).waitFor()
   assert.equal(await page.evaluate(() => window.fixture.modelRequests.length), modelBeforePause + 1)
   await page.evaluate(() => { window.fixture.holdModel = true })
+  await page.getByRole('tab', { name: 'Configurazione', exact: true }).click()
   await simulate.click()
   await page.waitForFunction(() => window.fixture.releaseModel !== null)
   const spokenBeforeStop = await page.evaluate(() => window.fixture.spoken.length)
@@ -243,5 +287,9 @@ try {
   assert.equal(await page.getByRole('tab', { name: /MODEL A/ }).getByText('4 / 6 completate').count(), 1)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: path.join(artifacts, 'renderer.png') })
-  console.log('PASS: MODEL first audio delayed 31s stays active, explicit voice preparation status, pause/resume reuses generated MODEL text, audio-only simulation adaptation; anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+  console.log('PASS: uncluttered player views and keyboard navigation, startup failure restores preserved configuration, reading position across tabs, follow reset on new session, compact viewport without horizontal overflow; MODEL first audio delayed 31s stays active, explicit voice preparation status, pause/resume reuses generated MODEL text, audio-only simulation adaptation; anticipatory text adaptation and silent PCM preparation, cached NEB playback after MODEL end, task context forwarding; dedicated automatic modal, transcript, actual PCM waves, adaptation comparison, minimize/reopen; renderer S2S and Console simulation with synthetic audio/IPC; adaptation, final reply, script lock, late replies after Stop, destination-bound resume, simulation without Edge, original script preserved; no AI calls.')
+} catch (error) {
+  await page?.screenshot({ path: path.resolve('.superpowers/s2s-smoke/player-failure.png') })
+  console.error(await page?.locator('.s2s-player').innerText())
+  throw error
 } finally { await browser.close(); server.close() }
