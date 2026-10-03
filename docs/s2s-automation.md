@@ -313,3 +313,49 @@ voce. Una prova reale separata con Gemini/Puck su un testo sintetico italiano ha
 ricevuto il primo audio in 3884 ms e generato 17,2 secondi di audio in 11055 ms.
 Sono misure della singola chiamata con la chiave d’ambiente, senza ascolto hardware;
 non attestano la quota o la velocità della chiave personale selezionata nell’app.
+
+## Decisione Qwen non valida e ruolo della battuta
+
+Il precedente messaggio generico «Decisione Qwen incoerente» indicava che la
+risposta del regista non rispettava il contratto: per esempio `complete` con una
+battuta ancora pendente, `speak` senza testo/trascrizione, oppure `wait` con testo
+da pronunciare. Il messaggio ora identifica il campo o la combinazione rifiutata.
+Non è un errore dello script importato; la sessione viene sospesa per evitare di
+pronunciare un risultato invalido.
+
+Quando una risposta invalida contiene una trascrizione non vuota entro i limiti
+e un costo noto inferiore al budget residuo, NEB tenta **una sola correzione
+testuale** con la stessa trascrizione. Non reinvia l’audio. Questo tentativo è
+condiviso con la verifica delle battute identiche: non esiste una catena di retry.
+Senza trascrizione utilizzabile, dopo Stop/cancellazione o con budget esaurito/non
+noto, non parte una correzione. Se anche la verifica fallisce, resta la pausa con
+il motivo specifico. Entrambe le richieste rientrano nel costo OpenRouter.
+
+**Tempi, costi e decisioni** e il JSON esportato conservano `validationIssue` e
+`repairAttempted`, anche quando la correzione riesce. Il regista riceve un vincolo
+esplicito: NEB è l’utente, MODEL è l’interlocutore. Nello scenario didattico, NEB
+formula le battute dello studente e MODEL quelle del tutor. Il prompt consente
+allo studente di rispondere alle domande del tutor e gli vieta di prendere il suo
+ruolo. Questo indirizza la generazione; il controllo semantico completo del ruolo
+resta una capacità del modello, da verificare nel transcript.
+
+In L1, una battuta originale che termina con `?` deve conservare una domanda
+nella riscrittura, anche dopo un tentativo di risposta a MODEL. La semplice
+presenza di `?` non prova da sola la qualità o la coerenza della domanda; il
+contesto continua a guidare Qwen. L0 e L2 mantengono le proprie regole.
+
+Lo screenshot precedente non conservava la decisione JSON rifiutata, quindi non
+consente di ricostruire quale campo abbia generato quella specifica pausa. I nuovi
+messaggi e metadati rendono distinguibili eventuali ricorrenze.
+
+Verifica di questa correzione: 196 test WSL passati (3 saltati), build e typecheck
+passati; 5 test bridge Windows passati. Su una replica sintetica del contesto del
+brano, Qwen reale ha restituito una battuta dello studente nel percorso testo
+(2844 ms) e nel percorso audio (7153 ms; audio Gemini/Puck di 17,04 secondi).
+Una successiva prova del controllo L1 ha corretto automaticamente la domanda
+persa: 6558 ms complessivi, costo OpenRouter $0,00060491, con `validationIssue`
+e `repairAttempted` presenti. Sono singole prove, non una garanzia semantica.
+
+Lo smoke Windows dell’interfaccia è passato, includendo il motivo specifico
+della validazione e il tentativo unico nella cronologia, oltre ai controlli di
+Stop, Pausa/Ripresa, audio MODEL lento e preparazione anticipata.

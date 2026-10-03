@@ -7,6 +7,7 @@ export const DEFAULT_S2S_OPTIONS: S2SOptions = { silenceMs: 2500, responseTimeou
 export interface S2SLogEntry {
   atMs: number; kind: string; text: string; original?: string; adapted?: string; transcript?: string
   lineIndex?: number; utteranceId?: number; responseId?: number; accepted?: boolean; action?: S2SDecision['action']; transcriptSource?: 'audio' | 'simulation-text'; liveState?: string; preparationLeadMs?: number
+  validationIssue?: string; repairAttempted?: boolean
   qwenMs?: number; firstAudioMs?: number; silenceMs?: number; costUsd?: number | null
 }
 export interface S2SSnapshot {
@@ -247,7 +248,7 @@ export class S2SController {
       if (session !== this.sessionId) return
       if (decision.costUsd === null) { this.snapshot.costKnown = false; this.snapshot.costUsd += decision.knownCostUsd ?? 0 }
       else this.snapshot.costUsd += decision.costUsd
-      this.log('decision', decision.reason, { transcript: decision.transcript, qwenMs: decision.qwenMs, silenceMs: this.options.silenceMs, costUsd: decision.costUsd, responseId, action: decision.action, accepted: token === this.serial && !operation.signal.aborted })
+      this.log('decision', decision.reason, { transcript: decision.transcript, validationIssue: decision.validationIssue, repairAttempted: decision.repairAttempted, qwenMs: decision.qwenMs, silenceMs: this.options.silenceMs, costUsd: decision.costUsd, responseId, action: decision.action, accepted: token === this.serial && !operation.signal.aborted })
       if (token !== this.serial || operation.signal.aborted) { this.publish(); return }
       this.operation = null
       if (this.snapshot.costUsd >= this.options.maxCostUsd || !this.snapshot.costKnown) {
@@ -303,7 +304,7 @@ export class S2SController {
         if (decision.costUsd === null) { this.snapshot.costKnown = false; this.snapshot.costUsd += decision.knownCostUsd ?? 0 }
         else this.snapshot.costUsd += decision.costUsd
         const accepted = token === this.serial && !operation.signal.aborted && this.preparation === prepared
-        this.log('prepared-decision', decision.reason, { transcript, transcriptSource: 'simulation-text', qwenMs: decision.qwenMs, costUsd: decision.costUsd, responseId, accepted })
+        this.log('prepared-decision', decision.reason, { transcript, transcriptSource: 'simulation-text', validationIssue: decision.validationIssue, repairAttempted: decision.repairAttempted, qwenMs: decision.qwenMs, costUsd: decision.costUsd, responseId, accepted })
         if (!accepted) { this.publish(); return }
         if (!this.snapshot.costKnown || this.snapshot.costUsd >= this.options.maxCostUsd) { this.pause('Limite di costo raggiunto o costo non disponibile.'); return }
         prepared.decision = { ...decision, transcript }

@@ -147,3 +147,86 @@ it('retains the known charge when the returned decision is invalid', async () =>
   expect(result.action).toBe('pause')
   expect(result.costUsd).toBe(0.002)
 })
+
+it('explains a premature completion instead of returning a generic incoherent error', () => {
+  expect(() => parseS2SDecision(JSON.stringify({ action: 'complete', transcript: 'Risposta conclusa.', nextText: '', reason: 'Fine.' }), request.nextLine)).toThrow(/battuta.*pendente/i)
+})
+
+it('repairs an invalid decision once from its transcript, preserves diagnostics and counts both charges', async () => {
+  const bodies: any[] = []
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    bodies.push(JSON.parse(String(options.body)))
+    if (bodies.length === 1) return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'complete', transcript: 'Il quaderno contiene il disegno della sorella.', nextText: '', reason: 'Fine.' }) } }], usage: { cost: 0.001 } }))
+    return reply('Penso che quel disegno abbia valore affettivo. Come posso spiegarlo meglio?', 0.002)
+  })
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('speak')
+  expect(result.costUsd).toBe(0.003)
+  expect(result.transcript).toBe('Il quaderno contiene il disegno della sorella.')
+  expect(result.validationIssue).toMatch(/battuta.*pendente/i)
+  expect(result.repairAttempted).toBe(true)
+  expect(bodies).toHaveLength(2)
+  expect(JSON.stringify(bodies[1])).not.toContain('input_audio')
+  expect(JSON.stringify(bodies[1])).toContain('speaker')
+})
+
+it('stops after a failed validation repair and reports its specific issue', async () => {
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'wait', transcript: 'La risposta è conclusa.', nextText: 'Una battuta indebita.', reason: 'Attesa.' }) } }], usage: { cost: 0.001 } })))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('pause')
+  expect(result.costUsd).toBe(0.002)
+  expect(result.reason).toContain('wait')
+  expect(result.repairAttempted).toBe(true)
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+it('does not retry invalid audio decisions without a usable transcript or remaining budget', async () => {
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'speak', transcript: '', nextText: 'Ciao.', reason: 'Fine.' }) } }], usage: { cost: 0.001 } })))
+  vi.stubGlobal('fetch', fetcher)
+  expect((await adaptS2STurn(request, { apiKey: 'test' })).action).toBe('pause')
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  fetcher.mockImplementation(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'complete', transcript: 'Risposta completa.', nextText: '', reason: 'Fine.' }) } }], usage: { cost: 0.001 } })))
+  expect((await adaptS2STurn({ ...request, remainingCostUsd: 0.001 }, { apiKey: 'test' })).action).toBe('pause')
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+it('binds the generated utterance to the user role while allowing replies to MODEL questions', async () => {
+  let body: any
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => { body = JSON.parse(String(options.body)); return reply('Penso che il disegno sia importante. Mi aiuti a motivarlo?') })
+  await adaptS2STurn(request, { apiKey: 'test' })
+  expect(body.messages[0].content).toContain('NEB interpreta SEMPRE l’utente')
+  expect(body.messages[0].content).toContain('role=assistant')
+  expect(JSON.parse(body.messages[1].content[0].text).speaker).toBe('user')
+})
+
+it('recovers a malformed final-turn action to complete without adding another utterance', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(++calls === 1 ? { action: 'speak', transcript: 'Hai capito il metodo.', nextText: 'Ancora una domanda?', reason: 'Risposta finale.' } : { action: 'complete', nextText: '', reason: 'Risposta finale ascoltata.', liveState: 'Obiettivo raggiunto.' }) } }], usage: { cost: 0.001 } })))
+  const result = await adaptS2STurn({ ...request, nextLine: null }, { apiKey: 'test' })
+  expect(result.action).toBe('complete')
+  expect(result.nextText).toBe('')
+  expect(result.transcript).toBe('Hai capito il metodo.')
+  expect(result.costUsd).toBe(0.002)
+  expect(calls).toBe(2)
+})
+
+it('retains the observed first charge when a validation repair has unknown cost', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'complete', transcript: 'Risposta conclusa.', nextText: '', reason: 'Fine.' }) } }], usage: { cost: ++calls === 1 ? 0.001 : null } })))
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('pause')
+  expect(result.costUsd).toBeNull()
+  expect(result.knownCostUsd).toBe(0.001)
+  expect(calls).toBe(2)
+})
+
+it('preserves the original question in L1 instead of replacing it with a statement', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => ++calls === 1 ? reply('Il disegno ha valore affettivo.') : reply('Penso che il disegno abbia valore affettivo. Quale dettaglio lo conferma?'))
+  const result = await adaptS2STurn(request, { apiKey: 'test' })
+  expect(result.action).toBe('speak')
+  expect(result.nextText).toContain('?')
+  expect(result.validationIssue).toContain('domanda')
+  expect(calls).toBe(2)
+})

@@ -43,6 +43,8 @@ export interface S2SDecision {
   knownCostUsd?: number
   qwenMs: number
   liveState?: string
+  validationIssue?: string
+  repairAttempted?: boolean
 }
 export interface S2SSimulationRequest { requestId: string; scenario: string; history: S2SHistoryItem[]; taskContext?: S2STaskContext }
 export interface S2SSimulationReply { text: string; modelMs: number; costUsd: number | null }

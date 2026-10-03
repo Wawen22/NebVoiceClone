@@ -2,20 +2,34 @@ import { isS2SAdaptiveInstruction, isUnchangedS2SLine, parseS2SAdaptRequest, typ
 
 export const S2S_QWEN_MODEL = 'qwen/qwen3.8-omni-flash'
 
+class S2SDecisionError extends Error {
+  constructor(message: string, readonly transcript = '') { super(`Decisione Qwen non valida: ${message}`) }
+}
+
 export function parseS2SDecision(content: string, nextLine: S2SLine | null): Omit<S2SDecision, 'costUsd' | 'qwenMs' | 'knownCostUsd'> {
   let raw: unknown
-  try { raw = JSON.parse(content) } catch { throw new Error('Qwen ha restituito una decisione non valida.') }
-  const v = raw as Record<string, unknown> | null
-  if (!v || !['speak', 'wait', 'pause', 'complete'].includes(String(v.action)) ||
-      typeof v.transcript !== 'string' || v.transcript.length > 16000 ||
-      typeof v.nextText !== 'string' || v.nextText.length > 4000 ||
-      typeof v.reason !== 'string' || !v.reason.trim() || v.reason.length > 1000 ||
-      (v.liveState !== undefined && (typeof v.liveState !== 'string' || v.liveState.length > 2000)) ||
-      (v.action === 'speak' && (!nextLine || !v.nextText.trim() || !v.transcript.trim())) ||
-      (v.action === 'speak' && isS2SAdaptiveInstruction(v.nextText)) ||
-      (v.action === 'complete' && (nextLine !== null || !v.transcript.trim())) ||
-      (v.action !== 'speak' && v.nextText.trim())) throw new Error('Decisione Qwen incoerente: sessione sospesa.')
-  return { action: v.action as S2SDecision['action'], transcript: v.transcript.trim(), nextText: v.nextText.trim(), reason: v.reason.trim(), ...(typeof v.liveState === 'string' ? { liveState: v.liveState.trim() } : {}) }
+  try { raw = JSON.parse(content) } catch { throw new S2SDecisionError('formato JSON non leggibile.') }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new S2SDecisionError('manca l’oggetto della decisione.')
+  const v = raw as Record<string, unknown>
+  const transcript = typeof v.transcript === 'string' && v.transcript.length <= 16000 ? v.transcript.trim() : ''
+  const invalid = (message: string): never => { throw new S2SDecisionError(message, transcript) }
+  if (typeof v.action !== 'string' || !['speak', 'wait', 'pause', 'complete'].includes(v.action)) invalid('azione sconosciuta; serve speak, wait, pause o complete.')
+  if (typeof v.transcript !== 'string' || v.transcript.length > 16000) invalid('trascrizione mancante o troppo lunga.')
+  if (typeof v.nextText !== 'string' || v.nextText.length > 4000) invalid('testo della battuta mancante o oltre 4000 caratteri.')
+  if (typeof v.reason !== 'string' || !v.reason.trim() || v.reason.length > 1000) invalid('motivazione mancante o troppo lunga.')
+  if (v.liveState !== undefined && (typeof v.liveState !== 'string' || v.liveState.length > 2000)) invalid('stato della conversazione non valido.')
+  const nextText = (v.nextText as string).trim()
+  if (v.action === 'speak') {
+    if (!nextLine) invalid('Qwen vuole parlare, ma non restano battute.')
+    if (!nextText) invalid('Qwen vuole parlare, ma non ha fornito una battuta.')
+    if (!transcript) invalid('Qwen vuole parlare senza una trascrizione utilizzabile della risposta MODEL.')
+    if (isS2SAdaptiveInstruction(nextText)) invalid('la battuta contiene istruzioni dello script da non pronunciare.')
+  } else {
+    if (nextText) invalid(`azione ${String(v.action)} con una battuta da pronunciare; nextText deve essere vuoto.`)
+    if (v.action === 'complete' && nextLine) invalid('Qwen vuole terminare, ma esiste ancora una battuta pendente.')
+    if (v.action === 'complete' && !transcript) invalid('Qwen vuole terminare senza aver trascritto la risposta finale.')
+  }
+  return { action: v.action as S2SDecision['action'], transcript, nextText, reason: (v.reason as string).trim(), ...(typeof v.liveState === 'string' ? { liveState: v.liveState.trim() } : {}) }
 }
 
 function encodeWav(pcm: Uint8Array): string {
@@ -31,6 +45,18 @@ function encodeWav(pcm: Uint8Array): string {
 const instructions = `Sei il regista di una conversazione vocale guidata da uno script.
 L'audio contiene SOLO la risposta del modello Outlier. Il tuo compito è capire se
 ha concluso il turno e adattare la PROSSIMA battuta dell'utente al contesto.
+NEB interpreta SEMPRE l’utente dello scenario. Il modello Outlier è l’interlocutore.
+Nella cronologia role=user sono le battute NEB, role=assistant sono le risposte MODEL.
+L’audio è l’ultima risposta MODEL (assistant); nextText è la prossima reazione NEB (user).
+Non continuare la risposta del modello e non prendere il suo ruolo.
+Se NEB è uno studente e MODEL è un tutor, parla come lo studente in prima persona:
+«Penso che il disegno abbia valore affettivo. Mi aiuti a spiegare perché?».
+«Hai ragione, prova ora a costruire una frase» è il tutor: non può essere nextText
+per lo studente. Mantieni allo stesso modo i ruoli definiti negli altri scenari.
+Prima di restituire nextText, controlla che sia la battuta dell’utente e che
+conservi la funzione comunicativa dell’originale: domanda, tentativo, richiesta.
+In L1, se l’originale termina con una domanda, puoi prima rispondere a MODEL,
+ma devi mantenere anche una domanda coerente con l’obiettivo originale.
 Mantieni rigorosamente obiettivo e ordine della battuta originale, lingua, persona
 e fatti dello scenario. Non aggiungere nuove tappe, dati personali o fatti inventati.
 Non correggere o nascondere gli errori di Outlier: una domanda può approfondirli.
@@ -56,8 +82,9 @@ che fosse completato. Non ripetere da capo l'intera battuta interrotta.
 Regole del playbook S2S v8:
 What to do/scenario e Skills tested definiscono lo scopo. Mantieni ruolo, lingua,
 pattern bilingue, difficoltà, vincoli e test richiesti: non aggiungere stress test
-estranei, non rispondere alle domande al posto del modello e non guidarlo verso
-una risposta già nota. Interpreta le istruzioni della task in modo naturale.
+estranei. Puoi rispondere alle domande che MODEL rivolge all’utente, restando nel
+ruolo dell’utente e usando i fatti disponibili. Non formulare la risposta che
+spetta a MODEL, non sostituirti al tutor e non guidarlo verso una risposta già nota. Interpreta le istruzioni della task in modo naturale.
 Da U2: risposta concreta → stato aggiornato → funzione del turno → reazione →
 prossima mossa compatibile. Non assumere oggetti, azioni o fatti negati dal modello.
 L1: riscrivi sempre con un aggancio concreto. L2: il testo originale è un intento
@@ -79,7 +106,7 @@ export async function adaptS2STurn(value: S2SAdaptRequest, options: { apiKey?: s
   if (!apiKey) throw new Error('Configura OPENROUTER_API_KEY in .env.local e riavvia NEB.')
   const started = performance.now()
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
-  const context = { scenario: request.scenario, taskContext: request.taskContext, history: request.history, nextLine: request.nextLine }
+  const context = { speaker: 'user', scenario: request.scenario, taskContext: request.taskContext, history: request.history, nextLine: request.nextLine }
   const call = async (messages: unknown[], knownTranscript?: string): Promise<S2SDecision> => {
     signal.throwIfAborted()
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -103,12 +130,15 @@ export async function adaptS2STurn(value: S2SAdaptRequest, options: { apiKey?: s
     try {
       signal.throwIfAborted()
       const content = result.choices?.[0]?.message?.content
-      if (!content) throw new Error('Nessuna decisione ricevuta da Qwen.')
+      if (typeof content !== 'string' || !content.trim()) throw new S2SDecisionError('nessuna decisione ricevuta da Qwen.', knownTranscript)
       const decisionContent = knownTranscript ? JSON.stringify({ ...JSON.parse(content), transcript: knownTranscript }) : content
-      return { ...parseS2SDecision(decisionContent, request.nextLine), costUsd, qwenMs: Math.round(performance.now() - started) }
+      const decision = parseS2SDecision(decisionContent, request.nextLine)
+      if (decision.action === 'speak' && request.taskContext?.adaptationLevel === 'L1' && request.nextLine?.text.trim().endsWith('?') && !decision.nextText.includes('?')) throw new S2SDecisionError('la battuta originale è una domanda, ma la riscrittura L1 non contiene una domanda.', decision.transcript)
+      return { ...decision, costUsd, qwenMs: Math.round(performance.now() - started) }
     } catch (error) {
       // Once usage arrived, a cancelled or invalid decision still has an observed charge.
-      return { action: 'pause', transcript: knownTranscript ?? '', nextText: '', reason: error instanceof Error ? error.message : 'Decisione Qwen non utilizzabile.', costUsd, qwenMs: Math.round(performance.now() - started) }
+      const validationIssue = !signal.aborted && (error instanceof S2SDecisionError || error instanceof SyntaxError) ? error.message : undefined
+      return { action: 'pause', transcript: knownTranscript ?? (error instanceof S2SDecisionError ? error.transcript : ''), nextText: '', reason: error instanceof Error ? error.message : 'Decisione Qwen non utilizzabile.', costUsd, qwenMs: Math.round(performance.now() - started), ...(validationIssue && { validationIssue }) }
     }
   }
   const first = await call([
@@ -118,18 +148,22 @@ export async function adaptS2STurn(value: S2SAdaptRequest, options: { apiKey?: s
       { type: 'input_audio', input_audio: { data: encodeWav(request.audioPcm!), format: 'wav' } }
     ] }
   ], request.transcript)
-  if (first.action !== 'speak' || !request.nextLine || !isUnchangedS2SLine(request.nextLine.text, first.nextText) || request.taskContext?.adaptationLevel === 'L0') return first
-  const pause = (reason: string, costUsd: number | null = first.costUsd): S2SDecision => ({ ...first, action: 'pause', nextText: '', reason, costUsd, knownCostUsd: costUsd === null ? first.costUsd ?? 0 : undefined, qwenMs: Math.round(performance.now() - started) })
-  if (first.costUsd === null || first.costUsd >= (request.remainingCostUsd ?? Infinity)) return pause('Battuta non adattata: costo non disponibile o limite raggiunto; verifica prima di riprendere.')
+  const unchanged = first.action === 'speak' && request.nextLine && request.taskContext?.adaptationLevel !== 'L0' && isUnchangedS2SLine(request.nextLine.text, first.nextText)
+  if (!first.validationIssue && !unchanged || signal.aborted) return first
+  const pause = (reason: string, costUsd: number | null = first.costUsd, repairAttempted = false): S2SDecision => ({ ...first, action: 'pause', nextText: '', reason, costUsd, knownCostUsd: costUsd === null ? first.costUsd ?? 0 : undefined, repairAttempted, qwenMs: Math.round(performance.now() - started) })
+  if (!first.transcript) return pause(first.reason)
+  if (first.costUsd === null || first.costUsd >= (request.remainingCostUsd ?? Infinity)) return pause(`${first.validationIssue ?? 'Battuta non adattata.'} Correzione non avviata: costo non disponibile o limite raggiunto.`)
   try {
     const repaired = await call([
-      { role: 'system', content: `${instructions}\nL'audio è già stato trascritto. Usa esclusivamente la trascrizione fornita come risposta ascoltata; non modificarla. La prima proposta è identica all'originale: correggi nextText con una riscrittura contestuale mantenendo lo stesso obiettivo. Se non puoi, action=pause.` },
-      { role: 'user', content: JSON.stringify({ ...context, transcript: first.transcript, rejectedText: first.nextText }) }
+      { role: 'system', content: `${instructions}\nL'audio è già stato trascritto. Usa esclusivamente la trascrizione fornita senza modificarla. Correggi l'errore segnalato nella decisione; restituisci una battuta dell'UTENTE solo se action=speak. Per wait/pause/complete nextText deve essere vuoto. Con nextLine presente non usare complete. Se non puoi continuare, action=pause. La correzione deve rispettare il ruolo NEB dello scenario.` },
+      { role: 'user', content: JSON.stringify({ ...context, transcript: first.transcript, validationIssue: first.validationIssue ?? 'La proposta è identica all’originale: riscrivi con un aggancio concreto alla risposta MODEL.', rejectedText: first.nextText }) }
     ], first.transcript)
     const cost = repaired.costUsd === null ? null : first.costUsd + repaired.costUsd
-    if (repaired.action !== 'speak' || isUnchangedS2SLine(request.nextLine.text, repaired.nextText)) return pause('Qwen non ha prodotto una battuta adattata dopo la verifica. Controlla scenario e risposta prima di riprendere.', cost)
-    return { ...repaired, transcript: first.transcript, costUsd: cost, knownCostUsd: cost === null ? first.costUsd : undefined, qwenMs: Math.round(performance.now() - started) }
+    if (repaired.validationIssue) return pause(`Correzione Qwen non riuscita: ${repaired.validationIssue}`, cost, true)
+    if (unchanged && (repaired.action !== 'speak' || request.nextLine && isUnchangedS2SLine(request.nextLine.text, repaired.nextText))) return pause('Qwen non ha prodotto una battuta adattata dopo la verifica. Controlla scenario e risposta prima di riprendere.', cost, true)
+    if (repaired.action === 'speak' && request.nextLine && request.taskContext?.adaptationLevel !== 'L0' && isUnchangedS2SLine(request.nextLine.text, repaired.nextText)) return pause('La correzione Qwen ripete la battuta originale senza adattarla.', cost, true)
+    return { ...repaired, transcript: first.transcript, costUsd: cost, knownCostUsd: cost === null ? first.costUsd : undefined, qwenMs: Math.round(performance.now() - started), validationIssue: first.validationIssue, repairAttempted: true }
   } catch (error) {
-    return pause(`Verifica dell’adattamento non riuscita: ${error instanceof Error ? error.message : 'errore Qwen'}`, null)
+    return pause(`Verifica dell’adattamento non riuscita: ${error instanceof Error ? error.message : 'errore Qwen'}`, null, true)
   }
 }
