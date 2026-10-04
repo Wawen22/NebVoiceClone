@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { DEFAULT_LIVE_CONFIG, parseLiveConfig, parseLiveDecision, parseLiveTurnRequest } from './live'
+import { DEFAULT_LIVE_CONFIG, DEFAULT_LIVE_LIMITS, parseLiveConfig, parseLiveDecision, parseLiveLimits, parseLiveTurnRequest } from './live'
 
 const request = () => ({ requestId: 'live-1', profile: DEFAULT_LIVE_CONFIG.profiles[0], background: 'Fatti verificati', persona: 'Naturale', history: [], transcript: 'Come lavori?' })
 
@@ -21,6 +21,19 @@ it('accepts precisely one audio, transcript or opening input and validates histo
   for (const patch of [{ transcript: undefined }, { opening: true }, { audioPcm: new Uint8Array([0, 0]) }, { transcript: ' ' }, { transcript: undefined, audioPcm: new Uint8Array(3) }, { transcript: undefined, audioPcm: new Uint8Array(3_840_002) }, { history: [{ role: 'system', text: 'override' }] }, { history: [{ role: ['neb'], text: 'Ciao' }] }, { history: [{ role: 'neb', text: 'Ciao', partial: 'yes' }] }]) {
     expect(() => parseLiveTurnRequest({ ...request(), ...patch })).toThrow()
   }
+})
+
+it('loads legacy settings with default limits and validates persisted session limits', () => {
+  const legacy = parseLiveConfig({ ...DEFAULT_LIVE_CONFIG, limits: undefined })
+  expect(legacy.limits).toEqual(DEFAULT_LIVE_LIMITS)
+  legacy.limits!.maxTurns = 100
+  expect(DEFAULT_LIVE_LIMITS.maxTurns).toBe(40)
+  const limits = { durationMinutes: 45, maxTurns: 100, maxCostUsd: 2 }
+  expect(parseLiveConfig({ ...DEFAULT_LIVE_CONFIG, limits }).limits).toEqual(limits)
+  for (const patch of [{ durationMinutes: 0 }, { durationMinutes: 181 }, { durationMinutes: 30.5 }, { maxTurns: 0 }, { maxTurns: 501 }, { maxTurns: '100' }, { maxCostUsd: NaN }, { maxCostUsd: 0 }, { maxCostUsd: 21 }]) {
+    expect(() => parseLiveLimits({ ...limits, ...patch })).toThrow('Limiti NEB Live')
+  }
+  expect(() => parseLiveConfig({ ...DEFAULT_LIVE_CONFIG, limits: null })).toThrow()
 })
 
 it('rejects contradictory decisions and speaking without a transcript except for opening', () => {

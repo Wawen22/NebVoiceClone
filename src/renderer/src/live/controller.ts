@@ -1,9 +1,9 @@
 import { MAX_S2S_AUDIO_BYTES } from '../../../shared/s2s'
-import { parseLiveConfig, type LiveConfig, type LiveDecision, type LiveHistoryItem, type LiveTurnRequest } from '../../../shared/live'
+import { DEFAULT_LIVE_LIMITS, parseLiveConfig, parseLiveLimits, type LiveLimits, type LiveConfig, type LiveDecision, type LiveHistoryItem, type LiveTurnRequest } from '../../../shared/live'
 
 export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing-voice' | 'speaking' | 'paused' | 'stopped' | 'completed'
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
-export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 2500, responseTimeoutMs: 60000, maxDurationMs: 20 * 60000, maxTurns: 40, maxCostUsd: 1 }
+export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 2500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
 export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number }
 export interface LiveSnapshot {
@@ -45,12 +45,15 @@ export class LiveController {
   constructor(private readonly dependencies: Dependencies) {}
   get active(): boolean { return ['listening', 'thinking', 'ready', 'preparing-voice', 'speaking'].includes(this.snapshot.phase) }
   get locked(): boolean { return this.active || this.snapshot.phase === 'paused' }
+  get limits(): LiveLimits { return { durationMinutes: this.options.maxDurationMs / 60000, maxTurns: this.options.maxTurns, maxCostUsd: this.options.maxCostUsd } }
 
   start(config: LiveConfig, opening: boolean, options: Partial<LiveOptions> = {}): void {
     if (this.locked) throw new Error('Ferma la conversazione precedente prima di avviarne una nuova.')
-    const next = { ...DEFAULT_LIVE_OPTIONS, ...options }
-    if (typeof opening !== 'boolean' || Object.values(next).some((value) => !Number.isFinite(value) || value <= 0) || next.silenceMs < 1500 || next.silenceMs > 5000 || !Number.isInteger(next.maxTurns) || next.maxTurns > 100) throw new Error('Limiti della conversazione non validi.')
-    this.config = structuredClone(parseLiveConfig(config))
+    const parsed = parseLiveConfig(config)
+    const limits = parsed.limits ?? DEFAULT_LIVE_LIMITS
+    const next = { ...DEFAULT_LIVE_OPTIONS, maxDurationMs: limits.durationMinutes * 60000, maxTurns: limits.maxTurns, maxCostUsd: limits.maxCostUsd, ...options }
+    if (typeof opening !== 'boolean' || Object.values(next).some((value) => !Number.isFinite(value) || value <= 0) || next.silenceMs < 1500 || next.silenceMs > 5000 || !Number.isInteger(next.maxTurns) || next.maxTurns > 500) throw new Error('Limiti della conversazione non validi.')
+    this.config = structuredClone(parsed)
     this.options = next
     this.cancel(); this.session++
     const now = this.dependencies.now()
@@ -119,6 +122,13 @@ export class LiveController {
     this.resetAudio(); this.listeningAt = this.lastPacketAt = this.dependencies.now()
     this.log('resume', 'Ascolto ripreso; nessuna risposta ripetuta automaticamente.'); this.phase('listening', 'Ascolto ripreso.')
   }
+  updateLimits(value: LiveLimits): void {
+    if (this.snapshot.phase !== 'paused') throw new Error('Metti in pausa la conversazione prima di cambiarne i limiti.')
+    const limits = parseLiveLimits(value)
+    this.options = { ...this.options, maxDurationMs: limits.durationMinutes * 60000, maxTurns: limits.maxTurns, maxCostUsd: limits.maxCostUsd }
+    this.log('limits', `Limiti aggiornati: ${limits.durationMinutes} minuti, ${limits.maxTurns} turni, $${limits.maxCostUsd} OpenRouter.`)
+    this.publish()
+  }
   stop(): void {
     this.cancel(); this.resetAudio()
     if (this.snapshot.phase !== 'idle') { this.log('stop', 'Conversazione fermata.'); this.phase('stopped', 'NEB Live fermato.') }
@@ -132,9 +142,9 @@ export class LiveController {
   private get profile() { return this.config.profiles.find((profile) => profile.id === this.config.selectedProfileId)! }
   private withinLimits(): boolean {
     const reason = !this.snapshot.costKnown ? 'Costo OpenRouter non disponibile: ferma la sessione e verifica la spesa.'
-      : this.snapshot.costUsd >= this.options.maxCostUsd ? 'Limite di costo OpenRouter raggiunto.'
-      : this.snapshot.turns >= this.options.maxTurns && this.snapshot.phase !== 'speaking' ? 'Limite di interventi NEB raggiunto.'
-      : this.dependencies.now() - this.snapshot.startedAt >= this.options.maxDurationMs ? 'Limite di durata raggiunto.' : ''
+      : this.snapshot.costUsd >= this.options.maxCostUsd ? 'Limite di costo OpenRouter raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.'
+      : this.snapshot.turns >= this.options.maxTurns && this.snapshot.phase !== 'speaking' ? 'Limite di interventi NEB raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.'
+      : this.dependencies.now() - this.snapshot.startedAt >= this.options.maxDurationMs ? 'Limite di durata raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.' : ''
     if (!reason) return true
     this.pause(reason); return false
   }

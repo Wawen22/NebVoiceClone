@@ -132,6 +132,7 @@
 .neb-live-session-facts > div { display: flex; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid #273c46; font-size: 11px; }
 .neb-live-session-facts dt { color: #829eae; }
 .neb-live-session-facts dd { margin: 0; color: #bfd5dc; font-variant-numeric: tabular-nums; }
+.neb-live-limits { margin-top: 22px; padding-top: 20px; border-top: 1px solid #2a3d48; }
 .neb-live-log ol { list-style: none; padding: 0; }
 .neb-live-log li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; padding: 10px 0; border-bottom: 1px solid #273b45; font-size: 11px; }
 .neb-live-log time { color: #71909f; font-size: 10px; font-variant-numeric: tabular-nums; }

@@ -27,3 +27,14 @@ it('preserves malformed user configuration and refuses to overwrite it', async (
   await expect(store.save(DEFAULT_LIVE_CONFIG)).rejects.toThrow()
   expect(await readFile(file, 'utf8')).toBe('{broken')
 })
+
+it('migrates legacy files and preserves saved limits across application restarts', async () => {
+  const file = await path()
+  await writeFile(file, JSON.stringify({ ...DEFAULT_LIVE_CONFIG, limits: undefined }))
+  const store = new LiveConfigStore(file)
+  const config = await store.read()
+  expect(config.limits).toEqual({ durationMinutes: 20, maxTurns: 40, maxCostUsd: 1 })
+  config.limits = { durationMinutes: 45, maxTurns: 100, maxCostUsd: 1.5 }
+  await store.save(config)
+  expect((await new LiveConfigStore(file).read()).limits).toEqual(config.limits)
+})

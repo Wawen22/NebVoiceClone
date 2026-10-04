@@ -20,7 +20,7 @@ function setup() {
     speak: (text, signal, start) => { const done = deferred<void>(); plays.push({ text, signal, start, done }); return done.promise }
   })
   const feed = (count: number, voice = false) => { for (let i = 0; i < count; i++) { now += 100; controller.feed(frame(voice)); controller.tick() } }
-  return { controller, requests, signals, replies, plays, feed, advance: (ms: number) => { now += ms; controller.tick() } }
+  return { controller, requests, signals, replies, plays, feed, jump: (ms: number) => { now += ms }, advance: (ms: number) => { now += ms; controller.tick() } }
 }
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
@@ -196,5 +196,42 @@ describe('NEB Live free conversation', () => {
     expect(h.signals[0].aborted).toBe(true)
     h.replies[0].resolve(decision()); await settle()
     expect(h.plays).toHaveLength(0)
+  })
+
+  it('keeps a 30 minute interview active with saved 45 minute limits and pauses at the selected duration', () => {
+    const h = setup()
+    h.controller.start({ ...config, limits: { durationMinutes: 45, maxTurns: 100, maxCostUsd: 1 } }, false, { responseTimeoutMs: 60 * 60000 })
+    h.jump(30 * 60000); h.feed(1)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.limits).toEqual({ durationMinutes: 45, maxTurns: 100, maxCostUsd: 1 })
+    h.jump(15 * 60000); h.feed(1)
+    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.message).toContain('Limite di durata')
+  })
+
+  it('extends a reached turn limit while paused without clearing history or replaying the last answer', async () => {
+    const h = setup(); h.controller.start(config, true, { maxTurns: 1 })
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(3); h.plays[0].start(); h.plays[0].done.resolve(); await settle()
+    const history = [...h.controller.snapshot.history]
+    expect(h.controller.snapshot.phase).toBe('paused')
+    h.controller.updateLimits({ durationMinutes: 45, maxTurns: 100, maxCostUsd: 1 })
+    h.controller.resume(); h.feed(5)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.snapshot.history).toEqual(history)
+    expect(h.controller.snapshot.turns).toBe(1)
+    expect(h.controller.snapshot.costUsd).toBe(0.01)
+    expect(h.plays).toHaveLength(1)
+  })
+
+  it('extends an expired duration without restarting its clock and requires pause to edit limits', () => {
+    const h = setup(); h.controller.start(config, false, { responseTimeoutMs: 60 * 60000 })
+    expect(() => h.controller.updateLimits({ durationMinutes: 45, maxTurns: 100, maxCostUsd: 1 })).toThrow('pausa')
+    h.jump(21 * 60000); h.feed(1)
+    expect(h.controller.snapshot.phase).toBe('paused')
+    h.controller.updateLimits({ durationMinutes: 45, maxTurns: 100, maxCostUsd: 1 }); h.controller.resume()
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.snapshot.startedAt).toBe(0)
+    h.jump(24 * 60000); h.feed(1)
+    expect(h.controller.snapshot.phase).toBe('paused')
   })
 })

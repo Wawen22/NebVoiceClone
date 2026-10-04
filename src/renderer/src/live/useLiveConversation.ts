@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '../../../shared/contracts'
-import type { LiveConfig } from '../../../shared/live'
+import type { LiveConfig, LiveLimits } from '../../../shared/live'
 import { sameTarget, type BrowserTarget } from '../../../shared/outlier'
 import type { S2SAudioStatus } from '../../../shared/s2s'
 import { BrowserAudioEngine } from '../audio/AudioEngine'
@@ -116,13 +116,14 @@ export function useLiveConversation(args: Arguments) {
   }
   function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop() }
   function newConversation(): void { startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
+  function applyLimits(limits: LiveLimits): void { if (controller.snapshot.phase === 'paused') controller.updateLimits(limits) }
   function exportLog(): void {
-    const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), mode: 'neb-live', profile: session.current?.profileName, snapshot: controller.snapshot }, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), mode: 'neb-live', profile: session.current?.profileName, limits: controller.limits, snapshot: controller.snapshot }, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a'); link.href = url; link.download = `neb-live-${Date.now()}.json`; link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return { snapshot, audioStatus, receiving, error, starting, unavailableReason: args.unavailableReason, locked: controller.locked || starting, active: controller.active,
-    isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, stop, newConversation, exportLog }
+    sessionLimits: controller.limits, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, stop, newConversation, applyLimits, exportLog }
 }
 export type LiveConversation = ReturnType<typeof useLiveConversation>

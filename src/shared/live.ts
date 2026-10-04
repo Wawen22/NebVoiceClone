@@ -7,7 +7,9 @@ export interface LiveProfile {
   language: 'auto' | 'it' | 'en' | 'ar'
   tone: 'professional' | 'conversational'
 }
-export interface LiveConfig { schemaVersion: 1; background: string; persona: string; profiles: LiveProfile[]; selectedProfileId: string }
+export interface LiveLimits { durationMinutes: number; maxTurns: number; maxCostUsd: number }
+export const DEFAULT_LIVE_LIMITS: LiveLimits = { durationMinutes: 20, maxTurns: 40, maxCostUsd: 1 }
+export interface LiveConfig { schemaVersion: 1; background: string; persona: string; profiles: LiveProfile[]; selectedProfileId: string; limits?: LiveLimits }
 export interface LiveHistoryItem { role: 'neb' | 'interlocutor'; text: string; partial?: boolean }
 export interface LiveTurnRequest {
   requestId: string
@@ -30,6 +32,7 @@ export interface LiveApi {
 /** Curated professional facts from the supplied background, as of 4 October 2026. */
 export const DEFAULT_LIVE_CONFIG: LiveConfig = {
   schemaVersion: 1,
+  limits: { ...DEFAULT_LIVE_LIMITS },
   background: `Sono Radhouane Nebili, preferisco Neb. Sono un Full-Stack Developer nell'area di Modena con 7+ anni di esperienza dichiarati nel CV di settembre 2026.
 Nel CV lavoro come Web Developer in TEL&CO Srl da agosto 2019; nella stessa azienda ho svolto uno stage da giugno a settembre 2018. Mi occupo di sviluppo e manutenzione web full-stack, integrazioni API, funzionalità AI, integrazione LLM e workflow agentici, test, debugging, deployment e supporto in produzione. Collaboro con team e stakeholder per chiarire requisiti e consegnare soluzioni manutenibili.
 Competenze dichiarate nel CV: PHP, JavaScript, TypeScript, Node.js, Next.js, REST API, Microsoft Power Platform, Docker, integrazione di sistemi, automazione e prompt engineering. Non sono documentati livelli di seniority per ciascuna tecnologia, metriche di impatto, clienti, dimensioni del team o singoli progetti aziendali.
@@ -63,13 +66,22 @@ export function parseLiveProfile(value: unknown): LiveProfile {
   if (typeof v.language !== 'string' || !['auto', 'it', 'en', 'ar'].includes(v.language) || typeof v.tone !== 'string' || !['professional', 'conversational'].includes(v.tone)) throw new Error('Lingua o tono NEB Live non validi.')
   return { id: text(v.id, 100, true), name: text(v.name, 120, true), context: text(v.context, 8000), language: v.language as LiveProfile['language'], tone: v.tone as LiveProfile['tone'] }
 }
+export function parseLiveLimits(value: unknown): LiveLimits {
+  const v = object(value)
+  if (typeof v.durationMinutes !== 'number' || !Number.isInteger(v.durationMinutes) || v.durationMinutes < 1 || v.durationMinutes > 180
+    || typeof v.maxTurns !== 'number' || !Number.isInteger(v.maxTurns) || v.maxTurns < 1 || v.maxTurns > 500
+    || typeof v.maxCostUsd !== 'number' || !Number.isFinite(v.maxCostUsd) || v.maxCostUsd < 0.1 || v.maxCostUsd > 20) {
+    throw new Error('Limiti NEB Live non validi: durata 1–180 minuti, 1–500 turni, budget OpenRouter $0,10–$20.')
+  }
+  return { durationMinutes: v.durationMinutes, maxTurns: v.maxTurns, maxCostUsd: v.maxCostUsd }
+}
 export function parseLiveConfig(value: unknown): LiveConfig {
   const v = object(value)
   if (v.schemaVersion !== 1 || !Array.isArray(v.profiles) || !v.profiles.length || v.profiles.length > 30) throw new Error('Configurazione NEB Live non valida.')
   const profiles = v.profiles.map(parseLiveProfile)
   const selectedProfileId = text(v.selectedProfileId, 100, true)
   if (new Set(profiles.map((p) => p.id)).size !== profiles.length || !profiles.some((p) => p.id === selectedProfileId)) throw new Error('Profilo NEB Live duplicato o selezione mancante.')
-  return { schemaVersion: 1, background: text(v.background, 40000), persona: text(v.persona, 20000), profiles, selectedProfileId }
+  return { schemaVersion: 1, background: text(v.background, 40000), persona: text(v.persona, 20000), profiles, selectedProfileId, limits: parseLiveLimits(v.limits === undefined ? DEFAULT_LIVE_LIMITS : v.limits) }
 }
 export function parseLiveTurnRequest(value: unknown): LiveTurnRequest {
   const v = object(value)

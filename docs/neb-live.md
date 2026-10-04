@@ -63,6 +63,20 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
 
 ## Controlli e limiti
 
+- **Configura → Dettagli → Limiti della conversazione** permette di impostare
+  durata (1–180 minuti), risposte NEB (1–500) e budget OpenRouter ($0,10–$20).
+  Per un'intervista di circa 30 minuti, 45 minuti e 100 risposte lasciano margine.
+  Premi **Salva limiti** oppure avvia la sessione per salvare automaticamente.
+  I valori valgono per tutti i profili e rimangono disponibili dopo il riavvio;
+  i vecchi file senza questa sezione caricano i valori iniziali 20 minuti/40 turni/$1.
+  La durata comprende anche il tempo in pausa. Un turno è una risposta iniziata
+  da NEB, incluse quelle poi interrotte; non è una domanda ricevuta.
+  Al raggiungimento di un limite NEB va in pausa e conserva la cronologia.
+  Puoi aumentare i limiti dalla pausa, salvarli e premere **Riprendi ascolto**
+  senza azzerare la sessione. Per modificarli durante il parlato, premi prima
+  **Pausa**. Il nuovo limite di durata si conta dall'avvio originale, senza
+  riavviare il cronometro. Un costo sconosciuto resta un motivo di pausa anche
+  dopo un aumento del budget. L'esportazione JSON include i limiti effettivi.
 - **Nuova conversazione** ferma elaborazione e voce, annulla un eventuale avvio
   ancora in salvataggio e pulisce trascrizione, eventi, turni e costo della sessione.
   Profilo, voce, ritmo e ascolto della scheda restano disponibili. Premi poi
@@ -104,9 +118,10 @@ console manuale: non conserva una registrazione della voce a fine turno.
 Queste ottimizzazioni riducono dati e lavoro locale; non garantiscono tempi
 inferiori del provider. I tempi Qwen osservati restano consultabili in Dettagli.
 
-Limiti iniziali: 20 minuti, 40 interventi NEB, $1 di costo OpenRouter osservato,
-120 secondi per intervento remoto, 35 secondi per Qwen e 60 secondi al primo audio
-Gemini. L'ultimo intervento permesso può finire prima della pausa per limite turni.
+Limiti iniziali modificabili: 20 minuti, 40 interventi NEB, $1 di costo OpenRouter
+osservato. Limiti tecnici: 120 secondi per intervento remoto, 35 secondi per Qwen
+e 60 secondi al primo audio Gemini. L'ultimo intervento permesso può finire prima
+della pausa per limite turni; il limite di durata può interrompere il parlato.
 Un flusso mancante, un costo sconosciuto o una risposta non valida mettono in pausa.
 Il costo mostrato esclude Gemini; richieste annullate possono essere comunque
 fatturate e una richiesta già iniziata può superare il limite osservato.
@@ -140,7 +155,7 @@ sintetico ha prodotto una decisione `speak` valida in 2537 ms, costo OpenRouter
 riportato $0,00014499. Questa prova verifica il provider testuale; non misura
 trascrizione audio, Gemini, routing o ritardo completo di una chiamata.
 
-Verifiche finali: build e typecheck WSL passati, 242 test passati e 4 specifici
+Verifiche finali: build e typecheck WSL passati, 247 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

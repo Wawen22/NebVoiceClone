@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AudioLines, Check, ChevronRight, Download, FolderOpen, Headphones, Mic, Pause, Play, Plus, RefreshCw, Save, Settings2, Square, Trash2, X } from 'lucide-react'
 import type { AppSettings } from '../../../shared/contracts'
-import type { LiveConfig, LiveProfile } from '../../../shared/live'
+import { DEFAULT_LIVE_LIMITS, parseLiveLimits, type LiveConfig, type LiveLimits, type LiveProfile } from '../../../shared/live'
 import type { OutlierSetup } from '../../../shared/outlier'
 import type { AudioOutput } from '../audio/AudioEngine'
 import type { LiveConversation } from './useLiveConversation'
@@ -55,6 +55,13 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
   const saveInProgress = useRef(false)
   const locked = live.locked || live.starting || saving
   const dirty = Boolean(config && JSON.stringify(config) !== saved)
+  const limits = config?.limits ?? DEFAULT_LIVE_LIMITS
+  const savedLimits = useMemo(() => saved ? (JSON.parse(saved) as LiveConfig).limits ?? DEFAULT_LIVE_LIMITS : DEFAULT_LIVE_LIMITS, [saved])
+  const limitsDirty = JSON.stringify(limits) !== JSON.stringify(savedLimits)
+  const limitsLocked = live.active || live.starting || saving || loading || !config
+  let limitsError = ''
+  try { parseLiveLimits(limits) } catch (reason) { limitsError = errorMessage(reason) }
+  const sessionLimits = live.snapshot.phase === 'idle' ? limits : live.sessionLimits
   const profile = config?.profiles.find((item) => item.id === config.selectedProfileId)
   const output = outputs.find((item) => item.deviceId === settings.outputDeviceId)
   const routed = Boolean(output && /CABLE Input/i.test(output.label))
@@ -66,8 +73,8 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
     : !routed ? 'Seleziona CABLE Input come uscita NEB.'
     : !captureReady ? live.audioStatus.state === 'active' ? 'Attendo il flusso audio della scheda…' : live.audioStatus.message || 'Avvia l’ascolto della scheda dal popup NEB.'
     : live.unavailableReason
-  const canStart = Boolean(config && profile?.name.trim() && !loading && !loadError && !prerequisites && !locked)
-  const canResume = live.snapshot.phase === 'paused' && !prerequisites && !live.starting
+  const canStart = Boolean(config && profile?.name.trim() && !loading && !loadError && !prerequisites && !locked && !limitsError)
+  const canResume = live.snapshot.phase === 'paused' && !prerequisites && !live.starting && !saving && !limitsDirty
 
   useEffect(() => {
     mounted.current = true
@@ -130,17 +137,24 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
     edit({ ...config, profiles, selectedProfileId: profiles[0].id })
   }
 
-  async function saveConfig(startingSave = false): Promise<LiveConfig | null> {
-    if (!config || loading || loadError || live.isLocked() && !startingSave || saveInProgress.current) return null
+  function editLimits(patch: Partial<LiveLimits>): void {
+    if (!config || limitsLocked) return
+    setConfig({ ...config, limits: { ...limits, ...patch } })
+    setSaveMessage(''); setActionError('')
+  }
+
+  async function saveConfig(startingSave = false, limitsSave = false): Promise<LiveConfig | null> {
+    if (!config || loading || loadError || limitsError || live.isLocked() && !startingSave && !(limitsSave && live.snapshot.phase === 'paused') || saveInProgress.current) return null
     saveInProgress.current = true
     setSaving(true)
     setActionError('')
     setSaveMessage('')
     try {
       const next = await window.neb.saveLiveConfig(config)
+      if (limitsSave) live.applyLimits(next.limits ?? DEFAULT_LIVE_LIMITS)
       const serialized = JSON.stringify(next)
       draftCache = { config: next, saved: serialized }
-      if (mounted.current) { setConfig(next); setSaved(serialized); setSaveMessage('Profili salvati sul dispositivo.') }
+      if (mounted.current) { setConfig(next); setSaved(serialized); setSaveMessage(limitsSave ? 'Limiti salvati. Puoi avviare o riprendere la conversazione.' : 'Profili salvati sul dispositivo.') }
       return next
     } catch (reason) {
       if (mounted.current) setActionError(`Salvataggio non riuscito: ${errorMessage(reason)}`)
@@ -211,7 +225,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
             {live.active && <><button type="button" className="secondary-button" onClick={live.pause}><Pause size={15} />Pausa</button><button type="button" className="secondary-button" onClick={() => { setTakeover(true); live.pause() }}><Mic size={15} />Prendi controllo</button></>}
             {live.snapshot.phase === 'paused' && <button type="button" className="primary-button neb-live-start" disabled={!canResume} onClick={() => { setTakeover(false); live.resume() }}><Play size={15} />Riprendi ascolto</button>}
             {live.locked && <button type="button" className="secondary-button neb-live-stop" onClick={live.stop}><Square size={15} />Stop</button>}
-            <div className="neb-live-session-meta"><span title="Interventi NEB in questa sessione">{live.snapshot.turns}<small> / 40 turni</small></span><button type="button" onClick={() => { setConfigOpen(true); setSettingsTab('details') }} title="Costo OpenRouter osservato; Gemini escluso">${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + ?'}</button></div>
+            <div className="neb-live-session-meta"><span title="Interventi NEB in questa sessione">{live.snapshot.turns}<small> / {sessionLimits.maxTurns} turni</small></span><button type="button" onClick={() => { setConfigOpen(true); setSettingsTab('details') }} title="Costo OpenRouter osservato; Gemini escluso">${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + ?'}</button></div>
             <button type="button" className="neb-live-export" disabled={!live.snapshot.log.length && !live.snapshot.history.length} onClick={live.exportLog} title="Conserva la sessione prima di iniziarne una nuova"><Download size={15} />Esporta JSON</button>
           </div>
         </footer>
@@ -255,9 +269,21 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
             <details className="neb-live-details"><summary>Configura Edge o Chrome{setup?.installed ? ' · host installato' : ''}</summary><ol><li>Apri <strong>edge://extensions</strong> o <strong>chrome://extensions</strong> e abilita la modalità sviluppatore.</li><li>Carica la cartella dell’estensione NEB e copia il suo ID.</li><li>Salva l’host qui sotto e collega la scheda dal popup.</li></ol><fieldset className="neb-live-fields" disabled={locked || setupBusy}><button type="button" className="secondary-button" onClick={() => void setupAction(() => window.neb.openOutlierExtensionFolder())}><FolderOpen size={14} />Apri cartella estensione</button><label htmlFor="neb-live-extension-id">ID estensione<input id="neb-live-extension-id" value={extensionId} onChange={(event) => setExtensionId(event.target.value)} maxLength={32} spellCheck={false} autoComplete="off" placeholder="32 lettere, da a a p" /></label><button type="button" className="secondary-button" disabled={platform !== 'win32' || !/^[a-p]{32}$/.test(extensionId.trim())} onClick={() => void setupAction(async () => { await window.neb.installOutlierHost(extensionId.trim()); const next = await window.neb.getOutlierSetup(); if (mounted.current) { setSetup(next); setExtensionId(next.extensionId ?? '') } })}>{setupBusy ? 'Configurazione…' : 'Salva host per Edge e Chrome'}</button></fieldset>{setup?.extensionPath && <p className="neb-live-path">{setup.extensionPath}</p>}{setupError && <p className="neb-live-error" role="alert">{setupError}</p>}</details>
           </section>
           <section id="neb-live-panel-details" role="tabpanel" aria-labelledby="neb-live-tab-details" hidden={settingsTab !== 'details'}>
-            <h4>Questa sessione</h4>
-            <dl className="neb-live-session-facts"><div><dt>Turni NEB</dt><dd>{live.snapshot.turns} / 40</dd></div><div><dt>Costo OpenRouter osservato</dt><dd>${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + sconosciuto'}</dd></div><div><dt>Durata massima</dt><dd>20 minuti</dd></div><div><dt>Limite OpenRouter</dt><dd>$1</dd></div></dl>
+            <h4>{live.snapshot.phase === 'idle' ? 'Prossima conversazione' : 'Questa sessione'}</h4>
+            <dl className="neb-live-session-facts"><div><dt>Turni NEB</dt><dd>{live.snapshot.turns} / {sessionLimits.maxTurns}</dd></div><div><dt>Costo OpenRouter osservato</dt><dd>${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + sconosciuto'}</dd></div><div><dt>Durata massima</dt><dd>{sessionLimits.durationMinutes} minuti</dd></div><div><dt>Limite OpenRouter</dt><dd>${sessionLimits.maxCostUsd}</dd></div></dl>
             <p className="neb-live-note">Il costo esclude Gemini. Le richieste interrotte possono essere fatturate.</p>
+            <div className="neb-live-limits">
+              <h4>Limiti della conversazione</h4>
+              <fieldset className="neb-live-fields" disabled={limitsLocked}>
+                <div className="neb-live-pair"><label htmlFor="neb-live-duration">Durata (minuti)<input id="neb-live-duration" type="number" min={1} max={180} step={1} value={limits.durationMinutes} onChange={(event) => editLimits({ durationMinutes: Number(event.target.value) })} /></label><label htmlFor="neb-live-turn-limit">Risposte NEB<input id="neb-live-turn-limit" type="number" min={1} max={500} step={1} value={limits.maxTurns} onChange={(event) => editLimits({ maxTurns: Number(event.target.value) })} /></label></div>
+                <label htmlFor="neb-live-budget">Budget OpenRouter ($)<input id="neb-live-budget" type="number" min={0.1} max={20} step={0.1} value={limits.maxCostUsd} onChange={(event) => editLimits({ maxCostUsd: Number(event.target.value) })} /></label>
+              </fieldset>
+              {limitsError && <p className="neb-live-note" role="alert">{limitsError}</p>}
+              <div className="neb-live-save-row"><button type="button" className="secondary-button" disabled={limitsLocked || !dirty || Boolean(limitsError)} onClick={() => void saveConfig(false, true)}><Save size={14} />{saving ? 'Salvataggio…' : 'Salva limiti'}</button>{!limitsDirty && <small><Check size={12} />Salvati</small>}</div>
+              <p className="neb-live-note">{live.active ? 'Metti in pausa per modificare i limiti.' : live.snapshot.phase === 'paused' ? 'Salva i nuovi limiti, poi premi Riprendi ascolto. La cronologia resta.' : 'Salvati per le prossime conversazioni; le modifiche si salvano anche all’avvio.'}</p>
+              <p className="neb-live-note">Una risposta di NEB conta come un turno. La durata include le pause. Per un’intervista di circa 30 minuti puoi impostare 45 minuti e 100 risposte.</p>
+              {saveMessage && <p className="neb-live-note neb-live-success" role="status">{saveMessage}</p>}
+            </div>
             <p className="neb-live-note"><kbd>Esc</kbd> o <kbd>Ctrl+Alt+S</kbd> fermano NEB. <strong>Stop</strong> conserva la trascrizione; <strong>Nuova conversazione</strong> la pulisce. Esporta prima se vuoi conservarla.</p>
             <details className="neb-live-details neb-live-log"><summary>Eventi e tempi{live.snapshot.log.length ? ` · ${live.snapshot.log.length}` : ''}</summary>{live.snapshot.log.length ? <ol>{live.snapshot.log.slice(-40).map((entry, index) => <li key={`${entry.atMs}-${index}`}><time>{liveTimestamp(entry.atMs)}</time><span>{entry.text}</span>{entry.qwenMs !== undefined && <small>Qwen {(entry.qwenMs / 1000).toFixed(1)} s</small>}</li>)}</ol> : <p className="neb-live-note">I tempi appariranno dopo l’avvio.</p>}</details>
             <p className="neb-live-note">Audio e contesto sono inviati a Qwen tramite OpenRouter; Gemini genera la voce. Audio e trascrizione non vengono salvati automaticamente.</p>
