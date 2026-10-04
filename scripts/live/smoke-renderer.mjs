@@ -119,12 +119,13 @@ try {
     const api = window.neb
     const getConfig = api.getLiveConfig
     let config
-    fixture.liveRequests = []; fixture.saved = []; fixture.cancelled = []; fixture.holdLive = false; fixture.liveRelease = null; fixture.holdSave = false; fixture.saveRelease = null
+    fixture.liveRequests = []; fixture.saved = []; fixture.cancelled = []; fixture.holdLive = false; fixture.liveRelease = null; fixture.holdSave = false; fixture.saveRelease = null; fixture.liveCost = 0.002; fixture.liveFailure = ''
     api.getLiveConfig = async () => structuredClone(config ?? await getConfig())
     api.saveLiveConfig = async (value) => { if (fixture.holdSave) await new Promise((resolve) => { fixture.saveRelease = resolve }); config = structuredClone(value); fixture.saved.push(config); return config }
     api.generateLiveTurn = async (request) => {
       fixture.liveRequests.push(request)
-      const reply = { action: 'speak', transcript: request.opening ? '' : 'Come affronti il debugging?', text: request.opening ? 'Ciao, sono Neb. Piacere di conoscerti.' : 'Partirei dal problema concreto e cercherei la causa.', reason: 'Turno completo', costUsd: 0.002, qwenMs: 50 }
+      const reply = fixture.liveFailure ? { action: 'pause', transcript: '', text: '', reason: fixture.liveFailure, costUsd: fixture.liveCost, qwenMs: 50 }
+        : { action: 'speak', transcript: request.opening ? '' : 'Come affronti il debugging?', text: request.opening ? 'Ciao, sono Neb. Piacere di conoscerti.' : 'Partirei dal problema concreto e cercherei la causa.', reason: 'Turno completo', costUsd: fixture.liveCost, qwenMs: 50 }
       if (fixture.holdLive) return new Promise((resolve) => { fixture.liveRelease = () => resolve(reply) })
       return reply
     }
@@ -225,8 +226,25 @@ try {
   assert.equal(await page.evaluate(() => fixture.spoken.length), spoken, 'late reasoning must not speak after New conversation')
   assert.equal(await page.locator('.neb-live-turn').count(), 0)
   assert(await page.locator('.neb-live-session-meta').innerText().then((text) => text.includes('$0.0000')))
+  await page.evaluate(() => { fixture.liveCost = null })
   await start.click()
   await page.waitForFunction(() => document.querySelector('.neb-live-turn-neb')?.textContent.includes('Ciao, sono Neb'), { timeout: 10000 })
+  await page.locator('.neb-live-session-footer').getByText('Costo OpenRouter parziale:', { exact: false }).waitFor()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.getByRole('button', { name: 'Pausa', exact: true }).click()
+  await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.keyboard.press('Escape')
+  await start.waitFor()
+  await page.evaluate(() => { fixture.liveFailure = 'Qwen timeout (35 secondi).' })
+  await start.click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In pausa'))
+  assert.equal(await page.locator('.neb-live-session-status').innerText(), 'Qwen timeout (35 secondi).', 'missing cost must not hide the provider error')
+  await page.evaluate(() => { fixture.liveFailure = ''; fixture.liveCost = 0.002 })
+  await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.evaluate(() => fixture.voice(5))
+  await page.waitForFunction(() => document.querySelector('.neb-live-turn-neb')?.textContent.includes('Partirei dal problema concreto'), { timeout: 10000 })
   await page.keyboard.press('Escape')
   await start.waitFor()
   await start.click()
@@ -248,7 +266,7 @@ try {
   assert(await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight }))
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
   assert.deepEqual(errors, [])
-  console.log('NEB Live renderer smoke passed: saved duration/turn/budget limits, extension while paused preserving history, profiles, configurable pace, transcript, New conversation/reset during save and reasoning, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible configuration tabs and compact controls.')
+  console.log('NEB Live renderer smoke passed: missing-cost playback, partial-cost notice, provider error and recovery, saved duration/turn/budget limits, extension while paused preserving history, profiles, configurable pace, transcript, New conversation/reset during save and reasoning, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible configuration tabs and compact controls.')
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

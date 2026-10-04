@@ -5,10 +5,15 @@ import { DEFAULT_LIVE_CONFIG, type LiveTurnRequest } from '../../shared/live'
 afterEach(() => vi.unstubAllGlobals())
 const request: LiveTurnRequest = { requestId: 'live-1', profile: DEFAULT_LIVE_CONFIG.profiles[0], background: 'BACKGROUND VERIFIED', persona: 'PERSONA STYLE', history: [{ role: 'neb', text: 'Ciao.', partial: true }], audioPcm: new Uint8Array([0, 0, 255, 127]) }
 const decision = { action: 'speak', transcript: 'Come lavori?', text: 'Sviluppo applicazioni web.', reason: 'Domanda conclusa.' }
+interface Payload {
+  model: string
+  response_format: { type: string }
+  messages: [{ content: string }, { content: string | [{ text: string }, { input_audio: { data: string } }] }]
+}
 function reply(content: unknown = decision, cost: number | null = 0.002): Response { return new Response(JSON.stringify({ choices: [{ message: { content: typeof content === 'string' ? content : JSON.stringify(content) }, finish_reason: 'stop' }], usage: { cost } })) }
 
 it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted conversation', async () => {
-  let payload: any
+  let payload!: Payload
   vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payload = JSON.parse(String(init.body)); return reply() })
   const result = await generateLiveTurn(request, { apiKey: 'test' })
   expect(result).toMatchObject({ action: 'speak', text: decision.text, costUsd: 0.002 })
@@ -19,6 +24,7 @@ it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted 
   expect(payload.messages[0].content).toMatch(/non inventare/i)
   expect(payload.messages[0].content).toMatch(/dati.*conversazione/i)
   const user = payload.messages[1].content
+  if (typeof user === 'string') throw new Error('Expected audio message')
   expect(JSON.parse(user[0].text).history[0].partial).toBe(true)
   const wav = Buffer.from(user[1].input_audio.data, 'base64')
   expect(wav.toString('ascii', 0, 4)).toBe('RIFF')
@@ -28,7 +34,7 @@ it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted 
 })
 
 it('keeps supplied transcripts authoritative and supports opening without audio', async () => {
-  const payloads: any[] = []
+  const payloads: Payload[] = []
   vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payloads.push(JSON.parse(String(init.body))); return reply({ ...decision, transcript: '' }) })
   expect((await generateLiveTurn({ ...request, audioPcm: undefined, transcript: 'Exact input' }, { apiKey: 'test' })).transcript).toBe('Exact input')
   expect((await generateLiveTurn({ ...request, audioPcm: undefined, opening: true }, { apiKey: 'test' })).action).toBe('speak')
@@ -40,9 +46,46 @@ it.each(['invalid JSON', { ...decision, action: 'wait' }])('pauses on invalid ou
   expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.002 })
 })
 
-it('pauses when cost is missing, transport fails or provider reports an error with usage', async () => {
+it('keeps a valid response usable when its cost is missing', async () => {
   vi.stubGlobal('fetch', async () => reply(decision, null))
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: null })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', text: decision.text, costUsd: null })
+})
+
+it('recovers missing cost from generation metadata without another completion', async () => {
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.includes('/generation?')) {
+      expect(init?.headers).toEqual({ Authorization: 'Bearer test' })
+      expect(init?.method).toBeUndefined()
+      return new Response(JSON.stringify({ data: { total_cost: 0.007 } }))
+    }
+    return new Response(JSON.stringify({ id: 'gen-test/1', choices: [{ message: { content: JSON.stringify(decision) } }] }))
+  })
+  vi.stubGlobal('fetch', fetcher)
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', costUsd: 0.007 })
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher.mock.calls[1][0]).toBe('https://openrouter.ai/api/v1/generation?id=gen-test%2F1')
+})
+
+it.each(['error', 'invalid', 'unavailable'])('keeps the decision when generation accounting is %s', async (mode) => {
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (!url.includes('/generation?')) return new Response(JSON.stringify({ id: 'gen-test', choices: [{ message: { content: JSON.stringify(decision) } }] }))
+    if (mode === 'error') throw new Error('Metadata timeout')
+    return new Response(JSON.stringify({ data: { total_cost: -1 } }), { status: mode === 'unavailable' ? 404 : 200 })
+  })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', text: decision.text, costUsd: null })
+})
+
+it('suppresses playback if cancelled during the cost lookup', async () => {
+  const abort = new AbortController()
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (!url.includes('/generation?')) return new Response(JSON.stringify({ id: 'gen-test', choices: [{ message: { content: JSON.stringify(decision) } }] }))
+    abort.abort()
+    return new Response(JSON.stringify({ data: { total_cost: 0.003 } }))
+  })
+  expect(await generateLiveTurn(request, { apiKey: 'test', signal: abort.signal })).toMatchObject({ action: 'pause', text: '', costUsd: 0.003 })
+})
+
+it('pauses when transport fails or provider reports an error with usage', async () => {
   vi.stubGlobal('fetch', async () => { throw new Error('network failed') })
   expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: null })
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'error', error: { message: 'upstream failed' }, message: { content: JSON.stringify(decision) } }], usage: { cost: 0.003 } })))

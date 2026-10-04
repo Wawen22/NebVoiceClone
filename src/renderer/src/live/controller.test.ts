@@ -116,10 +116,38 @@ describe('NEB Live free conversation', () => {
     expect(h.controller.snapshot.phase).toBe('paused'); expect(h.requests).toHaveLength(0)
   })
 
-  it('pauses on unknown cost and prevents resuming with unknown spend', async () => {
+  it('plays valid decisions with missing cost, marks accounting partial and permits pause/resume', async () => {
     const h = setup(); h.controller.start(config, true)
     h.replies[0].resolve({ ...decision(), transcript: '', costUsd: null }); await settle()
-    expect(h.controller.snapshot.phase).toBe('paused'); expect(h.controller.snapshot.costKnown).toBe(false)
+    expect(h.controller.snapshot.phase).toBe('ready'); expect(h.controller.snapshot.costKnown).toBe(false)
+    expect(h.controller.snapshot.costUsd).toBe(0)
+    expect(h.controller.snapshot.log.some((event) => event.kind === 'accounting')).toBe(true)
+    h.feed(3); expect(h.plays[0].start()).toBe(true)
+    h.plays[0].done.resolve(); await settle()
+    h.controller.pause(); h.controller.resume()
+    expect(h.controller.snapshot.phase).toBe('listening')
+    h.feed(4, true); h.feed(25)
+    h.replies[1].resolve(decision()); await settle()
+    expect(h.controller.snapshot.costUsd).toBe(0.01)
+    expect(h.controller.snapshot.costKnown).toBe(false)
+  })
+
+  it('keeps provider failure visible and allows recovery when no cost was reported', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.replies[0].resolve({ ...decision(), action: 'pause', text: '', transcript: '', reason: 'Qwen timeout (35 secondi).', costUsd: null }); await settle()
+    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.message).toBe('Qwen timeout (35 secondi).')
+    h.controller.resume(); expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.plays).toHaveLength(0)
+  })
+
+  it('still enforces observed budget when some other requests have unknown cost', async () => {
+    const h = setup(); h.controller.start(config, true, { maxCostUsd: 0.005 })
+    h.replies[0].resolve({ ...decision(), action: 'pause', text: '', transcript: '', costUsd: null }); await settle()
+    h.controller.resume(); h.feed(4, true); h.feed(25)
+    h.replies[1].resolve(decision()); await settle()
+    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.message).toContain('Limite di costo')
     h.controller.resume(); expect(h.controller.snapshot.phase).toBe('paused')
   })
 

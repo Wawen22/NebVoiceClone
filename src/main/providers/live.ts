@@ -1,6 +1,25 @@
 import { LiveDecisionError, parseLiveDecision, parseLiveTurnRequest, type LiveDecision, type LiveTurnRequest } from '../../shared/live'
 import { S2S_QWEN_MODEL } from './qwen'
 
+function validCost(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+// Accounting metadata can arrive separately from an otherwise valid completion.
+// Keep this read-only lookup short so it cannot hold up the conversation.
+async function generationCost(id: unknown, apiKey: string, signal: AbortSignal): Promise<number | null> {
+  if (typeof id !== 'string' || !id.trim() || id.length > 256 || signal.aborted) return null
+  try {
+    const response = await fetch(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(1500)])
+    })
+    if (!response.ok) return null
+    const result = await response.json() as { data?: { total_cost?: unknown } }
+    return validCost(result.data?.total_cost)
+  } catch { return null }
+}
+
 function encodeWav(pcm: Uint8Array): string {
   const wav = Buffer.alloc(44 + pcm.length)
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + pcm.length, 4); wav.write('WAVEfmt ', 8)
@@ -39,9 +58,8 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
         { role: 'user', content: request.audioPcm ? [{ type: 'text', text: JSON.stringify(context) }, { type: 'input_audio', input_audio: { data: encodeWav(request.audioPcm), format: 'wav' } }] : JSON.stringify(context) }
       ] })
     })
-    const result = await response.json() as { error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: string } }[]; usage?: { cost?: unknown } }
-    const reported = result.usage?.cost
-    costUsd = typeof reported === 'number' && Number.isFinite(reported) && reported >= 0 ? reported : null
+    const result = await response.json() as { id?: unknown; error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: string } }[]; usage?: { cost?: unknown } }
+    costUsd = validCost(result.usage?.cost)
     signal.throwIfAborted()
     const choice = result.choices?.[0]
     if (!response.ok || result.error || choice?.error || choice?.finish_reason === 'error') return pause(`OpenRouter Qwen: errore ${response.status ?? 'provider'}. Sessione sospesa.`)
@@ -51,7 +69,8 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
     const parsedContent = request.transcript !== undefined ? JSON.stringify({ ...JSON.parse(content), transcript: request.transcript }) : content
     const decision = parseLiveDecision(parsedContent, request.opening)
     transcript = decision.transcript
-    if (costUsd === null) return pause('Costo OpenRouter non disponibile. Sessione sospesa.')
+    if (costUsd === null) costUsd = await generationCost(result.id, apiKey, signal)
+    signal.throwIfAborted()
     return { ...decision, costUsd, qwenMs: Math.round(performance.now() - started) }
   } catch (error) {
     if (error instanceof LiveDecisionError && !request.transcript) transcript = error.transcript

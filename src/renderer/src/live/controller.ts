@@ -141,8 +141,7 @@ export class LiveController {
 
   private get profile() { return this.config.profiles.find((profile) => profile.id === this.config.selectedProfileId)! }
   private withinLimits(): boolean {
-    const reason = !this.snapshot.costKnown ? 'Costo OpenRouter non disponibile: ferma la sessione e verifica la spesa.'
-      : this.snapshot.costUsd >= this.options.maxCostUsd ? 'Limite di costo OpenRouter raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.'
+    const reason = this.snapshot.costUsd >= this.options.maxCostUsd ? 'Limite di costo OpenRouter raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.'
       : this.snapshot.turns >= this.options.maxTurns && this.snapshot.phase !== 'speaking' ? 'Limite di interventi NEB raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.'
       : this.dependencies.now() - this.snapshot.startedAt >= this.options.maxDurationMs ? 'Limite di durata raggiunto. Aumentalo in Configura → Dettagli, salva e riprendi.' : ''
     if (!reason) return true
@@ -166,7 +165,10 @@ export class LiveController {
       const result = await this.dependencies.decide({ requestId: `live-${session}-${token}`, profile: { ...this.profile }, background: this.config.background, persona: this.config.persona,
         history: this.snapshot.history.slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : { audioPcm: pcm }) }, operation.signal)
       if (session !== this.session) return
-      if (result.costUsd === null || !Number.isFinite(result.costUsd) || result.costUsd < 0) this.snapshot.costKnown = false
+      if (result.costUsd === null || !Number.isFinite(result.costUsd) || result.costUsd < 0) {
+        if (this.snapshot.costKnown) this.log('accounting', 'Costo OpenRouter parziale: alcuni importi non sono disponibili. Il budget controlla soltanto i costi ricevuti.')
+        this.snapshot.costKnown = false
+      }
       else this.snapshot.costUsd += result.costUsd
       const accepted = token === this.serial && !operation.signal.aborted
       this.log(accepted ? 'decision' : 'discarded', result.reason, { costUsd: result.costUsd, qwenMs: result.qwenMs })

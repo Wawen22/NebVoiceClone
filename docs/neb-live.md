@@ -75,8 +75,7 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
   Puoi aumentare i limiti dalla pausa, salvarli e premere **Riprendi ascolto**
   senza azzerare la sessione. Per modificarli durante il parlato, premi prima
   **Pausa**. Il nuovo limite di durata si conta dall'avvio originale, senza
-  riavviare il cronometro. Un costo sconosciuto resta un motivo di pausa anche
-  dopo un aumento del budget. L'esportazione JSON include i limiti effettivi.
+  riavviare il cronometro. L'esportazione JSON include i limiti effettivi.
 - **Nuova conversazione** ferma elaborazione e voce, annulla un eventuale avvio
   ancora in salvataggio e pulisce trascrizione, eventi, turni e costo della sessione.
   Profilo, voce, ritmo e ascolto della scheda restano disponibili. Premi poi
@@ -122,7 +121,15 @@ Limiti iniziali modificabili: 20 minuti, 40 interventi NEB, $1 di costo OpenRout
 osservato. Limiti tecnici: 120 secondi per intervento remoto, 35 secondi per Qwen
 e 60 secondi al primo audio Gemini. L'ultimo intervento permesso può finire prima
 della pausa per limite turni; il limite di durata può interrompere il parlato.
-Un flusso mancante, un costo sconosciuto o una risposta non valida mettono in pausa.
+Un flusso mancante, un errore del provider o una risposta non valida mettono in pausa.
+Il motivo originale resta visibile e **Riprendi ascolto** permette di riprovare
+con un nuovo intervento, anche se la richiesta fallita non ha riportato il costo.
+Le risposte valide senza costo rimangono utilizzabili: NEB tenta un recupero
+tramite i metadati della generazione OpenRouter, con attesa massima di 1,5 secondi.
+Se l'importo non è disponibile, il totale mostra **+ ?** e un avviso di costo
+parziale. Il budget controlla soltanto gli importi ricevuti e non garantisce
+il tetto di spesa effettivo quando alcuni costi mancano; verifica il totale
+su OpenRouter. Il costo sconosciuto non viene trattato come zero né stimato.
 Il costo mostrato esclude Gemini; richieste annullate possono essere comunque
 fatturate e una richiesta già iniziata può superare il limite osservato.
 
@@ -146,7 +153,8 @@ Gli smoke usano Edge headless, Playwright installato nell'ambiente di test
 Verificano profili, ritmo configurabile, avvio libero, transcript, controlli,
 blocchi, azzeramento durante salvataggio o elaborazione e risposte tardive.
 Lo smoke Live verifica anche i pannelli da tastiera, lo scorrimento della chat
-e la visibilità dei comandi nelle finestre compatte.
+e la visibilità dei comandi nelle finestre compatte, risposte con costo mancante,
+avviso di totale parziale e ripresa dopo un errore Qwen senza costo riportato.
 La prova hardware su cuffie, VB-CABLE e sito reale è separata: iniziare con una
 breve conversazione di prova prima di usare una sessione lunga.
 
@@ -155,7 +163,12 @@ sintetico ha prodotto una decisione `speak` valida in 2537 ms, costo OpenRouter
 riportato $0,00014499. Questa prova verifica il provider testuale; non misura
 trascrizione audio, Gemini, routing o ritardo completo di una chiamata.
 
-Verifiche finali: build e typecheck WSL passati, 247 test passati e 4 specifici
+Verifica API successiva del 4 ottobre 2026: un secondo di silenzio WAV sintetico
+mono a 16 kHz ha prodotto `wait` in 2536 ms, con costo riportato $0,00001697.
+Una richiesta testuale minima è riuscita in 1217 ms. Sono controlli di disponibilità
+del provider e formato audio, senza voce umana o collegamento VB-CABLE.
+
+Verifiche finali: build e typecheck WSL passati, 255 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

@@ -228,6 +228,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
             <div className="neb-live-session-meta"><span title="Interventi NEB in questa sessione">{live.snapshot.turns}<small> / {sessionLimits.maxTurns} turni</small></span><button type="button" onClick={() => { setConfigOpen(true); setSettingsTab('details') }} title="Costo OpenRouter osservato; Gemini escluso">${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + ?'}</button></div>
             <button type="button" className="neb-live-export" disabled={!live.snapshot.log.length && !live.snapshot.history.length} onClick={live.exportLog} title="Conserva la sessione prima di iniziarne una nuova"><Download size={15} />Esporta JSON</button>
           </div>
+          {!live.snapshot.costKnown && <p className="neb-live-note" role="status">Costo OpenRouter parziale: il budget considera solo gli importi ricevuti. Verifica il totale su OpenRouter.</p>}
         </footer>
       </section>
 
