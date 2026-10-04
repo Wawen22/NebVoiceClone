@@ -36,6 +36,11 @@ quale appartiene la tua voce personale.
    prima l'interlocutore oppure far generare una breve apertura.
 
 La connessione della scheda e il flusso audio devono risultare disponibili.
+**Collega questa scheda** attende la conferma di NEB; non avvia l'audio.
+Il popup mostra lo stato anche quando lo riapri. Se **Avvia conversazione**
+rimane disattivato e NEB mostra **Nessuna scheda in ascolto**, premi anche
+**Ascolta questa scheda** e attendi **Ascolto attivo**. Se il popup segnala un
+collegamento interrotto, riapri NEB e ricollega la scheda prima di attivare l'ascolto.
 Se navighi su un'altra pagina, ricollega la scheda e avvia una nuova sessione.
 Non avviare Electron direttamente da WSL.
 

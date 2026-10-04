@@ -10,7 +10,10 @@ function worker(captureStream: () => Promise<string> = async () => 'stream-1') {
     runtime: {
       id: 'test', getURL: (path: string) => 'chrome-extension://test/' + path,
       getContexts: async () => [], sendMessage: async (m: any) => { runtimeMessages.push(m); return { ok: true } },
-      connectNative: () => ({ postMessage: (m: any) => posted.push(m), onMessage: { addListener: (fn: any) => nativeListener = fn }, onDisconnect: { addListener: (fn: any) => disconnected = fn } }),
+      connectNative: () => ({ postMessage: (m: any) => {
+        posted.push(m)
+        if (m.kind === 'associated') void nativeListener({ kind: 'browser', action: 'associated', requestId: m.requestId, payload: { target: m.target } })
+      }, onMessage: { addListener: (fn: any) => nativeListener = fn }, onDisconnect: { addListener: (fn: any) => disconnected = fn } }),
       onMessage: { addListener: (fn: any) => listener = fn }
     },
     offscreen: { createDocument: async () => undefined },

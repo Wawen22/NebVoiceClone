@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NEB Browser Connector",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Collega l’audio di una scheda a NEB Live o S2S e il Rationale Outlier a NEB Voice Console.",
   "permissions": ["activeTab", "scripting", "nativeMessaging", "tabCapture", "offscreen"],
   "background": { "service_worker": "background.js" },

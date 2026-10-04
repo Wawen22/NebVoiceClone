@@ -34,6 +34,23 @@ async function authenticated(bridge: NativeBridge): Promise<Socket> {
   await associated
   return socket
 }
+windowsTest('confirms association to the browser only after authentication and acceptance by NEB', async () => {
+  const associated = vi.fn()
+  const bridge = new NativeBridge(associated, () => undefined, () => undefined)
+  bridge.setExtensionId(extensionId); await bridge.listen()
+  let client: Socket | undefined
+  try {
+    client = await connect(bridge)
+    const confirmation = once(client, 'data')
+    client.write(encodeFrame({ kind: 'hello', version: 1, origin, token: bridge.token }))
+    client.write(encodeFrame({ kind: 'associated', requestId: 'association-1', target }))
+    const [chunk] = await confirmation
+    expect(associated).toHaveBeenCalledWith(target)
+    expect(new FrameDecoder().push(chunk as Buffer)).toEqual([
+      { kind: 'browser', action: 'associated', requestId: 'association-1', payload: { target } }
+    ])
+  } finally { client?.destroy(); bridge.close() }
+})
 windowsTest('rejects wrong credentials and origin and keeps the authenticated connection when another client joins', async () => {
   const associated = vi.fn()
   const disconnected = vi.fn()

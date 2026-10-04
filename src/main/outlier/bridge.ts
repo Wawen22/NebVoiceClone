@@ -62,7 +62,13 @@ export class NativeBridge implements InsertionDriver {
               this.hostProcessId = Number.isSafeInteger(message.processId) && Number(message.processId) > 0 ? Number(message.processId) : null
               continue
             }
-            if (message.kind === 'associated') this.associated(parseTarget(message.target))
+            if (message.kind === 'associated') {
+              const target = parseTarget(message.target)
+              this.associated(target)
+              if (typeof message.requestId === 'string' && message.requestId.length > 0 && message.requestId.length <= 100) {
+                socket.write(encodeFrame({ kind: 'browser', action: 'associated', requestId: message.requestId, payload: { target } }))
+              }
+            }
             else if (message.kind === 's2sAudio') this.audio(message)
             else if (message.kind === 'invalidated') this.invalidated('Scheda, focus o campo cambiato. Verifica il testo parziale.', message.reason === 'focus' ? 'focus' : 'destination')
             else if (message.kind === 'reply' && typeof message.requestId === 'string') {

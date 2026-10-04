@@ -1,6 +1,17 @@
 let port = null
 let target = null
 let capture = null
+let pendingAssociation = null
+let connectionError = null
+let associating = false
+function finishAssociation(error) {
+  const pending = pendingAssociation
+  if (!pending) return
+  pendingAssociation = null
+  clearTimeout(pending.timer)
+  if (error) pending.reject(new Error(error))
+  else pending.resolve()
+}
 function postNative(message) {
   try { port?.postMessage(message) } catch { /* Disconnect is handled separately. */ }
 }
@@ -13,11 +24,33 @@ function stopCapture(message = 'Ascolto fermato.') {
 }
 function connect() {
   if (port) return port
-  port = chrome.runtime.connectNative('com.nebvoice.outlier')
-  port.onDisconnect.addListener(() => { const error = chrome.runtime.lastError; void error; stopCapture('NEB disconnesso.'); port = null; target = null })
-  port.onMessage.addListener(async (message) => {
+  const connection = chrome.runtime.connectNative('com.nebvoice.outlier')
+  port = connection
+  connection.onDisconnect.addListener(() => {
+    const detail = chrome.runtime.lastError?.message
+    if (port !== connection) return
+    connectionError = 'Collegamento a NEB interrotto.' + (detail ? ' ' + detail : '') + ' Apri NEB e premi Collega questa scheda.'
+    stopCapture('NEB disconnesso.')
+    port = null
+    target = null
+    finishAssociation(connectionError)
+  })
+  connection.onMessage.addListener(async (message) => {
+    if (port !== connection) return
     if (message.kind === 'pong') return
     if (message.kind !== 'browser') return
+    if (message.action === 'associated') {
+      if (!pendingAssociation || pendingAssociation.id !== message.requestId) return
+      const confirmed = message.payload?.target
+      if (!target || !confirmed || ['tabId', 'windowId', 'documentId', 'url'].some((key) => confirmed[key] !== target[key])) {
+        target = null
+        finishAssociation('NEB ha confermato una scheda diversa. Collega nuovamente questa scheda.')
+        return
+      }
+      connectionError = null
+      finishAssociation()
+      return
+    }
     const response = { kind: 'reply', requestId: message.requestId }
     try {
       if (Date.now() > message.deadline) throw new Error('Richiesta scaduta.')
@@ -68,9 +101,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     let operation = null
     ;(async () => {
       try {
-        if (message.kind === 'audio-status') { reply({ active: Boolean(capture) }); return }
+        if (message.kind === 'audio-status') { reply({ active: Boolean(capture), connected: Boolean(target && port && !pendingAssociation), title: target?.title, error: connectionError }); return }
         if (message.kind === 'audio-stop') { stopCapture(); reply({ ok: true }); return }
-        if (!target || !port) throw new Error('Collega prima questa scheda a NEB.')
+        if (!target || !port) throw new Error(connectionError || 'Premi Collega questa scheda, poi Ascolta questa scheda.')
+        if (pendingAssociation) throw new Error('Attendi la conferma del collegamento da NEB.')
         if (capture) throw new Error('Ascolto già attivo. Fermalo prima di ricominciare.')
         const selected = target
         operation = { id: crypto.randomUUID(), target: { ...selected } }
@@ -101,10 +135,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.documentId && message.documentId !== target.documentId) return
     if (message.reason !== 'focus') stopCapture('Destinazione cambiata.')
     postNative({ kind: 'invalidated', reason: message.reason === 'focus' ? 'focus' : 'destination' })
-    if (message.reason !== 'focus') target = null
+    if (message.reason !== 'focus') { target = null; finishAssociation('La pagina è cambiata. Collega nuovamente questa scheda.') }
     return
   }
   if (message.kind !== 'associate' || sender.tab || sender.url !== chrome.runtime.getURL('popup.html')) return
+  if (associating) { reply({ error: 'Collegamento in corso: attendi la conferma da NEB.' }); return }
+  associating = true
   ;(async () => {
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -115,11 +151,24 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       if (snapshot.error) throw new Error(snapshot.error)
       stopCapture('Scheda associata nuovamente.')
       target = { tabId: tab.id, windowId: tab.windowId, documentId: snapshot.documentId, url: snapshot.url, title: (tab.title || 'Scheda browser').slice(0, 500) }
-      connect().postMessage({ kind: 'associated', target })
+      const connection = connect()
+      const id = crypto.randomUUID()
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          connectionError = 'NEB non ha confermato il collegamento. Riavvia NEB, ricarica l’estensione e riprova.'
+          target = null
+          finishAssociation(connectionError)
+        }, 5000)
+        pendingAssociation = { id, timer, resolve, reject }
+        try { connection.postMessage({ kind: 'associated', requestId: id, target }) }
+        catch (error) { target = null; connectionError = error.message; finishAssociation(connectionError) }
+      })
+      if (!target || port !== connection) throw new Error(connectionError || 'Collegamento a NEB interrotto.')
       reply({ ok: true, title: target.title })
     } catch (error) { reply({ error: error.message }) }
+    finally { associating = false }
   })()
   return true
 })
-chrome.tabs.onRemoved.addListener((id) => { if (id === target?.tabId) { stopCapture('Scheda chiusa.'); postNative({ kind: 'invalidated' }); target = null } })
-chrome.tabs.onUpdated.addListener((id, change) => { if (id === target?.tabId && (change.status === 'loading' || (change.url && change.url !== target.url))) { stopCapture('Navigazione della scheda.'); postNative({ kind: 'invalidated' }); target = null } })
+chrome.tabs.onRemoved.addListener((id) => { if (id === target?.tabId) { stopCapture('Scheda chiusa.'); postNative({ kind: 'invalidated' }); target = null; finishAssociation('Scheda chiusa.') } })
+chrome.tabs.onUpdated.addListener((id, change) => { if (id === target?.tabId && (change.status === 'loading' || (change.url && change.url !== target.url))) { stopCapture('Navigazione della scheda.'); postNative({ kind: 'invalidated' }); target = null; finishAssociation('La pagina è cambiata. Collega nuovamente questa scheda.') } })
