@@ -7,7 +7,7 @@ const request: LiveTurnRequest = { requestId: 'live-1', profile: DEFAULT_LIVE_CO
 const decision = { action: 'speak', transcript: 'Come lavori?', text: 'Sviluppo applicazioni web.', reason: 'Domanda conclusa.' }
 interface Payload {
   model: string
-  response_format: { type: string }
+  response_format: { type: string; json_schema: { strict: boolean; schema: { required: string[]; additionalProperties: boolean } } }
   max_tokens: number
   messages: [{ content: string }, { content: string | [{ text: string }, { input_audio: { data: string } }] }]
 }
@@ -19,7 +19,7 @@ it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted 
   const result = await generateLiveTurn(request, { apiKey: 'test' })
   expect(result).toMatchObject({ action: 'speak', text: decision.text, costUsd: 0.002 })
   expect(payload.model).toBe('qwen/qwen3.8-omni-flash')
-  expect(payload.response_format).toEqual({ type: 'json_object' })
+  expect(payload.response_format).toMatchObject({ type: 'json_schema', json_schema: { strict: true, schema: { additionalProperties: false, required: ['action', 'transcript', 'text', 'reason'] } } })
   expect(payload.messages[0].content).toContain('BACKGROUND VERIFIED')
   expect(payload.messages[0].content).toContain('PERSONA STYLE')
   expect(payload.messages[0].content).toMatch(/non inventare/i)
@@ -61,9 +61,44 @@ it('keeps supplied transcripts authoritative and supports opening without audio'
   expect(JSON.stringify(payloads)).not.toContain('input_audio')
 })
 
-it.each(['invalid JSON', { ...decision, action: 'wait' }])('pauses on invalid output while retaining the charged cost', async (content) => {
-  vi.stubGlobal('fetch', async () => reply(content))
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.002 })
+it.each(['invalid JSON', { ...decision, action: 'wait' }, { ...decision, transcript: '' }, { ...decision, text: '' }, null, []])('retries invalid output once then retains the question without pausing or inventing speech: %j', async (content) => {
+  const fetcher = vi.fn(async () => reply(content))
+  vi.stubGlobal('fetch', fetcher)
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'wait', retryable: true, repairAttempted: true, text: '', costUsd: 0.004 })
+  expect(fetcher).toHaveBeenCalledTimes(2)
+})
+
+it('repairs the screenshot failure: speak with an empty transcript reuses the exact audio', async () => {
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payloads.push(JSON.parse(String(init.body))); return reply(payloads.length === 1 ? { ...decision, transcript: '' } : decision) })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', transcript: decision.transcript, text: decision.text, repairAttempted: true, costUsd: 0.004 })
+  expect(payloads).toHaveLength(2)
+  expect(payloads[1].messages[1].content).not.toBeTypeOf('string')
+  expect(payloads[1].messages[1].content).toEqual(expect.arrayContaining([expect.objectContaining({ input_audio: { data: (payloads[0].messages[1].content as [{ text: string }, { input_audio: { data: string } }])[1].input_audio.data, format: 'wav' } })]))
+  expect(payloads[1].messages[0].content).toContain('Non inventare parole mancanti')
+})
+
+it('repairs missing speech from the recognized transcript without uploading audio twice', async () => {
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payloads.push(JSON.parse(String(init.body))); return reply(payloads.length === 1 ? { ...decision, text: '' } : { ...decision, transcript: 'Changed by model' }) })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', transcript: decision.transcript, repairAttempted: true, costUsd: 0.004 })
+  expect(JSON.parse(payloads[1].messages[1].content as string).transcript).toBe(decision.transcript)
+  expect(JSON.stringify(payloads[1])).not.toContain('input_audio')
+})
+
+it.each([0, 1])('retains observed retry charges when completion %s lacks accounting', async (missingIndex) => {
+  let calls = 0
+  vi.stubGlobal('fetch', async () => { const index = calls++; return reply(index === 0 ? { ...decision, transcript: '' } : decision, index === missingIndex ? null : 0.003) })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', costUsd: null, knownCostUsd: 0.003, repairAttempted: true })
+  expect(calls).toBe(2)
+})
+
+it('cancels before repair and retains a charge when an invalid completion is stopped', async () => {
+  const abort = new AbortController()
+  const fetcher = vi.fn(async () => ({ ok: true, json: async () => { abort.abort(); return { choices: [{ message: { content: JSON.stringify({ ...decision, transcript: '' }) } }], usage: { cost: 0.005 } } } }))
+  vi.stubGlobal('fetch', fetcher)
+  expect(await generateLiveTurn(request, { apiKey: 'test', signal: abort.signal })).toMatchObject({ action: 'pause', costUsd: 0.005 })
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
 it('keeps a valid response usable when its cost is missing', async () => {

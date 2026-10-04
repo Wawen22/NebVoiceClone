@@ -27,6 +27,33 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it.each(['', 'Come affronti il debugging?'])('keeps unanswered audio after failed automatic repair without pausing or retry loops: %j', async (transcript) => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    const originalAudio = h.requests[0].audioPcm
+    h.replies[0].resolve({ action: 'wait', transcript, text: '', reason: 'Correzione incompleta', costUsd: null, knownCostUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 200 })
+    await settle(); h.feed(200)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.controller.snapshot.costUsd).toBe(0.004)
+    expect(h.controller.snapshot.costKnown).toBe(false)
+    expect(h.requests).toHaveLength(1)
+    expect(h.controller.canRespond).toBe(true)
+    h.controller.respondNow()
+    expect(h.requests[1].audioPcm).toEqual(originalAudio)
+    h.replies[1].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays[0].start()).toBe(true)
+    expect(h.controller.snapshot.turns).toBe(1)
+  })
+
+  it('lets new speech resume normal turn detection after an incomplete repaired decision', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve({ action: 'wait', transcript: '', text: '', reason: 'Correzione incompleta', costUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 200 })
+    await settle(); h.feed(8, true); h.feed(25)
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1].audioPcm!.length).toBeGreaterThan(h.requests[0].audioPcm!.length)
+    expect(h.controller.snapshot.phase).toBe('thinking')
+  })
+
   it('keeps preloaded materials through Start and clears them with New conversation', () => {
     const h = setup(); h.controller.addMaterial(material); h.controller.start(config, false)
     h.feed(4, true); h.feed(25)

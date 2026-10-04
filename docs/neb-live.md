@@ -156,6 +156,22 @@ può avere una sola rivalutazione automatica; ulteriori richieste sono manuali
 con **Rispondi ora**. Se Qwen non ha riconosciuto parole, non rivaluta rumori
 o risate. L'ulteriore richiesta può avere un costo OpenRouter.
 
+Le decisioni Qwen usano uno schema JSON obbligatorio con azione, trascrizione,
+testo e motivazione. Se il modello restituisce una decisione incompleta o
+contraddittoria, NEB tenta una correzione automatica prima di restituire il risultato.
+Riutilizza la trascrizione riconosciuta senza modificarla oppure, se manca,
+invia di nuovo lo stesso audio. La correzione resta entro il timeout originale;
+il costo e il tempo comprendono entrambi i tentativi. Gli importi conosciuti
+restano conteggiati anche quando il costo di uno dei tentativi non è disponibile.
+
+Se anche la correzione produce una decisione non valida, NEB continua ad ascoltare
+e conserva la domanda, mostrando **Qwen non ha completato la risposta**.
+Puoi premere **Rispondi ora** sulla stessa domanda o continuare a parlare.
+Non avvia altre correzioni automatiche in ciclo e non inventa una trascrizione
+per pronunciare una risposta incompleta. La verifica resta consultabile negli
+eventi della sessione. Errori di connessione, provider, durata, audio assente e
+limiti continuano a mettere in pausa secondo le regole precedenti.
+
 Il silenzio finale viene ridotto a 300 ms nell'audio inviato a Qwen, mantenendo
 il parlato e la pausa locale scelta. Il buffer non cresce con il silenzio mentre
 Qwen elabora o Gemini prepara la voce. Il transcript si aggiorna separatamente dal
@@ -207,6 +223,8 @@ e la visibilità dei comandi nelle finestre compatte, risposte con costo mancant
 avviso di totale parziale e ripresa dopo un errore Qwen senza costo riportato.
 Verifica anche rivalutazione automatica di `wait`, **Rispondi ora** e recupero
 della domanda conservata dopo un errore del provider.
+Verifica anche la permanenza in ascolto dopo una correzione incompleta e il
+recupero manuale della stessa domanda senza perdita dell'audio.
 Verifica inoltre cattura della finestra, immagini dagli appunti, file e incolla,
 snippet, aggiornamento degli allegati durante l'elaborazione, continuità della
 voce già iniziata, analisi senza nuovo audio e acquisizioni tardive dopo l'azzeramento.
@@ -240,7 +258,21 @@ importazione dello screenshot sintetico a 1040 × 440 e lettura degli appunti
 riuscite. Gli appunti non contenevano immagini in quella prova; il percorso
 di incolla immagine è coperto dai test con dati sintetici.
 
-Verifiche finali: build e typecheck WSL passati, 278 test passati e 4 specifici
+Verifica schema e parlato del 4 ottobre 2026: tre domande sintetizzate localmente
+su saluto, presentazione professionale e array rispetto a liste concatenate sono
+state inviate all'API reale con un profilo fittizio. Tutte hanno prodotto `speak`
+con trascrizione e testo non vuoti al primo tentativo, rispettivamente in
+3937, 3060 e 5549 ms. Costi $0,00019737, $0,00020041 e $0,00026892.
+La prova verifica input vocale e schema; non misura l'intera catena di una chiamata.
+
+Prova di recupero con API reale: sulla domanda vocale sintetica «Hi, how are you
+today?» senza `endOfTurn` è stata svuotata deliberatamente la trascrizione della
+prima risposta, mantenendo gli altri campi e il costo. NEB ha effettuato una sola
+correzione con lo stesso audio e restituito `speak` con trascrizione e testo validi
+in 6727 ms complessivi, costo $0,00041195. È un errore iniettato per verificare
+il recupero, non una registrazione dell'intervista dell'utente.
+
+Verifiche finali: build e typecheck WSL passati, 290 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

@@ -210,16 +210,23 @@ export class LiveController {
       if (result.costUsd === null || !Number.isFinite(result.costUsd) || result.costUsd < 0) {
         if (this.snapshot.costKnown) this.log('accounting', 'Costo OpenRouter parziale: alcuni importi non sono disponibili. Il budget controlla soltanto i costi ricevuti.')
         this.snapshot.costKnown = false
+        if (typeof result.knownCostUsd === 'number' && Number.isFinite(result.knownCostUsd) && result.knownCostUsd >= 0) this.snapshot.costUsd += result.knownCostUsd
       }
       else this.snapshot.costUsd += result.costUsd
       const accepted = token === this.serial && !operation.signal.aborted
       this.log(accepted ? 'decision' : 'discarded', result.reason, { costUsd: result.costUsd, qwenMs: result.qwenMs })
+      if (result.repairAttempted) this.log('repair', 'Decisione Qwen incompleta: correzione automatica tentata sulla stessa domanda.')
       if (!accepted) { if (this.active) this.withinLimits(); this.publish(); return }
       this.operation = null
       if (!this.withinLimits()) return
       if (result.action === 'pause') { this.pause(result.reason, true); return }
       if (result.action === 'wait') {
         this.listeningAt = this.dependencies.now()
+        if (result.retryable) {
+          this.waitingAt = null; this.waitRechecked = true
+          this.phase('listening', 'Qwen non ha completato la risposta · domanda conservata. Premi Rispondi ora o continua a parlare.')
+          return
+        }
         if (result.transcript.trim()) this.waitingAt = this.dependencies.now()
         else this.resetAudio() // No speech was recognized: do not re-upload noise or laughter.
         this.phase('listening', endOfTurn ? 'Qwen attende ancora: puoi premere Rispondi ora o continuare la domanda.' : 'Intervento incompleto · ascolto; rivaluto se il silenzio continua.')

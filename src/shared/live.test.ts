@@ -51,4 +51,5 @@ it('rejects contradictory decisions and speaking without a transcript except for
     expect(() => parseLiveDecision(JSON.stringify({ ...decision, ...patch }))).toThrow()
   }
   expect(() => parseLiveDecision('not JSON')).toThrow()
+  for (const invalid of ['null', '[]', '"text"']) expect(() => parseLiveDecision(invalid)).toThrow('manca l’oggetto')
 })

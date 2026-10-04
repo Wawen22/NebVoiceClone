@@ -124,7 +124,8 @@ try {
     api.saveLiveConfig = async (value) => { if (fixture.holdSave) await new Promise((resolve) => { fixture.saveRelease = resolve }); config = structuredClone(value); fixture.saved.push(config); return config }
     api.generateLiveTurn = async (request) => {
       fixture.liveRequests.push(request)
-      const reply = fixture.liveFailure ? { action: 'pause', transcript: '', text: '', reason: fixture.liveFailure, costUsd: fixture.liveCost, qwenMs: 50 }
+      const reply = fixture.liveIncomplete ? { action: 'wait', transcript: '', text: '', reason: 'Decisione incompleta dopo la correzione', costUsd: null, knownCostUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 50 }
+        : fixture.liveFailure ? { action: 'pause', transcript: '', text: '', reason: fixture.liveFailure, costUsd: fixture.liveCost, qwenMs: 50 }
         : fixture.liveWait && !request.endOfTurn ? { action: 'wait', transcript: 'Come affronti il debugging?', text: '', reason: 'Intervento incompleto', costUsd: fixture.liveCost, qwenMs: 50 }
         : { action: 'speak', transcript: request.opening ? '' : 'Come affronti il debugging?', text: request.opening ? 'Ciao, sono Neb. Piacere di conoscerti.' : 'Partirei dal problema concreto e cercherei la causa.', reason: 'Turno completo', costUsd: fixture.liveCost, qwenMs: 50 }
       if (request.visualOnly && reply.action === 'speak') { reply.transcript = ''; reply.text = 'Il ciclo accede a un elemento oltre la fine dell’array.' }
@@ -294,6 +295,16 @@ try {
   await page.getByRole('button', { name: 'Rispondi ora', exact: true }).click()
   await page.waitForFunction(() => document.querySelectorAll('.neb-live-turn-neb').length === 3)
   assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length), failedAudioLength, 'manual retry after provider failure retains the unanswered audio')
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.evaluate(() => { fixture.liveIncomplete = true; fixture.voice(8) })
+  await page.waitForFunction(() => document.querySelector('.neb-live-status-copy')?.textContent.includes('domanda conservata') || document.querySelector('.neb-live')?.textContent.includes('Qwen non ha completato'))
+  assert.equal(await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).count(), 0, 'incomplete model output must not pause the conversation')
+  assert.equal(await page.getByRole('button', { name: 'Rispondi ora', exact: true }).isEnabled(), true)
+  const incompleteAudio = await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length)
+  await page.evaluate(() => { fixture.liveIncomplete = false })
+  await page.getByRole('button', { name: 'Rispondi ora', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-turn-neb').length === 4)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length), incompleteAudio)
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
   await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()

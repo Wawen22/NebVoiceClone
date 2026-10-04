@@ -30,7 +30,7 @@ export interface LiveTurnRequest {
   materials?: LiveMaterial[]
   visualOnly?: boolean
 }
-export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number }
+export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number; knownCostUsd?: number; repairAttempted?: boolean; retryable?: boolean }
 export interface LiveApi {
   getLiveConfig(): Promise<LiveConfig>
   saveLiveConfig(config: LiveConfig): Promise<LiveConfig>
@@ -121,7 +121,8 @@ export class LiveDecisionError extends Error {
 export function parseLiveDecision(content: string, opening = false): Omit<LiveDecision, 'costUsd' | 'qwenMs'> {
   let raw: unknown
   try { raw = JSON.parse(content) } catch { throw new LiveDecisionError('JSON non leggibile.') }
-  const v = object(raw)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new LiveDecisionError('manca l’oggetto della decisione.')
+  const v = raw as Record<string, unknown>
   const transcript = typeof v.transcript === 'string' && v.transcript.length <= 16000 ? v.transcript.trim() : ''
   const invalid = (reason: string): never => { throw new LiveDecisionError(reason, transcript) }
   if (typeof v.action !== 'string' || !['speak', 'wait', 'pause', 'complete'].includes(v.action)) invalid('azione sconosciuta.')
