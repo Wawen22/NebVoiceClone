@@ -30,7 +30,7 @@ export interface LiveTurnRequest {
   materials?: LiveMaterial[]
   visualOnly?: boolean
 }
-export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number; knownCostUsd?: number; repairAttempted?: boolean; retryable?: boolean }
+export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number; knownCostUsd?: number; repairAttempted?: boolean; retryable?: boolean; validationIssue?: string }
 export interface LiveApi {
   getLiveConfig(): Promise<LiveConfig>
   saveLiveConfig(config: LiveConfig): Promise<LiveConfig>
@@ -128,7 +128,8 @@ export function parseLiveDecision(content: string, opening = false): Omit<LiveDe
   if (typeof v.action !== 'string' || !['speak', 'wait', 'pause', 'complete'].includes(v.action)) invalid('azione sconosciuta.')
   if (typeof v.transcript !== 'string' || v.transcript.length > 16000 || typeof v.text !== 'string' || v.text.length > 4000 || typeof v.reason !== 'string' || !v.reason.trim() || v.reason.length > 1000) invalid('trascrizione, testo o motivazione mancanti o troppo lunghi.')
   const speech = (v.text as string).trim()
-  if (v.action === 'speak' && (!speech || !opening && !transcript)) invalid('parlato o trascrizione mancanti.')
+  if (v.action === 'speak' && !speech) invalid('testo della risposta NEB vuoto.')
+  if (v.action === 'speak' && !opening && !transcript) invalid('trascrizione dell’interlocutore vuota.')
   if (v.action !== 'speak' && speech) invalid('il testo deve essere vuoto se non si parla.')
   if (v.action === 'complete' && !opening && !transcript) invalid('chiusura senza trascrizione.')
   return { action: v.action as LiveDecision['action'], transcript, text: speech, reason: (v.reason as string).trim() }

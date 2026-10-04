@@ -27,11 +27,11 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
-  it.each(['', 'Come affronti il debugging?'])('keeps unanswered audio after failed automatic repair without pausing or retry loops: %j', async (transcript) => {
+  it.each(['', 'Come affronti il debugging?'])('keeps unanswered audio for a manual retry before automatic recovery: %j', async (transcript) => {
     const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
     const originalAudio = h.requests[0].audioPcm
     h.replies[0].resolve({ action: 'wait', transcript, text: '', reason: 'Correzione incompleta', costUsd: null, knownCostUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 200 })
-    await settle(); h.feed(200)
+    await settle(); h.feed(20)
     expect(h.controller.snapshot.phase).toBe('listening')
     expect(h.controller.snapshot.history).toHaveLength(0)
     expect(h.controller.snapshot.costUsd).toBe(0.004)
@@ -43,6 +43,24 @@ describe('NEB Live free conversation', () => {
     h.replies[1].resolve(decision()); await settle(); h.feed(3)
     expect(h.plays[0].start()).toBe(true)
     expect(h.controller.snapshot.turns).toBe(1)
+  })
+
+  it('automatically retries an incomplete decision at end of turn once and never loops on the same question', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    const incomplete: LiveDecision = { action: 'wait', transcript: '', text: '', reason: 'Correzione incompleta', costUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 200 }
+    h.replies[0].resolve(incomplete); await settle(); h.feed(80)
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1].endOfTurn).toBe(true)
+    expect(h.requests[1].audioPcm).toEqual(h.requests[0].audioPcm)
+    h.replies[1].resolve(incomplete); await settle(); h.feed(200)
+    expect(h.requests).toHaveLength(2)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.canRespond).toBe(true)
+    expect(h.controller.snapshot.history).toHaveLength(0)
+    h.feed(8, true); h.feed(25)
+    h.replies[2].resolve(incomplete); await settle(); h.feed(80)
+    expect(h.requests).toHaveLength(4)
+    expect(h.requests[3].endOfTurn).toBe(true)
   })
 
   it('lets new speech resume normal turn detection after an incomplete repaired decision', async () => {

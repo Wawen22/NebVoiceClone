@@ -215,7 +215,7 @@ export class LiveController {
       else this.snapshot.costUsd += result.costUsd
       const accepted = token === this.serial && !operation.signal.aborted
       this.log(accepted ? 'decision' : 'discarded', result.reason, { costUsd: result.costUsd, qwenMs: result.qwenMs })
-      if (result.repairAttempted) this.log('repair', 'Decisione Qwen incompleta: correzione automatica tentata sulla stessa domanda.')
+      if (result.repairAttempted) this.log('repair', `Decisione Qwen incompleta: ${result.validationIssue ?? 'correzione tentata sulla stessa domanda.'}`)
       if (!accepted) { if (this.active) this.withinLimits(); this.publish(); return }
       this.operation = null
       if (!this.withinLimits()) return
@@ -223,8 +223,8 @@ export class LiveController {
       if (result.action === 'wait') {
         this.listeningAt = this.dependencies.now()
         if (result.retryable) {
-          this.waitingAt = null; this.waitRechecked = true
-          this.phase('listening', 'Qwen non ha completato la risposta · domanda conservata. Premi Rispondi ora o continua a parlare.')
+          this.waitingAt = this.voiceVersion > 0 && this.bytes > 0 && !this.waitRechecked ? this.dependencies.now() : null
+          this.phase('listening', this.waitingAt !== null ? 'Qwen non ha completato la risposta · riprovo automaticamente dopo il silenzio.' : 'Qwen non ha completato la risposta · domanda conservata. Premi Rispondi ora o continua a parlare.')
           return
         }
         if (result.transcript.trim()) this.waitingAt = this.dependencies.now()

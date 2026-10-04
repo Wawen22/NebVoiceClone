@@ -80,7 +80,10 @@ anteprima o nome e una X per rimuoverli. Rimangono nel contesto dei turni succes
 finché non li rimuovi o premi **Nuova conversazione**. Una cattura è un'immagine
 di quel momento: per mostrare modifiche al codice, acquisiscine una nuova.
 
-Qwen riceve gli allegati insieme alla domanda audio e alla cronologia. Se aggiungi
+Con immagini e nuovo audio, Qwen trascrive prima l'audio senza screenshot o profilo;
+poi analizza le immagini insieme alla domanda riconosciuta e alla cronologia.
+Questo evita che l'analisi visiva ometta la trascrizione. Gli snippet senza immagini
+possono essere elaborati direttamente insieme all'audio. Se aggiungi
 o rimuovi materiale mentre prepara una risposta non ancora pronunciata, NEB
 annulla la proposta precedente e rielabora la stessa domanda con il nuovo contesto.
 L'ascolto della scheda continua; le richieste annullate possono avere un costo.
@@ -156,19 +159,31 @@ può avere una sola rivalutazione automatica; ulteriori richieste sono manuali
 con **Rispondi ora**. Se Qwen non ha riconosciuto parole, non rivaluta rumori
 o risate. L'ulteriore richiesta può avere un costo OpenRouter.
 
-Le decisioni Qwen usano uno schema JSON obbligatorio con azione, trascrizione,
-testo e motivazione. Se il modello restituisce una decisione incompleta o
-contraddittoria, NEB tenta una correzione automatica prima di restituire il risultato.
-Riutilizza la trascrizione riconosciuta senza modificarla oppure, se manca,
-invia di nuovo lo stesso audio. La correzione resta entro il timeout originale;
-il costo e il tempo comprendono entrambi i tentativi. Gli importi conosciuti
+Le decisioni Qwen usano uno schema JSON obbligatorio. Quando la trascrizione è già
+nota, il modello genera solo azione, testo e motivazione: il sistema conserva le
+parole riconosciute senza richiedere al modello di ripeterle. Lo stesso vale per
+apertura e analisi senza nuovo audio, dove la trascrizione è vuota per definizione.
+Un singolo oggetto racchiuso in un array e un blocco JSON completo sono normalizzati
+prima della verifica; più risultati o testo ambiguo restano invalidi. Una motivazione
+interna mancante non impedisce una risposta altrimenti valida; le azioni che non
+autorizzano il parlato ignorano qualsiasi testo da pronunciare.
+
+Se mancano campi essenziali, NEB tenta una correzione. Riutilizza la trascrizione
+riconosciuta oppure, se manca, trascrive separatamente lo stesso audio prima di
+formulare una risposta testuale. Non usa gli screenshot per inventare la domanda.
+Quando la trascrizione separata è vuota, riprende l'ascolto senza rispondere
+automaticamente a materiale già presente. Tutte le fasi restano entro il timeout
+originale; costo e tempo comprendono le richieste effettuate. Gli importi conosciuti
 restano conteggiati anche quando il costo di uno dei tentativi non è disponibile.
 
 Se anche la correzione produce una decisione non valida, NEB continua ad ascoltare
 e conserva la domanda, mostrando **Qwen non ha completato la risposta**.
-Puoi premere **Rispondi ora** sulla stessa domanda o continuare a parlare.
-Non avvia altre correzioni automatiche in ciclo e non inventa una trascrizione
-per pronunciare una risposta incompleta. La verifica resta consultabile negli
+Quando la domanda audio è conservata e non è già stata rivalutata a fine turno,
+NEB riprova una volta automaticamente dopo almeno 8 secondi di silenzio ricevuto
+e 5 secondi dalla decisione. Questo equivale a **Rispondi ora**, che resta
+disponibile anche prima del tentativo automatico. Non avvia ulteriori richieste
+in ciclo sulla stessa domanda; nuovo parlato permette una nuova rivalutazione.
+La verifica e il motivo originale restano consultabili negli
 eventi della sessione. Errori di connessione, provider, durata, audio assente e
 limiti continuano a mettere in pausa secondo le regole precedenti.
 
@@ -223,8 +238,9 @@ e la visibilità dei comandi nelle finestre compatte, risposte con costo mancant
 avviso di totale parziale e ripresa dopo un errore Qwen senza costo riportato.
 Verifica anche rivalutazione automatica di `wait`, **Rispondi ora** e recupero
 della domanda conservata dopo un errore del provider.
-Verifica anche la permanenza in ascolto dopo una correzione incompleta e il
-recupero manuale della stessa domanda senza perdita dell'audio.
+Verifica anche la permanenza in ascolto dopo una correzione incompleta, il
+recupero manuale e automatico della stessa domanda senza perdita dell'audio
+e l'assenza di cicli di rivalutazione.
 Verifica inoltre cattura della finestra, immagini dagli appunti, file e incolla,
 snippet, aggiornamento degli allegati durante l'elaborazione, continuità della
 voce già iniziata, analisi senza nuovo audio e acquisizioni tardive dopo l'azzeramento.
@@ -272,7 +288,18 @@ correzione con lo stesso audio e restituito `speak` con trascrizione e testo val
 in 6727 ms complessivi, costo $0,00041195. È un errore iniettato per verificare
 il recupero, non una registrazione dell'intervista dell'utente.
 
-Verifiche finali: build e typecheck WSL passati, 290 test passati e 4 specifici
+Verifica multimodale successiva del 4 ottobre 2026: con una domanda vocale sintetica
+su un hook React e due screenshot sintetici, la versione precedente ha emesso
+una risposta con trascrizione vuota in una delle due prove. È stato riprodotto
+anche l'output `[{"transcript":"…"}]` nonostante lo schema a oggetto.
+Con trascrizione separata e normalizzazione del singolo oggetto, le tre prove
+finali sono riuscite: due richieste ciascuna, trascrizione e risposta valide,
+13136, 6907 e 6832 ms complessivi. Una delle sei risposte del provider conteneva
+il contenitore a un solo elemento ed è stata gestita senza ulteriore richiesta.
+Costi totali $0,00066053, $0,000326872 e $0,000325312. Sono prove di provider e
+formato con materiale sintetico; i tempi non includono Gemini o il routing audio.
+
+Verifiche finali: build e typecheck WSL passati, 298 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

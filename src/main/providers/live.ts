@@ -41,15 +41,28 @@ Se una battuta NEB nella cronologia è partial, l'interlocutore potrebbe averne 
 Rispetta lingua e tono del profilo. Con language=auto segui la lingua dell'interlocutore, italiano se ancora ignota. Usa risposte concise, naturali, con intercalari sparsi e pause significative; evita elenchi letti, formalità artificiale, didascalie, istruzioni vocali e markdown.
 Rispondi esclusivamente con un oggetto JSON: {"action":"speak|wait|pause|complete","transcript":"trascrizione interlocutore","text":"solo le parole NEB da pronunciare","reason":"breve motivazione interna"}. text è vuoto per wait/pause/complete. reason non va pronunciata. Massimo 4000 caratteri per text, 16000 per transcript, 1000 per reason. Per un'apertura non c'è audio: genera un breve saluto pertinente, transcript vuota, senza inventare contesto.`
 
-const responseFormat = { type: 'json_schema', json_schema: { name: 'neb_live_turn', strict: true, schema: {
+const responseFormat = (withTranscript: boolean) => ({ type: 'json_schema', json_schema: { name: 'neb_live_turn', strict: true, schema: {
   type: 'object', additionalProperties: false,
   properties: {
     action: { type: 'string', enum: ['speak', 'wait', 'pause', 'complete'] },
-    transcript: { type: 'string', description: 'Parole effettivamente pronunciate dall’interlocutore nel nuovo audio. Con speak deve contenere la domanda ascoltata; vuota solo senza parlato, per opening o visualOnly. Massimo 16000 caratteri.' },
+    ...(withTranscript ? { transcript: { type: 'string', description: 'Parole effettivamente pronunciate dall’interlocutore nel nuovo audio. Con speak deve contenere la domanda ascoltata. Massimo 16000 caratteri.' } } : {}),
     text: { type: 'string', description: 'Risposta NEB da pronunciare, non vuota con speak; vuota per wait/pause/complete. Massimo 4000 caratteri.' },
     reason: { type: 'string', description: 'Breve motivazione interna non vuota, massimo 1000 caratteri.' }
-  }, required: ['action', 'transcript', 'text', 'reason']
-} } }
+  }, required: ['action', ...(withTranscript ? ['transcript'] : []), 'text', 'reason']
+} } })
+
+function decisionObject(content: unknown): Record<string, unknown> {
+  if (typeof content !== 'string' || !content.trim()) throw new LiveDecisionError('nessuna decisione ricevuta.')
+  let raw: unknown
+  // Accept one complete fenced JSON object, never scrape prose for a guessed decision.
+  const json = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i.exec(content.trim())?.[1] ?? content
+  try { raw = JSON.parse(json) } catch { throw new LiveDecisionError('JSON non leggibile.') }
+  // Qwen sometimes wraps its sole structured result in an array despite strict schema.
+  // Unwrap that one object, but never select among multiple or nested candidates.
+  if (Array.isArray(raw) && raw.length === 1 && raw[0] && typeof raw[0] === 'object' && !Array.isArray(raw[0])) raw = raw[0]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new LiveDecisionError('manca l’oggetto della decisione.')
+  return raw as Record<string, unknown>
+}
 
 export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey?: string; signal?: AbortSignal } = {}): Promise<LiveDecision> {
   const request = parseLiveTurnRequest(value)
@@ -63,33 +76,22 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
   let transcript = request.transcript?.trim() ?? ''
   let repairIssue = ''
   const metadata = () => ({ costUsd: costKnown && chargedResponses > 0 ? knownCostUsd : null,
-    ...(!costKnown && knownCostUsd > 0 ? { knownCostUsd } : {}), ...(repairIssue ? { repairAttempted: true } : {}), qwenMs: Math.round(performance.now() - started) })
+    ...(!costKnown && knownCostUsd > 0 ? { knownCostUsd } : {}), ...(repairIssue ? { repairAttempted: true, validationIssue: repairIssue } : {}), qwenMs: Math.round(performance.now() - started) })
   const pause = (reason: string): LiveDecision => ({ action: 'pause', transcript, text: '', reason, ...metadata() })
   const recover = (): LiveDecision => ({ action: 'wait', transcript, text: '', retryable: true,
     reason: `Qwen non ha prodotto una decisione completa dopo la correzione. La domanda è conservata: premi Rispondi ora oppure continua a parlare. ${repairIssue}`, ...metadata() })
   const wav = request.audioPcm ? encodeWav(request.audioPcm) : undefined
-  for (let attempt = 0; attempt < 2; attempt++) {
+
+  const completion = async (body: unknown): Promise<Record<string, unknown>> => {
     let recorded = false
     try {
       signal.throwIfAborted()
-      // If the first response did transcribe speech, reuse those words verbatim.
-      // Otherwise retry the original audio, never invent a missing transcript.
-      const suppliedTranscript = request.transcript ?? (attempt > 0 && transcript ? transcript : undefined)
-      const context = { opening: request.opening === true, endOfTurn: request.endOfTurn === true, visualOnly: request.visualOnly === true, history: request.history,
-        ...(suppliedTranscript !== undefined ? { transcript: suppliedTranscript } : {}), ...(repairIssue ? { validationIssue: repairIssue } : {}),
-        materials: request.materials?.map((item) => item.kind === 'text' ? { kind: item.kind, name: item.name, text: item.text } : { kind: item.kind, name: item.name, capturedAt: item.addedAt }) ?? [] }
-      const userContent: ({ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } } | { type: 'input_audio'; input_audio: { data: string; format: 'wav' } })[] = [{ type: 'text', text: JSON.stringify(context) }]
-      for (const item of request.materials ?? []) if (item.kind === 'image') userContent.push({ type: 'image_url', image_url: { url: item.dataUrl } })
-      if (wav && suppliedTranscript === undefined) userContent.push({ type: 'input_audio', input_audio: { data: wav, format: 'wav' } })
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST', signal,
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'NEB Voice Console Live' },
-        body: JSON.stringify({ model: S2S_QWEN_MODEL, max_tokens: (request.audioPcm?.length ?? 0) > 30 * 32000 ? 6000 : 2500, reasoning: { enabled: false }, provider: { require_parameters: true }, response_format: responseFormat, messages: [
-          { role: 'system', content: instructions + (attempt > 0 ? '\nCorreggi la decisione incompleta: con action=speak servono sia text non vuoto sia transcript fedele al parlato. Se la trascrizione è già fornita, usala senza modificarla. Altrimenti ascolta di nuovo lo stesso audio. Non inventare parole mancanti; se non riconosci alcun parlato, scegli wait con transcript e text vuoti.' : '') + '\nConfigurazione autorizzata dall’utente:\n' + JSON.stringify({ background: request.background, persona: request.persona, profile: request.profile }) },
-          { role: 'user', content: userContent.length > 1 ? userContent : JSON.stringify(context) }
-        ] })
+        body: JSON.stringify(body)
       })
-      const result = await response.json() as { id?: unknown; error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: string } }[]; usage?: { cost?: unknown } }
+      const result = await response.json() as { id?: unknown; error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: unknown } }[]; usage?: { cost?: unknown } }
       let cost = validCost(result.usage?.cost)
       if (cost === null && !signal.aborted) cost = await generationCost(result.id, apiKey, signal)
       chargedResponses++; recorded = true
@@ -97,24 +99,65 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
       else knownCostUsd += cost
       signal.throwIfAborted()
       const choice = result.choices?.[0]
-      if (!response.ok || result.error || choice?.error || choice?.finish_reason === 'error') return pause(`OpenRouter Qwen: errore ${response.status ?? 'provider'}. Sessione sospesa.`)
-      if (choice?.finish_reason === 'length') return pause('Risposta Qwen troncata dal provider. Riprendi l’ascolto e premi Rispondi ora per rielaborare la domanda.')
-      const content = choice?.message?.content
-      if (typeof content !== 'string' || !content.trim()) throw new LiveDecisionError('nessuna decisione ricevuta.')
-      // For text input the supplied transcript, not a model rewrite, is authoritative.
-      let parsedContent = content
-      if (suppliedTranscript !== undefined || request.visualOnly) {
-        let raw: unknown
-        try { raw = JSON.parse(content) } catch { throw new LiveDecisionError('JSON non leggibile.', transcript) }
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new LiveDecisionError('manca l’oggetto della decisione.', transcript)
-        parsedContent = JSON.stringify({ ...raw, transcript: request.visualOnly ? '' : suppliedTranscript })
+      if (!response.ok || result.error || choice?.error || choice?.finish_reason === 'error') throw new Error(`OpenRouter Qwen: errore ${response.status ?? 'provider'}. Sessione sospesa.`)
+      if (choice?.finish_reason === 'length') throw new Error('Risposta Qwen troncata dal provider. Riprendi l’ascolto e premi Rispondi ora per rielaborare la domanda.')
+      return decisionObject(choice?.message?.content)
+    } catch (error) { if (!recorded) costKnown = false; throw error }
+  }
+
+  const transcribe = async (): Promise<void> => {
+    const raw = await completion({ model: S2S_QWEN_MODEL, max_tokens: (request.audioPcm?.length ?? 0) > 30 * 32000 ? 6000 : 2500, reasoning: { enabled: false }, provider: { require_parameters: true },
+      response_format: { type: 'json_schema', json_schema: { name: 'neb_live_transcript', strict: true, schema: {
+        type: 'object', additionalProperties: false, properties: { transcript: { type: 'string', description: 'Trascrizione fedele del parlato effettivamente udibile, oppure stringa vuota se non ci sono parole intelligibili. Massimo 16000 caratteri.' } }, required: ['transcript']
+      } } }, messages: [
+        { role: 'system', content: 'Trascrivi esclusivamente le parole effettivamente pronunciate nell’audio allegato, nella lingua originale. Non rispondere alla domanda e non aggiungere commenti, speaker, spiegazioni o testo dedotto. Rumori, musica, risate e silenzio senza parole intelligibili producono transcript vuota. Restituisci solo il JSON con transcript, massimo 16000 caratteri.' },
+        { role: 'user', content: [{ type: 'text', text: 'Trascrivi questo audio.' }, { type: 'input_audio', input_audio: { data: wav, format: 'wav' } }] }
+      ] })
+    if (typeof raw.transcript !== 'string' || raw.transcript.length > 16000) throw new LiveDecisionError('trascrizione separata mancante o troppo lunga.')
+    transcript = raw.transcript.trim()
+  }
+  // Vision can distract the omni model from emitting its audio transcript.
+  // Recognize speech alone first; image analysis then consumes authoritative text.
+  if (wav && request.materials?.some((item) => item.kind === 'image')) {
+    try { await transcribe() }
+    catch (error) {
+      if (error instanceof LiveDecisionError) { repairIssue = error.message; return recover() }
+      return pause(signal.aborted ? `Richiesta NEB Live annullata o timeout Qwen (${timeoutMs / 1000} secondi).` : error instanceof Error ? error.message : 'Trascrizione Qwen non disponibile.')
+    }
+    if (!transcript) return { action: 'wait', transcript: '', text: '', reason: 'Nessun parlato intelligibile nell’audio: continuo ad ascoltare.', ...metadata() }
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      signal.throwIfAborted()
+      // If the first response did transcribe speech, reuse those words verbatim.
+      // Otherwise retry the original audio, never invent a missing transcript.
+      if (attempt > 0 && wav && !transcript) {
+        await transcribe()
+        if (!transcript) return { action: 'wait', transcript: '', text: '', reason: 'Nessun parlato intelligibile nell’audio: continuo ad ascoltare.', ...metadata() }
       }
-      const decision = parseLiveDecision(parsedContent, request.opening || request.visualOnly)
+      const suppliedTranscript = request.transcript ?? (transcript || undefined)
+      const omitTranscript = suppliedTranscript !== undefined || request.visualOnly === true || request.opening === true
+      const context = { opening: request.opening === true, endOfTurn: request.endOfTurn === true, visualOnly: request.visualOnly === true, history: request.history,
+        ...(suppliedTranscript !== undefined ? { transcript: suppliedTranscript } : {}), ...(repairIssue ? { validationIssue: repairIssue } : {}),
+        materials: request.materials?.map((item) => item.kind === 'text' ? { kind: item.kind, name: item.name, text: item.text } : { kind: item.kind, name: item.name, capturedAt: item.addedAt }) ?? [] }
+      const userContent: ({ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } } | { type: 'input_audio'; input_audio: { data: string; format: 'wav' } })[] = [{ type: 'text', text: JSON.stringify(context) }]
+      for (const item of request.materials ?? []) if (item.kind === 'image') userContent.push({ type: 'image_url', image_url: { url: item.dataUrl } })
+      if (wav && suppliedTranscript === undefined) userContent.push({ type: 'input_audio', input_audio: { data: wav, format: 'wav' } })
+      const raw = await completion({ model: S2S_QWEN_MODEL, max_tokens: (request.audioPcm?.length ?? 0) > 30 * 32000 ? 6000 : 2500, reasoning: { enabled: false }, provider: { require_parameters: true }, response_format: responseFormat(!omitTranscript), messages: [
+          { role: 'system', content: instructions + (omitTranscript ? '\nPer questa richiesta il formato contiene solo action, text e reason: NON generare transcript. La trascrizione fornita è già riconosciuta e viene conservata dal sistema senza riscritture; rispondi a quelle parole e agli allegati. Per opening/visualOnly non ci sono nuove parole dell’interlocutore.' : '') + (attempt > 0 ? '\nCorreggi la decisione incompleta: con action=speak serve text non vuoto. Usa la trascrizione riconosciuta senza inventare parole mancanti.' : '') + '\nConfigurazione autorizzata dall’utente:\n' + JSON.stringify({ background: request.background, persona: request.persona, profile: request.profile }) },
+          { role: 'user', content: userContent.length > 1 ? userContent : JSON.stringify(context) }
+        ] })
+      // For text input the supplied transcript, not a model rewrite, is authoritative.
+      if (omitTranscript) raw.transcript = request.visualOnly || request.opening ? '' : suppliedTranscript
+      // These fields cannot authorize speech; tolerate omissions without another paid call.
+      if (typeof raw.reason !== 'string' || !raw.reason.trim()) raw.reason = 'Decisione Qwen ricevuta.'
+      else raw.reason = raw.reason.slice(0, 1000)
+      if (['wait', 'pause', 'complete'].includes(String(raw.action))) raw.text = ''
+      const decision = parseLiveDecision(JSON.stringify(raw), request.opening || request.visualOnly)
       transcript = decision.transcript
       signal.throwIfAborted()
       return { ...decision, ...metadata() }
     } catch (error) {
-      if (!recorded) costKnown = false
       if (error instanceof LiveDecisionError && !request.transcript && !request.visualOnly && error.transcript) transcript = error.transcript
       if (signal.aborted) return pause(`Richiesta NEB Live annullata o timeout Qwen (${timeoutMs / 1000} secondi).`)
       if (error instanceof LiveDecisionError) {
@@ -122,7 +165,7 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
         if (attempt === 0) continue
         return recover()
       }
-      return pause('OpenRouter Qwen non disponibile o risposta non leggibile. Sessione sospesa.')
+      return pause(error instanceof Error ? error.message : 'OpenRouter Qwen non disponibile o risposta non leggibile. Sessione sospesa.')
     }
   }
   return recover()
