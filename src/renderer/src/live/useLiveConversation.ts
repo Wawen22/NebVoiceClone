@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '../../../shared/contracts'
-import type { LiveConfig, LiveLimits } from '../../../shared/live'
+import type { LiveConfig, LiveLimits, LiveProfile } from '../../../shared/live'
 import { MAX_LIVE_IMAGE_FILE_BYTES, type LiveImageData } from '../../../shared/liveMaterials'
 import { sameTarget, type BrowserTarget } from '../../../shared/outlier'
 import type { S2SAudioStatus } from '../../../shared/s2s'
@@ -20,7 +20,7 @@ export function useLiveConversation(args: Arguments) {
   const lastPcmAt = useRef(-Infinity)
   const startup = useRef(new LiveStartGate())
   const materialEpoch = useRef(0)
-  const session = useRef<{ capture: S2SAudioStatus; settings: AppSettings; profileName: string } | null>(null)
+  const session = useRef<{ capture: S2SAudioStatus; settings: AppSettings; profileName: string; language: LiveProfile['language'] } | null>(null)
   const [audioStatus, setAudioStatus] = useState(inactive)
   const [receiving, setReceiving] = useState(false)
   const [error, setError] = useState('')
@@ -40,7 +40,7 @@ export function useLiveConversation(args: Arguments) {
       const engine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') }, { retainRecording: false })
       engine.setVolume(settings.outputVolume)
       try {
-        await streamS2SSpeech(window.neb, engine, buildLiveSpeechRequest(settings, text), settings.outputDeviceId, signal, onStarted)
+        await streamS2SSpeech(window.neb, engine, buildLiveSpeechRequest(settings, text, session.current?.language), settings.outputDeviceId, signal, onStarted, { drainOnError: true })
       } finally { engine.dispose() }
     }
   }))
@@ -100,7 +100,7 @@ export function useLiveConversation(args: Arguments) {
         return { config: saved, source, settings: structuredClone(latest.current.settings) }
       }, (prepared) => {
         if (!prepared) return
-        session.current = { capture: prepared.source, settings: prepared.settings, profileName: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)?.name ?? 'Conversazione' }
+        session.current = { capture: prepared.source, settings: prepared.settings, profileName: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)?.name ?? 'Conversazione', language: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)!.language }
         controller.start(prepared.config, opening, options)
       })
     } catch (reason) { if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(reason instanceof Error ? reason.message : String(reason)) }

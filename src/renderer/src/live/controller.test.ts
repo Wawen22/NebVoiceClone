@@ -11,7 +11,7 @@ const frame = (voice = false): Uint8Array => {
   if (voice) { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length; i += 2) view.setInt16(i, 3000, true) }
   return pcm
 }
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r }); return { promise, resolve } }
+function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j }); return { promise, resolve, reject } }
 function setup() {
   let now = 0
   const requests: LiveTurnRequest[] = [], signals: AbortSignal[] = []
@@ -27,13 +27,118 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('publishes and updates the unanswered transcript before voice, without duplicating the request or chat', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve({ ...decision(), action: 'wait', text: '', transcript: 'How do you' }); await settle()
+    expect(h.controller.snapshot.history[0].text).toBe('How do you')
+    const id = h.controller.snapshot.history[0].id
+    h.feed(8, true); h.feed(25)
+    expect(h.requests[1].history).toEqual([])
+    h.replies[1].resolve({ ...decision(), transcript: 'How do you debug this?' }); await settle(); h.feed(3)
+    expect(h.controller.snapshot.phase).toBe('preparing-voice')
+    expect(h.controller.snapshot.history).toHaveLength(1)
+    expect(h.controller.snapshot.history[0]).toMatchObject({ id, text: 'How do you debug this?' })
+    h.plays[0].start(); expect(h.controller.snapshot.history.map((item) => item.role)).toEqual(['interlocutor', 'neb'])
+  })
+
+  it('stays listening during several minutes spent reading code', () => {
+    const h = setup(); h.controller.start(config, false); h.feed(1800)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.requests).toEqual([])
+  })
+
+  it('tolerates a short packet delivery gap without inventing end-of-turn silence', () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.advance(2200)
+    expect(h.controller.snapshot.phase).toBe('listening'); expect(h.requests).toHaveLength(0)
+    h.feed(10, true); h.feed(25)
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0].audioPcm!.length).toBeGreaterThan(20 * 3200)
+  })
+
+  it('retries voice initialization once without a second Qwen call or duplicate transcript', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    h.plays[0].done.reject(new Error('Gemini temporary failure')); await settle()
+    expect(h.controller.snapshot.phase).toBe('ready')
+    expect(h.plays[0].signal.aborted).toBe(true)
+    expect(h.plays[0].start()).toBe(false)
+    h.feed(18)
+    expect(h.plays).toHaveLength(2); expect(h.requests).toHaveLength(1)
+    expect(h.plays[1].text).toBe(h.plays[0].text)
+    h.plays[1].start(); h.plays[1].done.resolve(); await settle()
+    expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.snapshot.turns).toBe(1)
+    expect(h.controller.snapshot.history).toHaveLength(2)
+  })
+
+  it('bounds voice failures, preserves the question, and lets Stop cancel a queued recovery', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    h.plays[0].done.reject(new Error('Temporary failure')); await settle(); h.feed(18)
+    h.plays[1].done.reject(new Error('Still unavailable')); await settle(); h.feed(30)
+    expect(h.plays).toHaveLength(2); expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.history).toHaveLength(1)
+    h.controller.resume(); h.controller.respondNow()
+    expect(h.requests[1].audioPcm).toEqual(h.requests[0].audioPcm)
+    h.replies[1].resolve(decision()); await settle(); h.feed(3)
+    h.plays[2].done.reject(new Error('Temporary failure')); await settle()
+    h.controller.stop(); h.feed(30)
+    expect(h.plays).toHaveLength(3); expect(h.controller.snapshot.phase).toBe('stopped')
+  })
+
+  it('recovers a pre-audio voice timeout once and suppresses its obsolete stream', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.feed(600)
+    expect(h.controller.snapshot.phase).toBe('ready')
+    expect(h.plays[0].signal.aborted).toBe(true); expect(h.plays[0].start()).toBe(false)
+    h.feed(18); expect(h.plays).toHaveLength(2)
+    h.feed(600); expect(h.controller.snapshot.phase).toBe('paused')
+  })
+
+  it('returns to listening after a partially spoken provider failure and never replays it', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.plays[0].start()
+    h.plays[0].done.reject(new Error('Gemini stream ended unexpectedly')); await settle(); h.feed(50)
+    expect(h.controller.snapshot.phase).toBe('listening'); expect(h.plays).toHaveLength(1)
+    expect(h.controller.snapshot.history.at(-1)?.partial).toBe(true)
+    h.feed(10, true); h.feed(25)
+    expect(h.requests[1].history.at(-1)?.partial).toBe(true)
+  })
+
+  it('does not interrupt playing voice on sparse noise bursts', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(3); h.plays[0].start()
+    for (let i = 0; i < 5; i++) { h.feed(1, true); h.feed(2) }
+    expect(h.controller.snapshot.phase).toBe('speaking')
+    expect(h.plays[0].signal.aborted).toBe(false)
+    h.feed(12, true)
+    expect(h.controller.snapshot.phase).toBe('listening'); expect(h.plays[0].signal.aborted).toBe(true)
+  })
+
+  it('completes sixty turns over half an hour with bounded recovery, unique transcripts and no unsolicited pauses', async () => {
+    const h = setup(); h.controller.start({ ...config, limits: { durationMinutes: 45, maxTurns: 100, maxCostUsd: 5 } }, false)
+    for (let i = 0; i < 60; i++) {
+      h.feed(210); h.feed(50, true); h.feed(25)
+      h.replies[i].resolve({ ...decision(`Answer ${i}`), transcript: `Question ${i}` }); await settle(); h.feed(3)
+      if (i % 10 === 0) { h.plays.at(-1)!.done.reject(new Error('Transient voice failure')); await settle(); h.feed(18) }
+      const play = h.plays.at(-1)!; expect(play.start()).toBe(true)
+      h.feed(20); play.done.resolve(); await settle()
+      expect(h.controller.snapshot.phase).toBe('listening')
+    }
+    expect(h.controller.snapshot.turns).toBe(60)
+    expect(h.controller.snapshot.history).toHaveLength(120)
+    expect(new Set(h.controller.snapshot.history.map((item) => item.id)).size).toBe(120)
+    expect(h.controller.snapshot.log.filter((item) => item.kind === 'pause')).toHaveLength(0)
+    expect(h.controller.snapshot.log.at(-1)!.atMs).toBeGreaterThan(30 * 60000)
+  })
+
   it.each(['', 'Come affronti il debugging?'])('keeps unanswered audio for a manual retry before automatic recovery: %j', async (transcript) => {
     const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
     const originalAudio = h.requests[0].audioPcm
     h.replies[0].resolve({ action: 'wait', transcript, text: '', reason: 'Correzione incompleta', costUsd: null, knownCostUsd: 0.004, repairAttempted: true, retryable: true, qwenMs: 200 })
     await settle(); h.feed(20)
     expect(h.controller.snapshot.phase).toBe('listening')
-    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.controller.snapshot.history).toHaveLength(transcript ? 1 : 0)
     expect(h.controller.snapshot.costUsd).toBe(0.004)
     expect(h.controller.snapshot.costKnown).toBe(false)
     expect(h.requests).toHaveLength(1)
@@ -105,7 +210,7 @@ describe('NEB Live free conversation', () => {
     h.plays[0].done.resolve(); await settle(); h.feed(1)
     expect(h.requests[1].materials).toEqual([material])
     expect(h.controller.snapshot.turns).toBe(0)
-    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.controller.snapshot.history.map((item) => item.role)).toEqual(['interlocutor'])
   })
 
   it('lets active speech finish and then analyzes newly added material against the last question', async () => {
@@ -187,14 +292,14 @@ describe('NEB Live free conversation', () => {
     expect(h.plays[0].start()).toBe(true)
   })
 
-  it('retains an unanswered question across provider timeout and manual retry after resume', async () => {
+  it('retains an unanswered question across provider timeout and retries once without pausing', async () => {
     const h = setup(); h.controller.start(config, false)
     h.feed(100, true); h.feed(25)
     const first = h.requests[0].audioPcm!
     h.feed(410)
-    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.phase).toBe('listening')
     expect(h.signals[0].aborted).toBe(true)
-    h.controller.resume(); h.controller.respondNow()
+    h.feed(50)
     expect(h.requests).toHaveLength(2)
     expect(h.requests[1].endOfTurn).toBe(true)
     expect(h.requests[1].audioPcm!.length).toBe(first.length)
@@ -221,7 +326,7 @@ describe('NEB Live free conversation', () => {
     expect(h.requests[0].profile.context).toBe('Sviluppo')
     h.replies[0].resolve(decision()); await settle(); h.feed(3)
     expect(h.plays).toHaveLength(1)
-    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.controller.snapshot.history.map((item) => item.role)).toEqual(['interlocutor'])
     expect(h.plays[0].start()).toBe(true)
     expect(h.controller.snapshot.history.map((item) => item.role)).toEqual(['interlocutor', 'neb'])
     h.plays[0].done.resolve(); await settle()
@@ -248,7 +353,7 @@ describe('NEB Live free conversation', () => {
     h.feed(30); expect(h.requests).toHaveLength(1)
     h.feed(5, true); h.feed(25)
     expect(h.requests[1].audioPcm!.length).toBeGreaterThan(previousBytes)
-    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.controller.snapshot.history).toHaveLength(1)
   })
 
   it('invalidates a pending response when speech resumes', async () => {
@@ -299,7 +404,7 @@ describe('NEB Live free conversation', () => {
   })
 
   it('pauses on packet loss instead of interpreting missing audio as silence', () => {
-    const h = setup(); h.controller.start(config, false); h.feed(5, true); h.advance(1600)
+    const h = setup(); h.controller.start(config, false); h.feed(5, true); h.advance(5100)
     expect(h.controller.snapshot.phase).toBe('paused'); expect(h.requests).toHaveLength(0)
   })
 

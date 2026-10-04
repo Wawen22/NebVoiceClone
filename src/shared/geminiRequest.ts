@@ -15,6 +15,7 @@ export function parseSynthesisRequest(value: unknown): SynthesisRequest {
     if (!isReplicatedVoiceId(voice.voiceId)) throw new Error('Invalid Gemini voice.')
   } else throw new Error('Invalid Gemini voice.')
   if (request.style !== undefined && (typeof request.style !== 'string' || request.style.length > 120)) throw new Error('Invalid speech style.')
+  if (request.language !== undefined && !['en', 'it', 'ar'].includes(request.language as string)) throw new Error('Invalid speech language.')
   return request as unknown as SynthesisRequest
 }
 
@@ -32,6 +33,6 @@ export function buildGeminiTtsRequest(request: SynthesisRequest) {
       }]
     }],
     response_format: { type: 'audio' as const },
-    generation_config: { speech_config: [{ voice: voice.voiceId }] }
+    generation_config: { speech_config: [{ voice: voice.voiceId, ...(valid.language ? { language: valid.language } : {}) }] }
   }
 }

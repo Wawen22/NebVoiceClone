@@ -30,7 +30,8 @@ export class LiveController {
   private proposal: LiveDecision | null = null
   private proposalAt = 0
   private phaseAt = 0
-  private listeningAt = 0
+  private remoteTurnId: string | null = null
+  private voiceRetries = 0
   private lastPacketAt = 0
   private lastPublishAt = 0
   private frames: Uint8Array[] = []
@@ -84,7 +85,7 @@ export class LiveController {
     this.cancel(); this.session++
     const now = this.dependencies.now()
     this.snapshot = { phase: 'idle', message: '', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: now, materials: this.snapshot.materials }
-    this.lastPacketAt = this.listeningAt = now
+    this.lastPacketAt = now
     this.resetAudio()
     this.log('session', `Conversazione avviata · ${this.profile.name}.`)
     this.phase('listening', 'Ascolto l’interlocutore.')
@@ -112,7 +113,7 @@ export class LiveController {
         this.voiceVersion++
         if (['thinking', 'ready', 'preparing-voice'].includes(this.snapshot.phase)) {
           this.cancel(); this.log('resumed', 'L’interlocutore parla: risposta precedente scartata.'); this.phase('listening', 'L’interlocutore continua · ascolto.')
-        } else if (this.snapshot.phase === 'speaking' && this.audioMs - this.segmentStartMs >= 1200) {
+        } else if (this.snapshot.phase === 'speaking' && this.voiceFrames >= 12 && this.audioMs - this.segmentStartMs >= 1200) {
           this.cancel(); this.log('interruption', 'L’interlocutore ha interrotto NEB.'); this.phase('listening', 'Interruzione · ascolto l’interlocutore.')
         }
       }
@@ -135,15 +136,20 @@ export class LiveController {
     if (!this.active) return
     const now = this.dependencies.now()
     if (!this.withinLimits()) return
-    if (now - this.lastPacketAt > 1500) { this.pause('Flusso audio assente: riavvia l’ascolto della scheda.'); return }
-    if (this.snapshot.phase === 'thinking' && now - this.phaseAt >= this.reasoningTimeoutMs) { this.pause(`Qwen non ha risposto entro ${this.reasoningTimeoutMs / 1000} secondi. La domanda è conservata: riprendi e premi Rispondi ora.`, true); return }
-    if (this.snapshot.phase === 'preparing-voice' && now - this.phaseAt >= 60000) { this.pause('La voce non ha prodotto audio entro 60 secondi.', true); return }
+    if (now - this.lastPacketAt > 5000) { this.pause('Flusso audio assente da 5 secondi: riavvia l’ascolto della scheda.', true); return }
+    // A short delivery gap is neither a disconnect nor observed end-of-turn silence.
+    if (now - this.lastPacketAt > 1500) return
+    if (this.snapshot.phase === 'thinking' && now - this.phaseAt >= this.reasoningTimeoutMs) { this.recoverReason(`Qwen non ha risposto entro ${this.reasoningTimeoutMs / 1000} secondi.`); return }
+    if (this.snapshot.phase === 'preparing-voice' && now - this.phaseAt >= this.options.responseTimeoutMs) {
+      const pending = this.proposal
+      if (pending) this.recoverVoice(pending, 'La voce non ha prodotto audio entro il tempo previsto.')
+      return
+    }
     if (this.snapshot.phase === 'listening') {
       if (this.voiceVersion > this.analyzedVersion && this.audioMs - this.lastVoiceMs >= this.options.silenceMs) void this.reason(false)
       else if (this.waitingAt !== null && !this.waitRechecked && now - this.waitingAt >= 5000 && this.audioMs - this.lastVoiceMs >= 8000) {
         this.log('end-of-turn', 'Silenzio prolungato: rivaluto la domanda senza attendere nuovo audio.'); void this.reason(false, true)
       }
-      else if (now - this.listeningAt >= this.options.responseTimeoutMs && (this.voiceVersion === this.analyzedVersion || this.audioMs - this.lastVoiceMs >= this.options.silenceMs)) this.pause('Nessun intervento concluso: riprendi quando la conversazione è pronta.', this.canRespond)
     } else if (this.snapshot.phase === 'ready' && this.proposal && now - this.proposalAt >= 300 && this.audioMs - this.lastVoiceMs >= this.options.silenceMs) {
       const proposal = this.proposal; this.proposal = null; void this.speak(proposal)
     }
@@ -158,7 +164,7 @@ export class LiveController {
     if (this.snapshot.phase !== 'paused' || !this.withinLimits()) return
     if (!this.retryableAudio) this.resetAudio()
     else { this.analyzedVersion = this.voiceVersion; this.waitingAt = null; this.waitRechecked = true; this.retryableAudio = false }
-    this.listeningAt = this.lastPacketAt = this.dependencies.now()
+    this.lastPacketAt = this.dependencies.now()
     this.log('resume', 'Ascolto ripreso; nessuna risposta ripetuta automaticamente.'); this.phase('listening', 'Ascolto ripreso.')
   }
   updateLimits(value: LiveLimits): void {
@@ -205,7 +211,7 @@ export class LiveController {
     this.phase('thinking', opening ? 'Preparo una presentazione nel tuo stile…' : visualOnly ? 'Qwen analizza gli allegati e l’ultima domanda…' : `Domanda acquisita · ${(pcm.length / 32000).toFixed(1)} s. Qwen prepara la risposta…`)
     try {
       const result = await this.dependencies.decide({ requestId: `live-${session}-${token}`, profile: { ...this.profile }, background: this.config.background, persona: this.config.persona,
-        history: this.snapshot.history.slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : visualOnly ? { visualOnly: true } : { audioPcm: pcm }), ...(endOfTurn ? { endOfTurn: true } : {}), ...(this.snapshot.materials.length ? { materials: [...this.snapshot.materials] } : {}) }, operation.signal)
+        history: this.snapshot.history.filter((item) => visualOnly || item.id !== this.remoteTurnId).slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : visualOnly ? { visualOnly: true } : { audioPcm: pcm }), ...(endOfTurn ? { endOfTurn: true } : {}), ...(this.snapshot.materials.length ? { materials: [...this.snapshot.materials] } : {}) }, operation.signal)
       if (session !== this.session) return
       if (result.costUsd === null || !Number.isFinite(result.costUsd) || result.costUsd < 0) {
         if (this.snapshot.costKnown) this.log('accounting', 'Costo OpenRouter parziale: alcuni importi non sono disponibili. Il budget controlla soltanto i costi ricevuti.')
@@ -218,10 +224,10 @@ export class LiveController {
       if (result.repairAttempted) this.log('repair', `Decisione Qwen incompleta: ${result.validationIssue ?? 'correzione tentata sulla stessa domanda.'}`)
       if (!accepted) { if (this.active) this.withinLimits(); this.publish(); return }
       this.operation = null
+      if (result.transcript.trim()) this.showTranscript(result.transcript)
       if (!this.withinLimits()) return
       if (result.action === 'pause') { this.pause(result.reason, true); return }
       if (result.action === 'wait') {
-        this.listeningAt = this.dependencies.now()
         if (result.retryable) {
           this.waitingAt = this.voiceVersion > 0 && this.bytes > 0 && !this.waitRechecked ? this.dependencies.now() : null
           this.phase('listening', this.waitingAt !== null ? 'Qwen non ha completato la risposta · riprovo automaticamente dopo il silenzio.' : 'Qwen non ha completato la risposta · domanda conservata. Premi Rispondi ora o continua a parlare.')
@@ -233,10 +239,10 @@ export class LiveController {
         return
       }
       if (result.action === 'complete') {
-        if (result.transcript) this.addHistory('interlocutor', result.transcript)
         this.phase('completed', 'Conversazione conclusa.'); return
       }
       if (result.action !== 'speak' || !result.text.trim() || !opening && !visualOnly && !result.transcript.trim()) { this.pause('Risposta Qwen non valida.'); return }
+      this.voiceRetries = 0
       this.proposal = result; this.proposalAt = this.dependencies.now(); this.snapshot.nextText = result.text
       this.phase('ready', 'Risposta pronta · verifico che l’interlocutore abbia finito.')
     } catch (error) {
@@ -248,13 +254,13 @@ export class LiveController {
     if (!this.withinLimits()) return
     const token = ++this.serial
     const operation = new AbortController(); this.operation = operation
+    this.proposal = decision
     this.snapshot.nextText = decision.text
     this.phase('preparing-voice', 'Preparo la tua voce…')
     try {
       await this.dependencies.speak(decision.text, operation.signal, () => {
         if (token !== this.serial || operation.signal.aborted || !this.active) return false
         if (this.audioMs - this.lastVoiceMs < this.options.silenceMs) { this.cancel(); this.phase('listening', 'L’interlocutore sta parlando · attendo.'); return false }
-        if (decision.transcript) this.addHistory('interlocutor', decision.transcript)
         this.playing = this.addHistory('neb', decision.text)
         this.snapshot.turns++
         this.resetAudio()
@@ -262,14 +268,42 @@ export class LiveController {
         return true
       })
       if (token !== this.serial || operation.signal.aborted) return
-      this.playing = null; this.operation = null; this.snapshot.nextText = ''
+      this.playing = null; this.operation = null; this.proposal = null; this.snapshot.nextText = ''
       if (this.audioMs - this.lastVoiceMs > 300) this.resetAudio()
-      this.listeningAt = this.dependencies.now()
       this.phase('listening', 'Ascolto l’interlocutore.')
       this.withinLimits()
     } catch (error) {
-      if (token === this.serial && !operation.signal.aborted) this.pause(error instanceof Error ? error.message : 'Generazione della voce non riuscita.', this.snapshot.phase === 'preparing-voice')
+      if (token === this.serial && !operation.signal.aborted) this.recoverVoice(decision, error instanceof Error ? error.message : 'Generazione della voce non riuscita.')
     }
+  }
+
+  private recoverReason(message: string): void {
+    this.cancel(); this.log('reasoning-error', message)
+    if (!this.bytes || !this.voiceVersion) { this.pause(message, true); return }
+    this.waitingAt = this.waitRechecked ? null : this.dependencies.now()
+    this.phase('listening', this.waitingAt !== null ? 'Qwen non è disponibile · domanda conservata, riprovo dopo il silenzio.' : 'Qwen non è disponibile · domanda conservata. Premi Rispondi ora o continua a parlare.')
+  }
+
+  private showTranscript(text: string): void {
+    const existing = this.snapshot.history.find((item) => item.id === this.remoteTurnId)
+    if (existing) this.snapshot.history = this.snapshot.history.map((item) => item.id === existing.id ? { ...item, text } : item)
+    else this.remoteTurnId = this.addHistory('interlocutor', text).id
+  }
+
+  private recoverVoice(decision: LiveDecision, message: string): void {
+    const started = this.playing !== null
+    this.cancel()
+    this.log('voice-error', message)
+    if (started) {
+      // Already heard speech must never restart from the beginning.
+      this.phase('listening', 'Voce interrotta · risposta segnata come parziale, ascolto la prossima domanda.')
+      this.withinLimits()
+    } else if (this.voiceRetries < 1 && !/invalid|not available|unavailable|configura|non disponibile|uscita|device|rejected|select a voice/i.test(message)) {
+      this.voiceRetries++
+      this.proposal = decision; this.proposalAt = this.dependencies.now() + 1500
+      this.snapshot.nextText = decision.text
+      this.phase('ready', 'La voce non è arrivata · riprovo una volta senza rielaborare la domanda.')
+    } else this.pause(message, true)
   }
 
   private addHistory(role: LiveHistoryItem['role'], text: string): LiveUtterance {
@@ -282,7 +316,7 @@ export class LiveController {
     if (this.playing) { this.snapshot.history = this.snapshot.history.map((item) => item.id === this.playing?.id ? { ...item, partial: true } : item); this.log('partial', 'Intervento NEB interrotto; testo pronunciato solo in parte.'); this.playing = null }
     this.proposal = null; this.snapshot.nextText = ''
   }
-  private resetAudio(): void { this.frames = []; this.bytes = 0; this.preRoll = []; this.audioMs = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity; this.voiceVersion = 0; this.analyzedVersion = 0; this.trailingFrames = 0; this.waitingAt = null; this.waitRechecked = false; this.retryableAudio = false }
+  private resetAudio(): void { this.remoteTurnId = null; this.frames = []; this.bytes = 0; this.preRoll = []; this.audioMs = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity; this.voiceVersion = 0; this.analyzedVersion = 0; this.trailingFrames = 0; this.waitingAt = null; this.waitRechecked = false; this.retryableAudio = false }
   private phase(phase: LivePhase, message: string): void { this.snapshot.phase = phase; this.snapshot.message = message; this.phaseAt = this.dependencies.now(); this.publish() }
   private log(kind: string, text: string, details: Partial<LiveLog> = {}): void { this.snapshot.log = [...this.snapshot.log, { atMs: Math.max(0, this.dependencies.now() - this.snapshot.startedAt), kind, text, ...details }].slice(-500) }
   private publish(): void { this.lastPublishAt = this.dependencies.now(); this.dependencies.changed({ ...this.snapshot }) }

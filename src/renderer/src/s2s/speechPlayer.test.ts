@@ -53,3 +53,30 @@ it('suppresses the first audio chunk if Outlier resumes before playback starts',
   expect(f.samples).toEqual([])
   expect(f.cancelled()).toBe(1)
 })
+
+it('drains queued Live audio on a provider failure before reporting a partial response', async () => {
+  const f = fixture()
+  f.api.synthesizeStream = async (_request, onChunk) => { onChunk(new Uint8Array([1, 2])); throw new Error('Provider stream failed') }
+  let finished = false
+  const playing = streamS2SSpeech(f.api, f.engine, request, 'cable', new AbortController().signal, () => true, { drainOnError: true }).finally(() => { finished = true })
+  const rejected = expect(playing).rejects.toThrow('Provider stream failed')
+  await flush()
+  expect(f.samples).toEqual([1, 2]); expect(f.stopped()).toBe(0); expect(finished).toBe(false)
+  f.end(); await rejected
+  expect(finished).toBe(true)
+})
+
+it('still honors Stop immediately while draining a failed Live stream', async () => {
+  const f = fixture(), abort = new AbortController()
+  f.api.synthesizeStream = async (_request, onChunk) => { onChunk(new Uint8Array([1, 2])); throw new Error('Provider stream failed') }
+  const playing = streamS2SSpeech(f.api, f.engine, request, 'cable', abort.signal, () => true, { drainOnError: true })
+  const rejected = expect(playing).rejects.toThrow('interrotta')
+  await flush(); abort.abort(); await rejected
+  expect(f.stopped()).toBeGreaterThan(0)
+})
+
+it('reports a provider failure before any audio without waiting for playback', async () => {
+  const f = fixture()
+  f.api.synthesizeStream = async () => { throw new Error('No audio') }
+  await expect(streamS2SSpeech(f.api, f.engine, request, 'cable', new AbortController().signal, () => true, { drainOnError: true })).rejects.toThrow('No audio')
+})

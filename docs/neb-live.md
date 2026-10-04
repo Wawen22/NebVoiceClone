@@ -138,7 +138,10 @@ JSON include il testo degli snippet e i metadati delle immagini, senza i loro by
   Voce manuale, Automatico S2S, inserimento Outlier e impostazioni voce sono bloccati
   durante una sessione attiva o in pausa.
 - **Esporta JSON** salva transcript, eventi e tempi osservati. Audio e transcript
-  non vengono salvati automaticamente. Il testo NEB appare quando la riproduzione
+  non vengono salvati automaticamente. La trascrizione dell’interlocutore compare
+  appena Qwen l’ha riconosciuta, prima della preparazione della voce. Una domanda
+  parziale viene aggiornata nello stesso messaggio, senza duplicarla nelle riprese.
+  Il testo NEB appare quando la riproduzione
   comincia; se interrotto, il testo completo è etichettato **parziale** e può includere
   parole che non sono state effettivamente pronunciate.
 
@@ -150,7 +153,18 @@ non sono salvati nei profili. Il ritardo totale comprende tutte queste fasi. Una
 lunga può essere scambiata per fine turno; brevi intercalari mantengono l'ascolto
 quando Qwen li riconosce come intervento incompleto. Durante NEB, 1,2 secondi di
 parlato remoto continuativo interrompono la risposta; brevi cenni vengono ignorati.
+I silenzi lunghi, per esempio mentre leggi codice, mantengono l’ascolto attivo
+entro i limiti configurati. Un ritardo nella consegna dei pacchetti inferiore a
+5 secondi non mette in pausa e non viene scambiato per silenzio di fine domanda.
 Non è una trascrizione o interpretazione streaming durante il parlato.
+
+La lingua esplicita del profilo prevale su persona e background: con Inglese,
+Qwen deve generare solo inglese e Gemini riceve `language=en` e istruzioni vocali
+in inglese, con lettura fedele senza traduzioni o aggiunte. Un controllo conservativo intercetta frasi chiaramente nell’altra lingua
+e tenta una correzione prima di autorizzare il parlato; non è un rilevatore
+universale di lingue o accenti. La domanda resta
+trascritta nella lingua originale. Con Segui l’interlocutore la voce segue il testo.
+La lingua è fissata all’avvio della sessione, insieme al profilo e alla voce.
 
 Se Qwen risponde `wait` dopo aver trascritto parlato, NEB rivaluta una volta la
 stessa domanda dopo almeno 8 secondi di silenzio ricevuto e 5 secondi dalla
@@ -184,8 +198,10 @@ e 5 secondi dalla decisione. Questo equivale a **Rispondi ora**, che resta
 disponibile anche prima del tentativo automatico. Non avvia ulteriori richieste
 in ciclo sulla stessa domanda; nuovo parlato permette una nuova rivalutazione.
 La verifica e il motivo originale restano consultabili negli
-eventi della sessione. Errori di connessione, provider, durata, audio assente e
-limiti continuano a mettere in pausa secondo le regole precedenti.
+eventi della sessione. Gli errori temporanei di rete o provider, rate limit e
+timeout Qwen conservano la domanda e usano la stessa rivalutazione automatica
+limitata a un tentativo. Errori permanenti di configurazione/accesso restano
+espliciti e mettono in pausa; annullamenti e Stop impediscono risposte tardive.
 
 Il silenzio finale viene ridotto a 300 ms nell'audio inviato a Qwen, mantenendo
 il parlato e la pausa locale scelta. Il buffer non cresce con il silenzio mentre
@@ -201,7 +217,14 @@ timeout Qwen da 35 a 90 secondi, calcolato dalla durata dell'audio
 (almeno 60 secondi quando sono presenti immagini),
 e 60 secondi al primo audio Gemini. L'ultimo intervento permesso può finire prima
 della pausa per limite turni; il limite di durata può interrompere il parlato.
-Un flusso mancante, un errore del provider o una risposta non valida mettono in pausa.
+Se Gemini fallisce prima del primo audio, NEB riprova una volta la stessa risposta
+dopo un breve intervallo, senza una nuova richiesta Qwen. Il secondo errore,
+oppure un errore permanente di configurazione, mette in pausa. Se Gemini perde
+il flusso dopo l’inizio del parlato, l’audio già ricevuto finisce, la risposta
+viene segnata come parziale e NEB torna ad ascoltare senza ripeterla da capo.
+Stop, Pausa e nuovo parlato possono sempre annullare la riproduzione o il tentativo
+in attesa; un nuovo tentativo vocale può avere un costo Gemini.
+Un flusso di cattura assente da oltre 5 secondi mette in pausa conservando la domanda.
 Il motivo originale resta visibile e **Riprendi ascolto** permette di riprovare
 con un nuovo intervento o **Rispondi ora** sulla domanda conservata, anche se
 la richiesta fallita non ha riportato il costo.
@@ -304,3 +327,10 @@ Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smok
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene
 attivi i timer anche quando minimizzata.
+
+I test automatici verificano anche trascrizione visibile prima del primo audio,
+priorità della lingua in testo e voce, aggiornamento senza doppioni, silenzi
+prolungati, brevi ritardi di cattura, recupero limitato prima del parlato e Stop
+durante il recupero. Una simulazione con tempo controllato copre 60 turni in oltre
+30 minuti e sei errori vocali temporanei; non sostituisce una prova con dispositivi
+e provider reali per tutta la durata della conversazione.

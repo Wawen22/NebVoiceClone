@@ -1,3 +1,4 @@
+/* global fixture */
 // NEB Live browser smoke: synthetic PCM, IPC and TTS; no keys or provider calls.
 import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
@@ -101,6 +102,8 @@ try {
       cancelS2SSimulationReply: async () => {},
       synthesizeStream: async (request, onChunk) => {
         fixture.spoken.push(request.text)
+        fixture.speechRequests ??= []; fixture.speechRequests.push(request)
+        if (fixture.holdLiveVoice) await new Promise((resolve) => { fixture.releaseLiveVoice = resolve })
         if (request.voice.voiceId === 'Kore' && fixture.holdUserVoice) await new Promise((resolve) => { fixture.releaseUserVoice = resolve })
         if (request.voice.voiceId === 'Puck' && fixture.holdVoice) await new Promise((resolve) => { fixture.releaseVoice = resolve })
         const code = 2000 + fixture.spoken.length
@@ -159,7 +162,7 @@ try {
   await page.getByRole('button', { name: 'Aggiungi profilo', exact: true }).click()
   await page.locator('#neb-live-name').fill('Intervista personale')
   await page.locator('#neb-live-context').fill('Domande tecniche e approfondimenti')
-  await page.locator('#neb-live-language').selectOption('it')
+  await page.locator('#neb-live-language').selectOption('en')
   await page.locator('#neb-live-pace').selectOption('1500')
   await page.getByRole('tab', { name: 'Dettagli', exact: true }).click()
   await page.locator('#neb-live-duration').fill('45')
@@ -179,7 +182,13 @@ try {
   assert.equal(await page.locator('#neb-live-name').isDisabled(), true)
   assert.equal(await page.locator('#neb-live-duration').isDisabled(), true)
   assert(await page.locator('.neb-live-session-meta').innerText().then((text) => text.includes('/ 100 turni')))
-  await page.evaluate(() => fixture.voice(5))
+  await page.evaluate(() => { fixture.holdLiveVoice = true; fixture.voice(5) })
+  await page.waitForFunction(() => fixture.releaseLiveVoice !== undefined)
+  assert.equal(await page.locator('.neb-live-turn-interlocutor').count(), 1, 'remote transcript is visible while the voice has not started')
+  assert.equal(await page.locator('.neb-live-turn-neb').count(), 0, 'NEB text is not presented as already spoken during preparation')
+  assert.equal(await page.evaluate(() => fixture.speechRequests.at(-1).language), 'en')
+  assert(await page.evaluate(() => fixture.speechRequests.at(-1).style.includes('English only')))
+  await page.evaluate(() => { fixture.holdLiveVoice = false; fixture.releaseLiveVoice() })
   await page.waitForFunction(() => document.querySelector('.neb-live-turn-neb')?.textContent.includes('Partirei dal problema concreto'), { timeout: 10000 })
   assert.equal(await page.evaluate(() => fixture.liveRequests[0].profile.name), 'Intervista personale')
   assert.equal(await page.evaluate(() => fixture.liveRequests[0].profile.context), 'Domande tecniche e approfondimenti')

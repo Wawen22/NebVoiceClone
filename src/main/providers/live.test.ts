@@ -50,7 +50,7 @@ it('gives long questions more transcription time and tokens and passes explicit 
 
 it('reports a truncated long response explicitly instead of losing it in a generic parse error', async () => {
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"action":"speak"' } }], usage: { cost: 0.007 } })))
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.007, reason: expect.stringContaining('troncata') })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'wait', retryable: true, text: '', costUsd: 0.007, reason: expect.stringContaining('troncata') })
 })
 
 it('keeps supplied transcripts authoritative and supports opening without audio', async () => {
@@ -144,13 +144,13 @@ it('suppresses playback if cancelled during the cost lookup', async () => {
   expect(await generateLiveTurn(request, { apiKey: 'test', signal: abort.signal })).toMatchObject({ action: 'pause', text: '', costUsd: 0.003 })
 })
 
-it('pauses when transport fails or provider reports an error with usage', async () => {
+it('retains transient transport and provider failures for bounded recovery', async () => {
   vi.stubGlobal('fetch', async () => { throw new Error('network failed') })
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: null })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'wait', retryable: true, text: '', costUsd: null })
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'error', error: { message: 'upstream failed' }, message: { content: JSON.stringify(decision) } }], usage: { cost: 0.003 } })))
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.003 })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'wait', retryable: true, text: '', costUsd: 0.003 })
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: { message: 'rate limited' }, usage: { cost: 0.004 } }), { status: 429 }))
-  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.004 })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'wait', retryable: true, text: '', costUsd: 0.004 })
 })
 
 it('preserves known cost when cancellation happens during response decoding', async () => {
@@ -240,4 +240,33 @@ it('accepts a single wrapped decision but never guesses among several returned c
 it('analyzes material without fabricating an interlocutor transcript when no new audio is supplied', async () => {
   vi.stubGlobal('fetch', async () => reply({ ...decision, transcript: 'Invented question' }))
   expect(await generateLiveTurn({ ...request, audioPcm: undefined, visualOnly: true, materials: [{ id: 'code', name: 'Snippet', kind: 'text', text: 'const n = 1', addedAt: 1 }] }, { apiKey: 'test' })).toMatchObject({ action: 'speak', transcript: '', costUsd: 0.002 })
+})
+
+it.each([400, 401, 403, 404])('pauses on permanent provider status %i instead of repeating a rejected request', async (status) => {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: { message: 'rejected' }, usage: { cost: 0 } }), { status }))
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0 })
+})
+
+it('keeps explicit English authoritative over Italian persona and the audio language', async () => {
+  let body = ''
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { body = String(init.body); return reply({ ...decision, text: 'I would inspect the logs first.' }) })
+  await generateLiveTurn({ ...request, profile: { ...request.profile, language: 'en' }, persona: 'Usa praticamente ed ehm' }, { apiKey: 'test' })
+  const system = JSON.parse(body).messages[0].content
+  expect(system).toContain('language=en significa text esclusivamente in inglese')
+  expect(system).toContain('transcript resta sempre fedele alla lingua originale')
+})
+
+it('repairs an Italian response under an English profile before any speech is authorized', async () => {
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payloads.push(JSON.parse(String(init.body))); return reply({ ...decision, text: payloads.length === 1 ? 'Guarda, quindi partirei dai log e poi userei un profiler.' : 'Well, I would inspect the logs first.' }) })
+  const result = await generateLiveTurn({ ...request, profile: { ...request.profile, language: 'en' } }, { apiKey: 'test' })
+  expect(result).toMatchObject({ action: 'speak', text: 'Well, I would inspect the logs first.', repairAttempted: true, transcript: decision.transcript })
+  expect(payloads).toHaveLength(2)
+  expect(payloads[1].messages[0].content).toContain('MANDATORY OUTPUT LANGUAGE: English')
+})
+
+it('never authorizes speech if the language correction still returns Italian', async () => {
+  vi.stubGlobal('fetch', async () => reply({ ...decision, text: 'Guarda, quindi partirei dai log e poi userei un profiler.' }))
+  const result = await generateLiveTurn({ ...request, profile: { ...request.profile, language: 'en' } }, { apiKey: 'test' })
+  expect(result).toMatchObject({ action: 'wait', text: '', retryable: true, repairAttempted: true })
 })

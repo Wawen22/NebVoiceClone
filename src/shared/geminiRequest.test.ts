@@ -15,6 +15,14 @@ describe('Gemini exact script request', () => {
     expect(payload.input[0].content[0].annotations?.[0].style).toBe(request.style)
   })
 
+  it('passes explicit language to Interactions speech_config without changing text', () => {
+    const payload = buildGeminiTtsRequest(parseSynthesisRequest({ ...request, language: 'en' }))
+    expect(payload.generation_config.speech_config[0].language).toBe('en')
+    expect(payload.input[0].content[0].text).toBe(request.text)
+    expect(() => parseSynthesisRequest({ ...request, language: 'made-up' })).toThrow('Invalid speech language')
+    expect(buildGeminiTtsRequest(parseSynthesisRequest(request)).generation_config.speech_config[0]).not.toHaveProperty('language')
+  })
+
   it('rejects malformed IPC requests before an API call', () => {
     expect(() => parseSynthesisRequest({ ...request, voice: { mode: 'prebuilt', voiceId: 'made-up' } })).toThrow('Invalid Gemini voice')
     expect(() => parseSynthesisRequest({ ...request, text: ' ' })).toThrow('Enter a script')

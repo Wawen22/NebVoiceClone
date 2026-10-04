@@ -57,6 +57,7 @@ export interface SynthesisRequest {
   text: string
   voice: VoiceReference
   style?: string
+  language?: 'en' | 'it' | 'ar'
 }
 
 export interface SynthesizedAudio {
