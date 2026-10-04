@@ -119,12 +119,13 @@ try {
     const api = window.neb
     const getConfig = api.getLiveConfig
     let config
-    fixture.liveRequests = []; fixture.saved = []; fixture.cancelled = []; fixture.holdLive = false; fixture.liveRelease = null; fixture.holdSave = false; fixture.saveRelease = null; fixture.liveCost = 0.002; fixture.liveFailure = ''
+    fixture.liveRequests = []; fixture.saved = []; fixture.cancelled = []; fixture.holdLive = false; fixture.liveRelease = null; fixture.holdSave = false; fixture.saveRelease = null; fixture.liveCost = 0.002; fixture.liveFailure = ''; fixture.liveWait = false
     api.getLiveConfig = async () => structuredClone(config ?? await getConfig())
     api.saveLiveConfig = async (value) => { if (fixture.holdSave) await new Promise((resolve) => { fixture.saveRelease = resolve }); config = structuredClone(value); fixture.saved.push(config); return config }
     api.generateLiveTurn = async (request) => {
       fixture.liveRequests.push(request)
       const reply = fixture.liveFailure ? { action: 'pause', transcript: '', text: '', reason: fixture.liveFailure, costUsd: fixture.liveCost, qwenMs: 50 }
+        : fixture.liveWait && !request.endOfTurn ? { action: 'wait', transcript: 'Come affronti il debugging?', text: '', reason: 'Intervento incompleto', costUsd: fixture.liveCost, qwenMs: 50 }
         : { action: 'speak', transcript: request.opening ? '' : 'Come affronti il debugging?', text: request.opening ? 'Ciao, sono Neb. Piacere di conoscerti.' : 'Partirei dal problema concreto e cercherei la causa.', reason: 'Turno completo', costUsd: fixture.liveCost, qwenMs: 50 }
       if (fixture.holdLive) return new Promise((resolve) => { fixture.liveRelease = () => resolve(reply) })
       return reply
@@ -257,6 +258,35 @@ try {
   await page.getByText('Scheda cambiata:', { exact: false }).waitFor()
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.screenshot({ path: path.join(artifacts, 'neb-live-config.png') })
+  await page.locator('#neb-live-opening').selectOption('listen')
+  await page.evaluate(() => { fixture.liveWait = true })
+  await start.click()
+  assert.equal(await page.getByRole('button', { name: 'Rispondi ora', exact: true }).isDisabled(), true, 'manual response requires a captured question')
+  await page.evaluate(() => fixture.voice(8))
+  await page.getByText('Intervento incompleto · ascolto;', { exact: false }).waitFor()
+  const waitedRequest = await page.evaluate(() => fixture.liveRequests.at(-1))
+  await page.waitForFunction(() => document.querySelector('.neb-live-turn-neb')?.textContent.includes('Partirei dal problema concreto'), { timeout: 15000 })
+  const recheckedRequest = await page.evaluate(() => fixture.liveRequests.at(-1))
+  assert.equal(recheckedRequest.endOfTurn, true, 'continued silence rechecks wait without new speech')
+  assert.equal(recheckedRequest.audioPcm.length, waitedRequest.audioPcm.length, 'recheck keeps the full question without accumulating extra silence')
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.evaluate(() => fixture.voice(8))
+  await page.getByText('Intervento incompleto · ascolto;', { exact: false }).waitFor()
+  const requestsBeforeManual = await page.evaluate(() => fixture.liveRequests.length)
+  await page.getByRole('button', { name: 'Rispondi ora', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-turn-neb').length === 2)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.length), requestsBeforeManual + 1)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).endOfTurn), true)
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.evaluate(() => { fixture.liveWait = false; fixture.liveFailure = 'Errore Qwen sintetico: domanda conservata'; fixture.voice(8) })
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In pausa'))
+  const failedAudioLength = await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length)
+  await page.evaluate(() => { fixture.liveFailure = '' })
+  await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).click()
+  await page.getByRole('button', { name: 'Rispondi ora', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-turn-neb').length === 3)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length), failedAudioLength, 'manual retry after provider failure retains the unanswered audio')
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
   await page.setViewportSize({ width: 620, height: 740 })
   assert(await page.locator('.neb-live').evaluate((node) => node.scrollWidth <= node.clientWidth + 1), 'Live must fit compact windows')
@@ -266,7 +296,7 @@ try {
   assert(await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight }))
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
   assert.deepEqual(errors, [])
-  console.log('NEB Live renderer smoke passed: missing-cost playback, partial-cost notice, provider error and recovery, saved duration/turn/budget limits, extension while paused preserving history, profiles, configurable pace, transcript, New conversation/reset during save and reasoning, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible configuration tabs and compact controls.')
+  console.log('NEB Live renderer smoke passed: automatic wait recheck, Respond now, retained question after failure, missing-cost playback, partial-cost notice, provider error and recovery, saved duration/turn/budget limits, extension while paused preserving history, profiles, configurable pace, transcript, New conversation/reset during save and reasoning, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible configuration tabs and compact controls.')
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

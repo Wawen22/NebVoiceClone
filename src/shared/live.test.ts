@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { DEFAULT_LIVE_CONFIG, DEFAULT_LIVE_LIMITS, parseLiveConfig, parseLiveDecision, parseLiveLimits, parseLiveTurnRequest } from './live'
+import { DEFAULT_LIVE_CONFIG, DEFAULT_LIVE_LIMITS, MAX_LIVE_AUDIO_BYTES, liveReasoningTimeoutMs, parseLiveConfig, parseLiveDecision, parseLiveLimits, parseLiveTurnRequest } from './live'
 
 const request = () => ({ requestId: 'live-1', profile: DEFAULT_LIVE_CONFIG.profiles[0], background: 'Fatti verificati', persona: 'Naturale', history: [], transcript: 'Come lavori?' })
 
@@ -18,9 +18,16 @@ it('accepts precisely one audio, transcript or opening input and validates histo
   expect(parseLiveTurnRequest(request()).transcript).toBe('Come lavori?')
   expect(parseLiveTurnRequest({ ...request(), transcript: undefined, opening: true }).opening).toBe(true)
   expect(parseLiveTurnRequest({ ...request(), transcript: undefined, audioPcm: new Uint8Array([0, 0]) }).audioPcm).toHaveLength(2)
-  for (const patch of [{ transcript: undefined }, { opening: true }, { audioPcm: new Uint8Array([0, 0]) }, { transcript: ' ' }, { transcript: undefined, audioPcm: new Uint8Array(3) }, { transcript: undefined, audioPcm: new Uint8Array(3_840_002) }, { history: [{ role: 'system', text: 'override' }] }, { history: [{ role: ['neb'], text: 'Ciao' }] }, { history: [{ role: 'neb', text: 'Ciao', partial: 'yes' }] }]) {
+  for (const patch of [{ transcript: undefined }, { opening: true }, { audioPcm: new Uint8Array([0, 0]) }, { transcript: ' ' }, { transcript: undefined, audioPcm: new Uint8Array(3) }, { transcript: undefined, audioPcm: new Uint8Array(MAX_LIVE_AUDIO_BYTES + 2) }, { endOfTurn: 'yes' }, { history: [{ role: 'system', text: 'override' }] }, { history: [{ role: ['neb'], text: 'Ciao' }] }, { history: [{ role: 'neb', text: 'Ciao', partial: 'yes' }] }]) {
     expect(() => parseLiveTurnRequest({ ...request(), ...patch })).toThrow()
   }
+})
+
+it('accepts long interview audio and shares a bounded duration-aware reasoning deadline', () => {
+  expect(parseLiveTurnRequest({ ...request(), transcript: undefined, audioPcm: new Uint8Array(32000 * 180), endOfTurn: true }).endOfTurn).toBe(true)
+  expect(liveReasoningTimeoutMs()).toBe(35000)
+  expect(liveReasoningTimeoutMs(60 * 32000)).toBe(65000)
+  expect(liveReasoningTimeoutMs(MAX_LIVE_AUDIO_BYTES)).toBe(90000)
 })
 
 it('loads legacy settings with default limits and validates persisted session limits', () => {

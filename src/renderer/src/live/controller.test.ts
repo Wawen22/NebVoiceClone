@@ -25,6 +25,86 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('does not overflow a long question with silence while waiting for reasoning or voice', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(1150, true); h.feed(25)
+    expect(h.controller.snapshot.phase).toBe('thinking')
+    h.feed(300)
+    expect(h.controller.snapshot.phase).toBe('thinking')
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays).toHaveLength(1)
+    h.feed(400)
+    expect(h.controller.snapshot.phase).toBe('preparing-voice')
+    expect(h.plays[0].start()).toBe(true)
+  })
+
+  it('lets a slow decision for a long question complete after the old 35 second timeout', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(600, true); h.feed(25); h.feed(360)
+    expect(h.controller.snapshot.phase).toBe('thinking')
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays[0].start()).toBe(true)
+  })
+
+  it('rechecks a wait decision once after continued silence, without waiting for new speech', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(100, true); h.feed(25)
+    h.replies[0].resolve({ ...decision(), action: 'wait', text: '' }); await settle()
+    h.feed(80)
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1].endOfTurn).toBe(true)
+    expect(h.requests[1].audioPcm!.length).toBe(h.requests[0].audioPcm!.length)
+    h.replies[1].resolve({ ...decision(), action: 'wait', text: '' }); await settle()
+    h.feed(100); expect(h.requests).toHaveLength(2)
+  })
+
+  it('records a three minute interviewer turn and responds when it ends', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(1800, true); h.feed(25)
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0].audioPcm!.length).toBe(1800 * 3200)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays[0].start()).toBe(true)
+  })
+
+  it('manual response reuses the buffered question and cannot overlap another decision', async () => {
+    const h = setup(); h.controller.start(config, false)
+    expect(h.controller.canRespond).toBe(false)
+    h.controller.respondNow(); expect(h.requests).toHaveLength(0)
+    h.feed(10, true); h.feed(3)
+    expect(h.controller.canRespond).toBe(true)
+    h.controller.respondNow(); h.controller.respondNow()
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0].endOfTurn).toBe(true)
+    h.replies[0].resolve(decision()); await settle(); h.feed(22)
+    expect(h.plays[0].start()).toBe(true)
+  })
+
+  it('retains an unanswered question across provider timeout and manual retry after resume', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(100, true); h.feed(25)
+    const first = h.requests[0].audioPcm!
+    h.feed(410)
+    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.signals[0].aborted).toBe(true)
+    h.controller.resume(); h.controller.respondNow()
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1].endOfTurn).toBe(true)
+    expect(h.requests[1].audioPcm!.length).toBe(first.length)
+    expect(h.requests[1].audioPcm!.every((byte, index) => byte === first[index])).toBe(true)
+    h.replies[1].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays[0].start()).toBe(true)
+  })
+
+  it('does not repeatedly analyze silence when Qwen found no actual speech', async () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(5, true); h.feed(25)
+    h.replies[0].resolve({ ...decision(), action: 'wait', text: '', transcript: '' }); await settle()
+    h.feed(100)
+    expect(h.requests).toHaveLength(1)
+    expect(h.controller.canRespond).toBe(false)
+  })
+
   it('listens first and generates a free response without any prepared line', async () => {
     const h = setup(); h.controller.start(config, false)
     expect(h.requests).toHaveLength(0)

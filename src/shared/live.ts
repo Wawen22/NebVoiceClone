@@ -1,4 +1,8 @@
-import { MAX_S2S_AUDIO_BYTES } from './s2s'
+export const MAX_LIVE_AUDIO_BYTES = 16000 * 2 * 180
+/** Longer questions need more transcription time; both processes share the deadline. */
+export function liveReasoningTimeoutMs(audioBytes = 0): number {
+  return Math.min(90_000, 35_000 + Math.ceil(audioBytes / 32000) * 500)
+}
 
 export interface LiveProfile {
   id: string
@@ -20,6 +24,7 @@ export interface LiveTurnRequest {
   audioPcm?: Uint8Array
   transcript?: string
   opening?: boolean
+  endOfTurn?: boolean
 }
 export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number }
 export interface LiveApi {
@@ -86,9 +91,10 @@ export function parseLiveConfig(value: unknown): LiveConfig {
 export function parseLiveTurnRequest(value: unknown): LiveTurnRequest {
   const v = object(value)
   if (v.opening !== undefined && typeof v.opening !== 'boolean') throw new Error('Apertura NEB Live non valida.')
-  const audio = v.audioPcm instanceof Uint8Array && v.audioPcm.length > 0 && v.audioPcm.length % 2 === 0 && v.audioPcm.length <= MAX_S2S_AUDIO_BYTES
+  if (v.endOfTurn !== undefined && typeof v.endOfTurn !== 'boolean') throw new Error('Fine turno NEB Live non valida.')
+  const audio = v.audioPcm instanceof Uint8Array && v.audioPcm.length > 0 && v.audioPcm.length % 2 === 0 && v.audioPcm.length <= MAX_LIVE_AUDIO_BYTES
   const transcript = typeof v.transcript === 'string' && v.transcript.trim().length > 0 && v.transcript.length <= 16000
-  if (!(audio && v.transcript === undefined && !v.opening || transcript && v.audioPcm === undefined && !v.opening || v.opening === true && v.audioPcm === undefined && v.transcript === undefined)) throw new Error('Audio, trascrizione o apertura NEB Live non validi (massimo 120 secondi).')
+  if (!(audio && v.transcript === undefined && !v.opening || transcript && v.audioPcm === undefined && !v.opening || v.opening === true && v.audioPcm === undefined && v.transcript === undefined)) throw new Error('Audio, trascrizione o apertura NEB Live non validi (massimo 180 secondi).')
   if (!Array.isArray(v.history) || v.history.length > 60) throw new Error('Cronologia NEB Live non valida.')
   const history = v.history.map((item): LiveHistoryItem => {
     const h = object(item)
@@ -96,7 +102,7 @@ export function parseLiveTurnRequest(value: unknown): LiveTurnRequest {
     return { role: h.role as LiveHistoryItem['role'], text: text(h.text, 16000, true), ...(h.partial !== undefined ? { partial: h.partial as boolean } : {}) }
   })
   return { requestId: text(v.requestId, 100, true), profile: parseLiveProfile(v.profile), background: text(v.background, 40000), persona: text(v.persona, 20000), history,
-    ...(audio ? { audioPcm: new Uint8Array(v.audioPcm as Uint8Array) } : {}), ...(transcript ? { transcript: v.transcript as string } : {}), ...(v.opening === true ? { opening: true } : {}) }
+    ...(audio ? { audioPcm: new Uint8Array(v.audioPcm as Uint8Array) } : {}), ...(transcript ? { transcript: v.transcript as string } : {}), ...(v.opening === true ? { opening: true } : {}), ...(v.endOfTurn !== undefined ? { endOfTurn: v.endOfTurn as boolean } : {}) }
 }
 
 export class LiveDecisionError extends Error {

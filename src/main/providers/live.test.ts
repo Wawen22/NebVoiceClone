@@ -2,12 +2,13 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { generateLiveTurn } from './live'
 import { DEFAULT_LIVE_CONFIG, type LiveTurnRequest } from '../../shared/live'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 const request: LiveTurnRequest = { requestId: 'live-1', profile: DEFAULT_LIVE_CONFIG.profiles[0], background: 'BACKGROUND VERIFIED', persona: 'PERSONA STYLE', history: [{ role: 'neb', text: 'Ciao.', partial: true }], audioPcm: new Uint8Array([0, 0, 255, 127]) }
 const decision = { action: 'speak', transcript: 'Come lavori?', text: 'Sviluppo applicazioni web.', reason: 'Domanda conclusa.' }
 interface Payload {
   model: string
   response_format: { type: string }
+  max_tokens: number
   messages: [{ content: string }, { content: string | [{ text: string }, { input_audio: { data: string } }] }]
 }
 function reply(content: unknown = decision, cost: number | null = 0.002): Response { return new Response(JSON.stringify({ choices: [{ message: { content: typeof content === 'string' ? content : JSON.stringify(content) }, finish_reason: 'stop' }], usage: { cost } })) }
@@ -31,6 +32,25 @@ it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted 
   expect(wav.readUInt32LE(24)).toBe(16000)
   expect(wav.readUInt16LE(22)).toBe(1)
   expect([...wav.subarray(44)]).toEqual([0, 0, 255, 127])
+})
+
+it('gives long questions more transcription time and tokens and passes explicit end-of-turn context', async () => {
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(new AbortController().signal)
+  let payload!: Payload
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payload = JSON.parse(String(init.body)); return reply() })
+  const result = await generateLiveTurn({ ...request, audioPcm: new Uint8Array(60 * 32000), endOfTurn: true }, { apiKey: 'test' })
+  expect(result.action).toBe('speak')
+  expect(timeout).toHaveBeenCalledWith(65000)
+  expect(payload.max_tokens).toBe(6000)
+  const user = payload.messages[1].content
+  if (typeof user === 'string') throw new Error('Expected audio message')
+  expect(JSON.parse(user[0].text).endOfTurn).toBe(true)
+  expect(payload.messages[0].content).toContain('breve domanda di chiarimento')
+})
+
+it('reports a truncated long response explicitly instead of losing it in a generic parse error', async () => {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"action":"speak"' } }], usage: { cost: 0.007 } })))
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'pause', text: '', costUsd: 0.007, reason: expect.stringContaining('troncata') })
 })
 
 it('keeps supplied transcripts authoritative and supports opening without audio', async () => {

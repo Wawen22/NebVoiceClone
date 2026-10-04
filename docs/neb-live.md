@@ -87,7 +87,13 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
   tempi e limiti sono in **Dettagli**. Nelle finestre strette il pannello copre
   temporaneamente la chat e si chiude con la X.
 - **Pausa** interrompe elaborazione e voce; **Riprendi ascolto** attende un nuovo
-  intervento senza ripetere automaticamente la risposta precedente.
+  intervento senza ripetere automaticamente la risposta precedente. Se la pausa
+  nasce da un errore Qwen o della voce prima della riproduzione, conserva l'audio
+  della domanda non ancora risposta: dopo la ripresa puoi premere **Rispondi ora**.
+- **Rispondi ora**, disponibile durante l'ascolto dopo una domanda acquisita,
+  indica al modello che il turno è finito e rielabora quell'audio. Non legge una
+  risposta preimpostata e non forza il parlato mentre l'interlocutore continua.
+  Se la richiesta è ambigua, Qwen riceve istruzioni di chiedere un chiarimento.
 - **Prendi controllo** mette in pausa. Per parlare direttamente scegli il tuo
   microfono nel sito; prima di riprendere NEB ripristina CABLE Output.
 - **Stop**, **Esc** o **Ctrl+Alt+S** fermano la sessione. Le risposte tardive non
@@ -110,20 +116,30 @@ quando Qwen li riconosce come intervento incompleto. Durante NEB, 1,2 secondi di
 parlato remoto continuativo interrompono la risposta; brevi cenni vengono ignorati.
 Non è una trascrizione o interpretazione streaming durante il parlato.
 
+Se Qwen risponde `wait` dopo aver trascritto parlato, NEB rivaluta una volta la
+stessa domanda dopo almeno 8 secondi di silenzio ricevuto e 5 secondi dalla
+decisione. Non richiede altre parole all'interlocutore. Ogni nuovo intervento
+può avere una sola rivalutazione automatica; ulteriori richieste sono manuali
+con **Rispondi ora**. Se Qwen non ha riconosciuto parole, non rivaluta rumori
+o risate. L'ulteriore richiesta può avere un costo OpenRouter.
+
 Il silenzio finale viene ridotto a 300 ms nell'audio inviato a Qwen, mantenendo
-il parlato e la pausa locale scelta. Il transcript si aggiorna separatamente dal
+il parlato e la pausa locale scelta. Il buffer non cresce con il silenzio mentre
+Qwen elabora o Gemini prepara la voce. Il transcript si aggiorna separatamente dal
 livello audio. La riproduzione Live evita la copia WAV per replay usata dalla
 console manuale: non conserva una registrazione della voce a fine turno.
 Queste ottimizzazioni riducono dati e lavoro locale; non garantiscono tempi
 inferiori del provider. I tempi Qwen osservati restano consultabili in Dettagli.
 
 Limiti iniziali modificabili: 20 minuti, 40 interventi NEB, $1 di costo OpenRouter
-osservato. Limiti tecnici: 120 secondi per intervento remoto, 35 secondi per Qwen
+osservato. Limiti tecnici: 180 secondi di audio conservato per intervento remoto;
+timeout Qwen da 35 a 90 secondi, calcolato dalla durata dell'audio
 e 60 secondi al primo audio Gemini. L'ultimo intervento permesso può finire prima
 della pausa per limite turni; il limite di durata può interrompere il parlato.
 Un flusso mancante, un errore del provider o una risposta non valida mettono in pausa.
 Il motivo originale resta visibile e **Riprendi ascolto** permette di riprovare
-con un nuovo intervento, anche se la richiesta fallita non ha riportato il costo.
+con un nuovo intervento o **Rispondi ora** sulla domanda conservata, anche se
+la richiesta fallita non ha riportato il costo.
 Le risposte valide senza costo rimangono utilizzabili: NEB tenta un recupero
 tramite i metadati della generazione OpenRouter, con attesa massima di 1,5 secondi.
 Se l'importo non è disponibile, il totale mostra **+ ?** e un avviso di costo
@@ -155,6 +171,8 @@ blocchi, azzeramento durante salvataggio o elaborazione e risposte tardive.
 Lo smoke Live verifica anche i pannelli da tastiera, lo scorrimento della chat
 e la visibilità dei comandi nelle finestre compatte, risposte con costo mancante,
 avviso di totale parziale e ripresa dopo un errore Qwen senza costo riportato.
+Verifica anche rivalutazione automatica di `wait`, **Rispondi ora** e recupero
+della domanda conservata dopo un errore del provider.
 La prova hardware su cuffie, VB-CABLE e sito reale è separata: iniziare con una
 breve conversazione di prova prima di usare una sessione lunga.
 
@@ -168,7 +186,12 @@ mono a 16 kHz ha prodotto `wait` in 2536 ms, con costo riportato $0,00001697.
 Una richiesta testuale minima è riuscita in 1217 ms. Sono controlli di disponibilità
 del provider e formato audio, senza voce umana o collegamento VB-CABLE.
 
-Verifiche finali: build e typecheck WSL passati, 255 test passati e 4 specifici
+Verifica input lungo: 180 secondi di silenzio WAV sintetico sono stati accettati
+da Qwen in 6844 ms, costo $0,00020763. Un payload di 300 secondi è stato rifiutato
+dal provider; NEB Live limita gli input a 180 secondi. Questo controllo verifica
+il formato e la dimensione, non l'accuratezza della trascrizione di parlato lungo.
+
+Verifiche finali: build e typecheck WSL passati, 265 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

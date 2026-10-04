@@ -115,6 +115,15 @@ export function useLiveConversation(args: Arguments) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
   function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop() }
+  function respondNow(): void {
+    setError('')
+    try {
+      if (!latest.current.available || latest.current.otherBusy()) throw new Error(latest.current.unavailableReason || 'Ferma le altre operazioni prima di rispondere.')
+      const status = requireCapture()
+      if (!session.current || status.captureId !== session.current.capture.captureId || !sameSource(session.current.capture.target, status.target)) throw new Error('Ascolto o scheda cambiati: verifica il collegamento prima di rispondere.')
+      controller.respondNow()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+  }
   function newConversation(): void { startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
   function applyLimits(limits: LiveLimits): void { if (controller.snapshot.phase === 'paused') controller.updateLimits(limits) }
   function exportLog(): void {
@@ -124,6 +133,6 @@ export function useLiveConversation(args: Arguments) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return { snapshot, audioStatus, receiving, error, starting, unavailableReason: args.unavailableReason, locked: controller.locked || starting, active: controller.active,
-    sessionLimits: controller.limits, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, stop, newConversation, applyLimits, exportLog }
+    sessionLimits: controller.limits, canRespond: controller.canRespond, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, respondNow, stop, newConversation, applyLimits, exportLog }
 }
 export type LiveConversation = ReturnType<typeof useLiveConversation>
