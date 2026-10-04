@@ -105,7 +105,7 @@ try {
         if (request.voice.voiceId === 'Puck' && fixture.holdVoice) await new Promise((resolve) => { fixture.releaseVoice = resolve })
         const code = 2000 + fixture.spoken.length
         fixture.speechCodes[code] = { text: request.text, voice: request.voice.voiceId }
-        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 96000 : 14400)
+        const pcm = new Uint8Array(request.voice.voiceId === 'Puck' ? 96000 : fixture.liveSpeechLong ? 240000 : 14400)
         { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length / 2; i++) view.setInt16(i * 2, code, true) }
         onChunk(pcm); return { generationMs: 10 }
       }
@@ -127,10 +127,18 @@ try {
       const reply = fixture.liveFailure ? { action: 'pause', transcript: '', text: '', reason: fixture.liveFailure, costUsd: fixture.liveCost, qwenMs: 50 }
         : fixture.liveWait && !request.endOfTurn ? { action: 'wait', transcript: 'Come affronti il debugging?', text: '', reason: 'Intervento incompleto', costUsd: fixture.liveCost, qwenMs: 50 }
         : { action: 'speak', transcript: request.opening ? '' : 'Come affronti il debugging?', text: request.opening ? 'Ciao, sono Neb. Piacere di conoscerti.' : 'Partirei dal problema concreto e cercherei la causa.', reason: 'Turno completo', costUsd: fixture.liveCost, qwenMs: 50 }
+      if (request.visualOnly && reply.action === 'speak') { reply.transcript = ''; reply.text = 'Il ciclo accede a un elemento oltre la fine dell’array.' }
       if (fixture.holdLive) return new Promise((resolve) => { fixture.liveRelease = () => resolve(reply) })
       return reply
     }
     api.cancelLiveTurn = async (id) => fixture.cancelled.push(id)
+    const materialImage = { name: 'Screenshot.png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC' }
+    fixture.materialImage = materialImage
+    fixture.holdClipboard = false; fixture.clipboardRelease = null; fixture.captureCalls = 0
+    api.getLiveCaptureSources = async () => [{ id: 'window:5:0', name: 'Coding interview (fixture)', thumbnail: materialImage.dataUrl }]
+    api.captureLiveSource = async () => { fixture.captureCalls++; return { ...materialImage, name: 'Coding interview (fixture)' } }
+    api.readLiveClipboardImage = async () => { if (fixture.holdClipboard) await new Promise((resolve) => { fixture.clipboardRelease = resolve }); return { ...materialImage, name: 'Screenshot dagli appunti' } }
+    api.importLiveImage = async (_data, name) => ({ ...materialImage, name })
   })
   await page.goto(`http://127.0.0.1:${server.address().port}`)
   await page.getByRole('button', { name: 'NEB Live', exact: true }).click()
@@ -288,6 +296,58 @@ try {
   assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).audioPcm.length), failedAudioLength, 'manual retry after provider failure retains the unanswered audio')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
+  await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()
+  await page.getByRole('button', { name: 'Cattura finestra', exact: true }).click()
+  await page.getByRole('button', { name: 'Coding interview (fixture)', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-material-chip').length === 1)
+  await page.evaluate(() => { fixture.holdLive = true; fixture.liveSpeechLong = true; fixture.liveRelease = null })
+  await start.click(); await page.evaluate(() => fixture.voice(8))
+  await page.waitForFunction(() => fixture.liveRelease !== null)
+  const beforeMaterialUpdate = await page.evaluate(() => { fixture.staleRelease = fixture.liveRelease; return fixture.liveRequests.length })
+  await page.getByRole('button', { name: 'Snippet', exact: true }).click()
+  await page.locator('#neb-live-code').fill('for (let i = 0; i <= items.length; i++) total += items[i].price;')
+  await page.getByRole('button', { name: 'Aggiungi snippet', exact: true }).click()
+  await page.waitForFunction((previous) => fixture.liveRequests.length > previous, beforeMaterialUpdate)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).materials.length), 2, 'a pending answer receives the new screenshot and code')
+  await page.evaluate(() => { fixture.holdLive = false; fixture.staleRelease(); fixture.liveRelease(); fixture.liveRelease = null })
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('NEB sta parlando'))
+  const cancellationsBeforeClipboard = await page.evaluate(() => fixture.cancelled.length)
+  await page.getByRole('button', { name: 'Incolla screenshot', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-material-chip').length === 3)
+  assert.equal(await page.evaluate(() => fixture.cancelled.length), cancellationsBeforeClipboard, 'adding a screenshot must not interrupt active speech')
+  assert.equal(await page.getByRole('button', { name: 'Carica immagine', exact: true }).isDisabled(), true, 'material count remains bounded')
+  await page.getByRole('button', { name: 'Rimuovi Snippet di codice', exact: true }).click()
+  const fixturePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC', 'base64')
+  await page.getByLabel('Carica screenshot PNG o JPEG').setInputFiles({ name: 'uploaded-code.png', mimeType: 'image/png', buffer: fixturePng })
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-material-chip').length === 3)
+  await page.getByRole('button', { name: 'Rimuovi Coding interview (fixture)', exact: true }).click()
+  await page.evaluate(() => {
+    const data = new DataTransfer()
+    const base64 = fixture.materialImage.dataUrl.split(',')[1]
+    data.items.add(new File([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], 'pasted-code.png', { type: 'image/png' }))
+    document.querySelector('.neb-live').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-material-chip').length === 3)
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+  await page.getByRole('button', { name: 'Rispondi ora', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-turn-neb').length === 2)
+  assert.equal(await page.evaluate(() => fixture.liveRequests.at(-1).visualOnly), true)
+  assert.equal(await page.locator('.neb-live-turn-interlocutor').count(), 1, 'visual-only analysis must not invent another interviewer question')
+  await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()
+  await page.evaluate(() => { fixture.holdClipboard = true; fixture.clipboardRelease = null })
+  await page.getByRole('button', { name: 'Incolla screenshot', exact: true }).click()
+  await page.waitForFunction(() => fixture.clipboardRelease !== null)
+  await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()
+  await page.evaluate(() => { fixture.clipboardRelease(); fixture.holdClipboard = false; fixture.liveSpeechLong = false })
+  await page.getByRole('button', { name: 'Cattura finestra', exact: true }).waitFor({ state: 'visible' })
+  await page.waitForFunction(() => !document.querySelector('.neb-live-material-actions button').disabled)
+  assert.equal(await page.locator('.neb-live-material-chip').count(), 0, 'a late image cannot repopulate a new conversation')
+  await page.getByRole('button', { name: 'Cattura finestra', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.neb-live-material-chip').length === 1)
+  assert.equal(await page.evaluate(() => fixture.captureCalls), 2, 'the selected window supports subsequent one-click capture')
+  assert.equal(await page.getByRole('region', { name: 'Scegli la finestra da acquisire' }).count(), 0)
+  await page.screenshot({ path: path.join(artifacts, 'neb-live-materials.png') })
+  await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()
   await page.setViewportSize({ width: 620, height: 740 })
   assert(await page.locator('.neb-live').evaluate((node) => node.scrollWidth <= node.clientWidth + 1), 'Live must fit compact windows')
   assert(await start.evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight }), 'session controls stay visible in compact windows')
@@ -296,7 +356,7 @@ try {
   assert(await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight }))
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
   assert.deepEqual(errors, [])
-  console.log('NEB Live renderer smoke passed: automatic wait recheck, Respond now, retained question after failure, missing-cost playback, partial-cost notice, provider error and recovery, saved duration/turn/budget limits, extension while paused preserving history, profiles, configurable pace, transcript, New conversation/reset during save and reasoning, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible configuration tabs and compact controls.')
+  console.log('NEB Live renderer smoke passed: window capture, clipboard/file/paste images, code snippets, material updates during reasoning and uninterrupted speech, visual-only analysis, material reset and stale capture, automatic wait recheck, Respond now, retained question after failure, missing-cost playback, partial-cost notice, provider error and recovery, saved limits, profiles, transcript, reset, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible tabs and compact controls.')
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

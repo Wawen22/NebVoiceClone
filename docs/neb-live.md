@@ -61,6 +61,39 @@ le risposte personali; il modello riceve istruzioni di non inventare esperienze,
 certificazioni, metriche o livelli di competenza. Queste istruzioni non garantiscono
 l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
 
+## Screenshot e snippet durante la conversazione
+
+La barra **Contesto** sopra la chat permette di aggiungere materiale anche mentre
+NEB ascolta o parla:
+
+- **Cattura finestra**: scegli la finestra dell'interview o uno schermo. La prima
+  scelta acquisisce uno screenshot; i clic successivi catturano di nuovo la stessa
+  sorgente. Il pulsante accanto permette di cambiarla. Mantieni il codice visibile
+  e leggibile; se la cattura di una finestra non riesce, usa gli appunti.
+- **Incolla screenshot**: prima ritaglia con **Win+Shift+S**, poi premi il pulsante.
+  Puoi anche incollare direttamente con **Ctrl+V** nella pagina NEB Live.
+- **Carica immagine**: seleziona un file PNG o JPEG fino a 10 MB.
+- **Snippet**: incolla direttamente codice o testo, fino a 20.000 caratteri.
+
+Sono disponibili al massimo tre allegati contemporaneamente. La barra mostra
+anteprima o nome e una X per rimuoverli. Rimangono nel contesto dei turni successivi
+finché non li rimuovi o premi **Nuova conversazione**. Una cattura è un'immagine
+di quel momento: per mostrare modifiche al codice, acquisiscine una nuova.
+
+Qwen riceve gli allegati insieme alla domanda audio e alla cronologia. Se aggiungi
+o rimuovi materiale mentre prepara una risposta non ancora pronunciata, NEB
+annulla la proposta precedente e rielabora la stessa domanda con il nuovo contesto.
+L'ascolto della scheda continua; le richieste annullate possono avere un costo.
+Se la voce è già partita, finisce senza essere interrotta dall'allegato.
+Il materiale sarà usato al prossimo turno. Durante l'ascolto puoi premere
+**Rispondi ora** per analizzare gli allegati in relazione all'ultima domanda,
+anche senza farla ripetere all'interlocutore.
+
+Gli screenshot sono ridimensionati fino a 2200 × 1600 pixel e 4 MB per immagine.
+Immagini e snippet vengono inviati a Qwen tramite OpenRouter per l'elaborazione.
+Restano in memoria nella sessione e non sono salvati nei profili. L'esportazione
+JSON include il testo degli snippet e i metadati delle immagini, senza i loro byte.
+
 ## Controlli e limiti
 
 - **Configura → Dettagli → Limiti della conversazione** permette di impostare
@@ -77,7 +110,7 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
   **Pausa**. Il nuovo limite di durata si conta dall'avvio originale, senza
   riavviare il cronometro. L'esportazione JSON include i limiti effettivi.
 - **Nuova conversazione** ferma elaborazione e voce, annulla un eventuale avvio
-  ancora in salvataggio e pulisce trascrizione, eventi, turni e costo della sessione.
+  ancora in salvataggio e pulisce trascrizione, allegati, eventi, turni e costo della sessione.
   Profilo, voce, ritmo e ascolto della scheda restano disponibili. Premi poi
   **Avvia conversazione** per iniziare da zero. Le risposte tardive della sessione
   precedente non possono entrare in quella nuova. Esporta prima se vuoi conservare
@@ -90,7 +123,7 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
   intervento senza ripetere automaticamente la risposta precedente. Se la pausa
   nasce da un errore Qwen o della voce prima della riproduzione, conserva l'audio
   della domanda non ancora risposta: dopo la ripresa puoi premere **Rispondi ora**.
-- **Rispondi ora**, disponibile durante l'ascolto dopo una domanda acquisita,
+- **Rispondi ora**, disponibile durante l'ascolto dopo una domanda acquisita o con allegati presenti,
   indica al modello che il turno è finito e rielabora quell'audio. Non legge una
   risposta preimpostata e non forza il parlato mentre l'interlocutore continua.
   Se la richiesta è ambigua, Qwen riceve istruzioni di chiedere un chiarimento.
@@ -134,6 +167,7 @@ inferiori del provider. I tempi Qwen osservati restano consultabili in Dettagli.
 Limiti iniziali modificabili: 20 minuti, 40 interventi NEB, $1 di costo OpenRouter
 osservato. Limiti tecnici: 180 secondi di audio conservato per intervento remoto;
 timeout Qwen da 35 a 90 secondi, calcolato dalla durata dell'audio
+(almeno 60 secondi quando sono presenti immagini),
 e 60 secondi al primo audio Gemini. L'ultimo intervento permesso può finire prima
 della pausa per limite turni; il limite di durata può interrompere il parlato.
 Un flusso mancante, un errore del provider o una risposta non valida mettono in pausa.
@@ -173,6 +207,9 @@ e la visibilità dei comandi nelle finestre compatte, risposte con costo mancant
 avviso di totale parziale e ripresa dopo un errore Qwen senza costo riportato.
 Verifica anche rivalutazione automatica di `wait`, **Rispondi ora** e recupero
 della domanda conservata dopo un errore del provider.
+Verifica inoltre cattura della finestra, immagini dagli appunti, file e incolla,
+snippet, aggiornamento degli allegati durante l'elaborazione, continuità della
+voce già iniziata, analisi senza nuovo audio e acquisizioni tardive dopo l'azzeramento.
 La prova hardware su cuffie, VB-CABLE e sito reale è separata: iniziare con una
 breve conversazione di prova prima di usare una sessione lunga.
 
@@ -191,7 +228,19 @@ da Qwen in 6844 ms, costo $0,00020763. Un payload di 300 secondi è stato rifiut
 dal provider; NEB Live limita gli input a 180 secondi. Questo controllo verifica
 il formato e la dimensione, non l'accuratezza della trascrizione di parlato lungo.
 
-Verifiche finali: build e typecheck WSL passati, 265 test passati e 4 specifici
+Verifica multimodale del 4 ottobre 2026: uno screenshot sintetico con un ciclo
+JavaScript e un secondo di silenzio WAV nella stessa richiesta sono stati accettati
+da Qwen in 2579 ms, costo $0,00010132. Il modello ha individuato correttamente
+l'accesso fuori indice causato da `i <= items.length`. Questa prova verifica
+immagine e audio insieme; non misura una cattura desktop o una chiamata completa.
+
+Prova nativa Windows del 4 ottobre 2026, senza aprire l'interfaccia NEB:
+enumerazione delle sorgenti, acquisizione dello schermo a 2200 × 1238 pixel,
+importazione dello screenshot sintetico a 1040 × 440 e lettura degli appunti
+riuscite. Gli appunti non contenevano immagini in quella prova; il percorso
+di incolla immagine è coperto dai test con dati sintetici.
+
+Verifiche finali: build e typecheck WSL passati, 278 test passati e 4 specifici
 Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene

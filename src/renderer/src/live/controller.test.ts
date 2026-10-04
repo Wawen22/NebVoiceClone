@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { LiveController } from './controller'
 import type { LiveConfig, LiveDecision, LiveTurnRequest } from '../../../shared/live'
+import type { LiveMaterial } from '../../../shared/liveMaterials'
 
 const config: LiveConfig = { schemaVersion: 1, background: 'Esperienza documentata', persona: 'Diretto e naturale', selectedProfileId: 'interview', profiles: [{ id: 'interview', name: 'Colloquio', context: 'Sviluppo', language: 'it', tone: 'professional' }] }
 const decision = (text = 'Partirei dal problema concreto.'): LiveDecision => ({ action: 'speak', transcript: 'Come affronti il debugging?', text, reason: 'Domanda completa', costUsd: 0.01, qwenMs: 100 })
+const material: LiveMaterial = { id: 'code', name: 'Code', kind: 'text', text: 'const n = 1;', addedAt: 1 }
 const frame = (voice = false): Uint8Array => {
   const pcm = new Uint8Array(3200)
   if (voice) { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length; i += 2) view.setInt16(i, 3000, true) }
@@ -25,6 +27,66 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('keeps preloaded materials through Start and clears them with New conversation', () => {
+    const h = setup(); h.controller.addMaterial(material); h.controller.start(config, false)
+    h.feed(4, true); h.feed(25)
+    expect(h.requests[0].materials).toEqual([material])
+    h.controller.stop(); expect(h.controller.snapshot.materials).toHaveLength(1)
+    h.controller.reset(); expect(h.controller.snapshot.materials).toHaveLength(0)
+  })
+
+  it('reasons again with updated material without pausing or losing a pending question', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    const bytes = h.requests[0].audioPcm!.length
+    h.controller.addMaterial(material)
+    expect(h.signals[0].aborted).toBe(true)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    h.feed(1)
+    expect(h.requests).toHaveLength(2)
+    expect(h.requests[1].materials).toEqual([material])
+    expect(h.requests[1].audioPcm!.length).toBe(bytes)
+    h.replies[0].resolve(decision('Old response')); await settle()
+    expect(h.plays).toHaveLength(0)
+    h.replies[1].resolve(decision('Updated response')); await settle(); h.feed(3)
+    expect(h.plays[0].text).toBe('Updated response')
+  })
+
+  it('suppresses an obsolete voice before playback while preserving the acquired question', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    h.controller.addMaterial(material)
+    expect(h.plays[0].signal.aborted).toBe(true)
+    expect(h.plays[0].start()).toBe(false)
+    h.plays[0].done.resolve(); await settle(); h.feed(1)
+    expect(h.requests[1].materials).toEqual([material])
+    expect(h.controller.snapshot.turns).toBe(0)
+    expect(h.controller.snapshot.history).toHaveLength(0)
+  })
+
+  it('lets active speech finish and then analyzes newly added material against the last question', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.plays[0].start()
+    h.controller.addMaterial(material)
+    expect(h.plays[0].signal.aborted).toBe(false)
+    expect(h.controller.snapshot.phase).toBe('speaking')
+    h.plays[0].done.resolve(); await settle()
+    expect(h.controller.canRespond).toBe(true)
+    h.controller.respondNow()
+    expect(h.requests[1].visualOnly).toBe(true)
+    expect(h.requests[1].audioPcm).toBeUndefined()
+    expect(h.requests[1].history[0].text).toBe('Come affronti il debugging?')
+    h.replies[1].resolve({ ...decision('Il frammento ha un errore.'), transcript: '' }); await settle(); h.feed(3)
+    expect(h.plays[1].start()).toBe(true)
+    expect(h.controller.snapshot.history.filter((item) => item.role === 'interlocutor')).toHaveLength(1)
+  })
+
+  it('removes obsolete material from the next request and validates limits before changing context', () => {
+    const h = setup(); h.controller.addMaterial(material)
+    expect(() => h.controller.addMaterial(material)).toThrow('duplicato')
+    h.controller.removeMaterial(material.id); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    expect(h.requests[0].materials).toBeUndefined()
+  })
+
   it('does not overflow a long question with silence while waiting for reasoning or voice', async () => {
     const h = setup(); h.controller.start(config, false)
     h.feed(1150, true); h.feed(25)

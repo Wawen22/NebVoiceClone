@@ -32,6 +32,34 @@
 .neb-live-connection:not(.ready) { color: #e0bd87; }
 .neb-live-connection:hover, .neb-live-voice-chip:hover { background: #1b2b34; color: #e3f1f2; }
 .neb-live-inline-note { padding: 0 20px; color: var(--muted); font-size: 12px; }
+.neb-live-materials { position: relative; flex: none; padding: 9px 16px; border-bottom: 1px solid #253843; background: #101c25; }
+.neb-live-material-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.neb-live-material-label { display: flex; align-items: center; gap: 6px; margin-right: 5px; color: #7999a8; font-size: 11px; }
+.neb-live-material-actions button, .neb-live-snippet-editor button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #304750; border-radius: 6px; background: #162631; color: #a8c5cc; font-size: 11px; }
+.neb-live-material-actions button:hover:not(:disabled), .neb-live-snippet-editor button:hover:not(:disabled) { border-color: #578e80; color: #c9f1e7; }
+.neb-live-image-input { display: none; }
+.neb-live-material-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.neb-live-material-chip { display: flex; align-items: center; gap: 7px; max-width: 240px; padding: 4px 7px 4px 4px; border: 1px solid #365247; border-radius: 7px; background: #162b25; color: #b5d4ca; font-size: 11px; }
+.neb-live-material-chip > img { width: 45px; height: 32px; object-fit: cover; border-radius: 3px; }
+.neb-live-material-chip > svg { flex: none; margin: 5px; }
+.neb-live-material-chip > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.neb-live-material-chip > button, .neb-live-material-panel-heading > button { display: flex; flex: none; align-items: center; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: #a2c4b9; }
+.neb-live-material-error { margin: 8px 0 0; color: #e8a8b4; font-size: 11px; }
+.neb-live-material-hint { margin: 7px 0 0; color: #92aea8; font-size: 10px; }
+.neb-live-source-picker, .neb-live-snippet-editor { position: absolute; z-index: 2; top: calc(100% + 4px); left: 12px; right: 12px; overflow: auto; max-height: min(420px, 50vh); padding: 16px; border: 1px solid #466257; border-radius: 9px; background: #14242d; box-shadow: 0 10px 28px #0008; }
+.neb-live-material-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #c5ddd5; font-size: 13px; }
+.neb-live-source-picker p { color: #8da9b2; font-size: 11px; }
+.neb-live-source-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; }
+.neb-live-source-list button { overflow: hidden; padding: 0; border: 1px solid #3b5660; border-radius: 7px; background: #0e1b23; color: #b2ced3; text-align: left; }
+.neb-live-source-list button:hover:not(:disabled) { border-color: #83c7b6; }
+.neb-live-source-list img { display: block; width: 100%; height: 100px; object-fit: contain; background: #091118; }
+.neb-live-source-list span { display: flex; align-items: center; gap: 6px; padding: 9px; overflow-wrap: anywhere; font-size: 11px; }
+.neb-live-source-list svg { flex: none; }
+.neb-live-snippet-editor label { display: block; margin-bottom: 10px; color: #b4d0d4; font-size: 12px; }
+.neb-live-snippet-editor textarea { width: 100%; min-height: 130px; max-height: 220px; padding: 10px; border: 1px solid #3a515a; border-radius: 6px; background: #0d1821; color: #c9e4e1; resize: vertical; font-family: monospace; font-size: 12px; }
+.neb-live-snippet-editor > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.neb-live-snippet-editor small { flex: 1; min-width: 120px; color: #839da7; font-size: 10px; }
+.neb-live-material-change .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .neb-live-transcript-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
 .neb-live-transcript { flex: 1; overflow: auto; min-height: 0; padding: 26px 28px; scrollbar-color: #3b5661 transparent; scrollbar-width: thin; }
 .neb-live-timeline { display: flex; flex-direction: column; max-width: 960px; min-height: 100%; margin: 0 auto; }

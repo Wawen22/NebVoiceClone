@@ -1,4 +1,5 @@
 import { DEFAULT_LIVE_LIMITS, MAX_LIVE_AUDIO_BYTES, liveReasoningTimeoutMs, parseLiveConfig, parseLiveLimits, type LiveLimits, type LiveConfig, type LiveDecision, type LiveHistoryItem, type LiveTurnRequest } from '../../../shared/live'
+import { parseLiveMaterials, type LiveMaterial } from '../../../shared/liveMaterials'
 
 export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing-voice' | 'speaking' | 'paused' | 'stopped' | 'completed'
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
@@ -8,6 +9,7 @@ export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: n
 export interface LiveSnapshot {
   phase: LivePhase; message: string; turns: number; costUsd: number; costKnown: boolean; level: number; nextText: string
   history: LiveUtterance[]; log: LiveLog[]; startedAt: number
+  materials: LiveMaterial[]
 }
 interface Dependencies {
   now(): number
@@ -18,7 +20,7 @@ interface Dependencies {
 
 /** Owns free turn-taking; browser capture and synthesis are injected. */
 export class LiveController {
-  snapshot: LiveSnapshot = { phase: 'idle', message: 'Pronto per una conversazione libera.', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: 0 }
+  snapshot: LiveSnapshot = { phase: 'idle', message: 'Pronto per una conversazione libera.', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: 0, materials: [] }
   private config!: LiveConfig
   private options = DEFAULT_LIVE_OPTIONS
   private session = 0
@@ -50,10 +52,25 @@ export class LiveController {
   get active(): boolean { return ['listening', 'thinking', 'ready', 'preparing-voice', 'speaking'].includes(this.snapshot.phase) }
   get locked(): boolean { return this.active || this.snapshot.phase === 'paused' }
   get limits(): LiveLimits { return { durationMinutes: this.options.maxDurationMs / 60000, maxTurns: this.options.maxTurns, maxCostUsd: this.options.maxCostUsd } }
-  get canRespond(): boolean { return this.snapshot.phase === 'listening' && this.voiceVersion > 0 && this.bytes > 0 && this.audioMs - this.lastVoiceMs >= 300 }
+  get canRespond(): boolean { return this.snapshot.phase === 'listening' && (this.voiceVersion > 0 && this.bytes > 0 || this.snapshot.materials.length > 0) && this.audioMs - this.lastVoiceMs >= 300 }
 
   respondNow(): void {
-    if (this.canRespond && this.withinLimits()) { this.log('manual-response', 'Fine domanda indicata dall’utente.'); void this.reason(false, true) }
+    if (this.canRespond && this.withinLimits()) { this.log('manual-response', 'Risposta richiesta dall’utente.'); void this.reason(false, true, !(this.voiceVersion > 0 && this.bytes > 0)) }
+  }
+
+  addMaterial(value: LiveMaterial): void { this.setMaterials([...this.snapshot.materials, value]) }
+  removeMaterial(id: string): void { this.setMaterials(this.snapshot.materials.filter((item) => item.id !== id)) }
+  private setMaterials(value: LiveMaterial[]): void {
+    this.snapshot.materials = parseLiveMaterials(value)
+    this.log('materials', `Contesto aggiornato · ${this.snapshot.materials.length} allegati.`)
+    if (['thinking', 'ready', 'preparing-voice'].includes(this.snapshot.phase)) {
+      // No speech has started: replace the obsolete proposal without pausing capture.
+      this.cancel()
+      const hasQuestion = this.voiceVersion > 0 && this.bytes > 0
+      this.analyzedVersion = hasQuestion ? Math.max(0, this.voiceVersion - 1) : this.voiceVersion
+      this.phase('listening', 'Contesto aggiornato · rielaboro la domanda acquisita.')
+      if (!hasQuestion && this.snapshot.materials.length) void this.reason(false, true, true)
+    } else this.publish() // Speech already playing finishes; new context joins the next turn.
   }
 
   start(config: LiveConfig, opening: boolean, options: Partial<LiveOptions> = {}): void {
@@ -66,7 +83,7 @@ export class LiveController {
     this.options = next
     this.cancel(); this.session++
     const now = this.dependencies.now()
-    this.snapshot = { phase: 'idle', message: '', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: now }
+    this.snapshot = { phase: 'idle', message: '', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: now, materials: this.snapshot.materials }
     this.lastPacketAt = this.listeningAt = now
     this.resetAudio()
     this.log('session', `Conversazione avviata · ${this.profile.name}.`)
@@ -157,7 +174,7 @@ export class LiveController {
   }
   reset(): void {
     this.cancel(); this.session++; this.resetAudio()
-    this.snapshot = { phase: 'idle', message: 'Nuova conversazione pronta.', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: 0 }
+    this.snapshot = { phase: 'idle', message: 'Nuova conversazione pronta.', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: 0, materials: [] }
     this.publish()
   }
 
@@ -170,7 +187,7 @@ export class LiveController {
     this.pause(reason); return false
   }
 
-  private async reason(opening: boolean, endOfTurn = false): Promise<void> {
+  private async reason(opening: boolean, endOfTurn = false, visualOnly = false): Promise<void> {
     const token = ++this.serial, session = this.session
     const operation = new AbortController(); this.operation = operation
     // End-of-turn silence is useful locally, but only a short tail is needed by Qwen.
@@ -184,11 +201,11 @@ export class LiveController {
     this.analyzedVersion = this.voiceVersion
     this.waitingAt = null
     if (endOfTurn) this.waitRechecked = true
-    this.reasoningTimeoutMs = liveReasoningTimeoutMs(opening ? 0 : pcm.length)
-    this.phase('thinking', opening ? 'Preparo una presentazione nel tuo stile…' : `Domanda acquisita · ${(pcm.length / 32000).toFixed(1)} s. Qwen prepara la risposta…`)
+    this.reasoningTimeoutMs = Math.max(liveReasoningTimeoutMs(opening || visualOnly ? 0 : pcm.length), this.snapshot.materials.some((item) => item.kind === 'image') ? 60000 : 0)
+    this.phase('thinking', opening ? 'Preparo una presentazione nel tuo stile…' : visualOnly ? 'Qwen analizza gli allegati e l’ultima domanda…' : `Domanda acquisita · ${(pcm.length / 32000).toFixed(1)} s. Qwen prepara la risposta…`)
     try {
       const result = await this.dependencies.decide({ requestId: `live-${session}-${token}`, profile: { ...this.profile }, background: this.config.background, persona: this.config.persona,
-        history: this.snapshot.history.slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : { audioPcm: pcm }), ...(endOfTurn ? { endOfTurn: true } : {}) }, operation.signal)
+        history: this.snapshot.history.slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : visualOnly ? { visualOnly: true } : { audioPcm: pcm }), ...(endOfTurn ? { endOfTurn: true } : {}), ...(this.snapshot.materials.length ? { materials: [...this.snapshot.materials] } : {}) }, operation.signal)
       if (session !== this.session) return
       if (result.costUsd === null || !Number.isFinite(result.costUsd) || result.costUsd < 0) {
         if (this.snapshot.costKnown) this.log('accounting', 'Costo OpenRouter parziale: alcuni importi non sono disponibili. Il budget controlla soltanto i costi ricevuti.')
@@ -212,7 +229,7 @@ export class LiveController {
         if (result.transcript) this.addHistory('interlocutor', result.transcript)
         this.phase('completed', 'Conversazione conclusa.'); return
       }
-      if (result.action !== 'speak' || !result.text.trim() || !opening && !result.transcript.trim()) { this.pause('Risposta Qwen non valida.'); return }
+      if (result.action !== 'speak' || !result.text.trim() || !opening && !visualOnly && !result.transcript.trim()) { this.pause('Risposta Qwen non valida.'); return }
       this.proposal = result; this.proposalAt = this.dependencies.now(); this.snapshot.nextText = result.text
       this.phase('ready', 'Risposta pronta · verifico che l’interlocutore abbia finito.')
     } catch (error) {

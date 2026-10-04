@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AppSettings } from '../../../shared/contracts'
 import type { LiveConfig, LiveLimits } from '../../../shared/live'
+import { MAX_LIVE_IMAGE_FILE_BYTES, type LiveImageData } from '../../../shared/liveMaterials'
 import { sameTarget, type BrowserTarget } from '../../../shared/outlier'
 import type { S2SAudioStatus } from '../../../shared/s2s'
 import { BrowserAudioEngine } from '../audio/AudioEngine'
@@ -18,6 +19,7 @@ export function useLiveConversation(args: Arguments) {
   const capture = useRef(inactive)
   const lastPcmAt = useRef(-Infinity)
   const startup = useRef(new LiveStartGate())
+  const materialEpoch = useRef(0)
   const session = useRef<{ capture: S2SAudioStatus; settings: AppSettings; profileName: string } | null>(null)
   const [audioStatus, setAudioStatus] = useState(inactive)
   const [receiving, setReceiving] = useState(false)
@@ -65,7 +67,7 @@ export function useLiveConversation(args: Arguments) {
       setReceiving(capture.current.state === 'active' && performance.now() - lastPcmAt.current < 1500)
       controller.tick()
     }, 100)
-    return () => { mounted = false; startup.current.cancel(); clearInterval(timer); unsubscribe(); controller.stop() }
+    return () => { mounted = false; materialEpoch.current++; startup.current.cancel(); clearInterval(timer); unsubscribe(); controller.stop() }
   }, [controller])
 
   useEffect(() => {
@@ -124,15 +126,30 @@ export function useLiveConversation(args: Arguments) {
       controller.respondNow()
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
-  function newConversation(): void { startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
+  async function addImage(operation: () => Promise<LiveImageData>): Promise<void> {
+    const epoch = materialEpoch.current
+    try {
+      const image = await operation()
+      if (epoch !== materialEpoch.current) return
+      controller.addMaterial({ id: crypto.randomUUID(), kind: 'image', ...image, addedAt: Date.now() })
+    } catch (reason) { if (epoch === materialEpoch.current) throw reason }
+  }
+  async function importImage(file: File): Promise<void> {
+    if (!file.size || file.size > MAX_LIVE_IMAGE_FILE_BYTES) throw new Error('Scegli uno screenshot PNG o JPEG fino a 10 MB.')
+    await addImage(async () => window.neb.importLiveImage(new Uint8Array(await file.arrayBuffer()), file.name.slice(0, 160)))
+  }
+  function addSnippet(text: string): void { controller.addMaterial({ id: crypto.randomUUID(), name: 'Snippet di codice', kind: 'text', text, addedAt: Date.now() }) }
+  function newConversation(): void { materialEpoch.current++; startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
   function applyLimits(limits: LiveLimits): void { if (controller.snapshot.phase === 'paused') controller.updateLimits(limits) }
   function exportLog(): void {
-    const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), mode: 'neb-live', profile: session.current?.profileName, limits: controller.limits, snapshot: controller.snapshot }, null, 2)], { type: 'application/json' })
+    const snapshotForExport = { ...controller.snapshot, materials: controller.snapshot.materials.map((item) => item.kind === 'image' ? { id: item.id, kind: item.kind, name: item.name, addedAt: item.addedAt } : item) }
+    const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), mode: 'neb-live', profile: session.current?.profileName, limits: controller.limits, snapshot: snapshotForExport }, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a'); link.href = url; link.download = `neb-live-${Date.now()}.json`; link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return { snapshot, audioStatus, receiving, error, starting, unavailableReason: args.unavailableReason, locked: controller.locked || starting, active: controller.active,
-    sessionLimits: controller.limits, canRespond: controller.canRespond, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, respondNow, stop, newConversation, applyLimits, exportLog }
+    sessionLimits: controller.limits, canRespond: controller.canRespond, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, respondNow, stop, newConversation, applyLimits, exportLog,
+    captureSource: (id: string) => addImage(() => window.neb.captureLiveSource(id)), pasteImage: () => addImage(() => window.neb.readLiveClipboardImage()), importImage, addSnippet, removeMaterial: (id: string) => controller.removeMaterial(id) }
 }
 export type LiveConversation = ReturnType<typeof useLiveConversation>

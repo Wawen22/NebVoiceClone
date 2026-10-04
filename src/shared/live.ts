@@ -1,3 +1,5 @@
+import { parseLiveMaterials, type LiveMaterial, type LiveCaptureSource, type LiveImageData } from './liveMaterials'
+
 export const MAX_LIVE_AUDIO_BYTES = 16000 * 2 * 180
 /** Longer questions need more transcription time; both processes share the deadline. */
 export function liveReasoningTimeoutMs(audioBytes = 0): number {
@@ -25,6 +27,8 @@ export interface LiveTurnRequest {
   transcript?: string
   opening?: boolean
   endOfTurn?: boolean
+  materials?: LiveMaterial[]
+  visualOnly?: boolean
 }
 export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number }
 export interface LiveApi {
@@ -32,6 +36,10 @@ export interface LiveApi {
   saveLiveConfig(config: LiveConfig): Promise<LiveConfig>
   generateLiveTurn(request: LiveTurnRequest): Promise<LiveDecision>
   cancelLiveTurn(requestId?: string): Promise<void>
+  getLiveCaptureSources(): Promise<LiveCaptureSource[]>
+  captureLiveSource(sourceId: string): Promise<LiveImageData>
+  readLiveClipboardImage(): Promise<LiveImageData>
+  importLiveImage(data: Uint8Array, name: string): Promise<LiveImageData>
 }
 
 /** Curated professional facts from the supplied background, as of 4 October 2026. */
@@ -92,9 +100,11 @@ export function parseLiveTurnRequest(value: unknown): LiveTurnRequest {
   const v = object(value)
   if (v.opening !== undefined && typeof v.opening !== 'boolean') throw new Error('Apertura NEB Live non valida.')
   if (v.endOfTurn !== undefined && typeof v.endOfTurn !== 'boolean') throw new Error('Fine turno NEB Live non valida.')
+  if (v.visualOnly !== undefined && typeof v.visualOnly !== 'boolean') throw new Error('Analisi allegati NEB Live non valida.')
+  const materials = parseLiveMaterials(v.materials)
   const audio = v.audioPcm instanceof Uint8Array && v.audioPcm.length > 0 && v.audioPcm.length % 2 === 0 && v.audioPcm.length <= MAX_LIVE_AUDIO_BYTES
   const transcript = typeof v.transcript === 'string' && v.transcript.trim().length > 0 && v.transcript.length <= 16000
-  if (!(audio && v.transcript === undefined && !v.opening || transcript && v.audioPcm === undefined && !v.opening || v.opening === true && v.audioPcm === undefined && v.transcript === undefined)) throw new Error('Audio, trascrizione o apertura NEB Live non validi (massimo 180 secondi).')
+  if (!(audio && v.transcript === undefined && !v.opening && !v.visualOnly || transcript && v.audioPcm === undefined && !v.opening && !v.visualOnly || v.opening === true && v.audioPcm === undefined && v.transcript === undefined && !v.visualOnly || v.visualOnly === true && materials.length > 0 && !v.opening && v.audioPcm === undefined && v.transcript === undefined)) throw new Error('Audio, trascrizione, allegati o apertura NEB Live non validi (massimo 180 secondi).')
   if (!Array.isArray(v.history) || v.history.length > 60) throw new Error('Cronologia NEB Live non valida.')
   const history = v.history.map((item): LiveHistoryItem => {
     const h = object(item)
@@ -102,7 +112,7 @@ export function parseLiveTurnRequest(value: unknown): LiveTurnRequest {
     return { role: h.role as LiveHistoryItem['role'], text: text(h.text, 16000, true), ...(h.partial !== undefined ? { partial: h.partial as boolean } : {}) }
   })
   return { requestId: text(v.requestId, 100, true), profile: parseLiveProfile(v.profile), background: text(v.background, 40000), persona: text(v.persona, 20000), history,
-    ...(audio ? { audioPcm: new Uint8Array(v.audioPcm as Uint8Array) } : {}), ...(transcript ? { transcript: v.transcript as string } : {}), ...(v.opening === true ? { opening: true } : {}), ...(v.endOfTurn !== undefined ? { endOfTurn: v.endOfTurn as boolean } : {}) }
+    ...(audio ? { audioPcm: new Uint8Array(v.audioPcm as Uint8Array) } : {}), ...(transcript ? { transcript: v.transcript as string } : {}), ...(v.opening === true ? { opening: true } : {}), ...(v.endOfTurn !== undefined ? { endOfTurn: v.endOfTurn as boolean } : {}), ...(materials.length ? { materials } : {}), ...(v.visualOnly === true ? { visualOnly: true } : {}) }
 }
 
 export class LiveDecisionError extends Error {

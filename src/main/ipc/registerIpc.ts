@@ -16,6 +16,7 @@ import { generateSimulatedReply } from '../providers/s2sSimulation'
 import { LiveConfigStore } from '../live/configStore'
 import { generateLiveTurn } from '../providers/live'
 import { parseLiveTurnRequest } from '../../shared/live'
+import { captureLiveSource, getLiveCaptureSources, importLiveImage, readLiveClipboardImage } from '../live/materialCapture'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -36,6 +37,10 @@ export function registerIpc(
     assertTrusted(event.sender, event.senderFrame)
     return liveStore.read()
   })
+  ipcMain.handle('live:captureSources', (event) => { assertTrusted(event.sender, event.senderFrame); return getLiveCaptureSources() })
+  ipcMain.handle('live:captureSource', (event, id: unknown) => { assertTrusted(event.sender, event.senderFrame); return captureLiveSource(id) })
+  ipcMain.handle('live:clipboardImage', (event) => { assertTrusted(event.sender, event.senderFrame); return readLiveClipboardImage() })
+  ipcMain.handle('live:importImage', (event, data: unknown, name: unknown) => { assertTrusted(event.sender, event.senderFrame); return importLiveImage(data, name) })
   ipcMain.handle('live:saveConfig', (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
     return liveStore.save(value)

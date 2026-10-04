@@ -6,6 +6,7 @@ import type { OutlierSetup } from '../../../shared/outlier'
 import type { AudioOutput } from '../audio/AudioEngine'
 import type { LiveConversation } from './useLiveConversation'
 import { LiveTranscript, liveTimestamp } from './LiveTranscript'
+import { LiveMaterials } from './LiveMaterials'
 import './live.css'
 
 interface LivePageProps {
@@ -189,7 +190,12 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
   function showAudio(): void { setConfigOpen(true); setSettingsTab('audio') }
   function closeConfig(): void { setConfigOpen(false); configToggle.current?.focus() }
 
-  return <section className="neb-live" data-no-speech-shortcuts>
+  return <section className="neb-live" data-no-speech-shortcuts onPaste={(event) => {
+    const file = [...event.clipboardData.files].find((item) => ['image/png', 'image/jpeg'].includes(item.type))
+    if (!file) return
+    event.preventDefault(); setActionError('')
+    void live.importImage(file).catch((reason: unknown) => { if (mounted.current) setActionError(errorMessage(reason)) })
+  }}>
     <header className="neb-live-heading">
       <div className="neb-live-title"><span className="eyebrow">NEB LIVE</span><h2>Conversazione</h2></div>
       <div className="neb-live-heading-actions">
@@ -210,6 +216,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
           </button>
           <button type="button" className="neb-live-voice-chip" onClick={showAudio} title={`Voce: ${voiceName}. Uscita: ${output?.label || 'Da configurare'}`}><Headphones size={14} /><span>{geminiReady && routed ? 'Voce pronta' : 'Configura la voce'}</span></button>
         </div>
+        <LiveMaterials live={live} />
         {loading && <p className="neb-live-inline-note" role="status">Caricamento dei profili…</p>}
         {loadError && <div className="neb-live-error" role="alert"><p>{loadError}</p><button type="button" className="secondary-button" onClick={() => setLoadAttempt((value) => value + 1)}>Riprova caricamento</button></div>}
         {(actionError || live.error) && <p className="neb-live-error" role="alert">{actionError || live.error}</p>}
@@ -223,7 +230,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
           <div className="neb-live-controls">
             {!live.active && live.snapshot.phase !== 'paused' && <button type="button" className="primary-button neb-live-start" disabled={!canStart} onClick={() => void start()}><Play size={16} />{live.starting ? 'Avvio…' : 'Avvia conversazione'}</button>}
             {live.active && <><button type="button" className="secondary-button" onClick={live.pause}><Pause size={15} />Pausa</button><button type="button" className="secondary-button" onClick={() => { setTakeover(true); live.pause() }}><Mic size={15} />Prendi controllo</button></>}
-            {live.snapshot.phase === 'listening' && <button type="button" className="secondary-button" disabled={!live.canRespond || !captureReady} onClick={live.respondNow} title="Rielabora la domanda acquisita quando l’interlocutore ha finito"><Play size={15} />Rispondi ora</button>}
+            {live.snapshot.phase === 'listening' && <button type="button" className="secondary-button" disabled={!live.canRespond || !captureReady} onClick={live.respondNow} title="Analizza la domanda e gli allegati disponibili quando l’interlocutore ha finito"><Play size={15} />Rispondi ora</button>}
             {live.snapshot.phase === 'paused' && <button type="button" className="primary-button neb-live-start" disabled={!canResume} onClick={() => { setTakeover(false); live.resume() }}><Play size={15} />Riprendi ascolto</button>}
             {live.locked && <button type="button" className="secondary-button neb-live-stop" onClick={live.stop}><Square size={15} />Stop</button>}
             <div className="neb-live-session-meta"><span title="Interventi NEB in questa sessione">{live.snapshot.turns}<small> / {sessionLimits.maxTurns} turni</small></span><button type="button" onClick={() => { setConfigOpen(true); setSettingsTab('details') }} title="Costo OpenRouter osservato; Gemini escluso">${live.snapshot.costUsd.toFixed(4)}{!live.snapshot.costKnown && ' + ?'}</button></div>

@@ -7,7 +7,7 @@ import type { WindowPresentationController } from '../windowPresentation'
 import { DEFAULT_LIVE_CONFIG, type LiveTurnRequest } from '../../shared/live'
 
 const fake = vi.hoisted(() => ({ path: '', handlers: new Map<string, (...args: unknown[]) => unknown>() }))
-vi.mock('electron', () => ({ app: { getPath: () => fake.path }, BrowserWindow: {}, dialog: {}, safeStorage: {}, ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => fake.handlers.set(channel, handler) } }))
+vi.mock('electron', () => ({ app: { getPath: () => fake.path }, BrowserWindow: {}, dialog: {}, safeStorage: {}, desktopCapturer: {}, clipboard: {}, nativeImage: {}, ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => fake.handlers.set(channel, handler) } }))
 import { registerIpc } from '../ipc/registerIpc'
 import { GeminiTtsProvider } from '../providers/gemini'
 import type { ReplicatedVoiceRecord } from '../../shared/contracts'
@@ -26,7 +26,7 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await rm(fake.path, { force: true, recursive: true }) })
 
 it('rejects unauthorized windows and child frames before reading, saving or generating', async () => {
-  for (const channel of ['live:getConfig', 'live:saveConfig', 'live:generate', 'live:cancel']) {
+  for (const channel of ['live:getConfig', 'live:saveConfig', 'live:generate', 'live:cancel', 'live:captureSources', 'live:captureSource', 'live:clipboardImage', 'live:importImage']) {
     for (const untrusted of [{ sender: {}, senderFrame: frame }, { sender, senderFrame: {} }]) {
       await expect(Promise.resolve().then(() => invoke(channel, untrusted, channel === 'live:saveConfig' ? DEFAULT_LIVE_CONFIG : request))).rejects.toThrow('Untrusted')
     }
