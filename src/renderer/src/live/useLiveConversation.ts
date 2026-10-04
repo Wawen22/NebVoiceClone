@@ -5,7 +5,7 @@ import { sameTarget, type BrowserTarget } from '../../../shared/outlier'
 import type { S2SAudioStatus } from '../../../shared/s2s'
 import { BrowserAudioEngine } from '../audio/AudioEngine'
 import { streamS2SSpeech } from '../s2s/speechPlayer'
-import { LiveController } from './controller'
+import { LiveController, type LiveOptions } from './controller'
 import { LiveStartGate } from './startGate'
 import { buildLiveSpeechRequest } from './speechRequest'
 
@@ -35,7 +35,7 @@ export function useLiveConversation(args: Arguments) {
     speak: async (text, signal, onStarted) => {
       const settings = session.current?.settings
       if (!settings) throw new Error('Sessione vocale non disponibile.')
-      const engine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') })
+      const engine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') }, { retainRecording: false })
       engine.setVolume(settings.outputVolume)
       try {
         await streamS2SSpeech(window.neb, engine, buildLiveSpeechRequest(settings, text), settings.outputDeviceId, signal, onStarted)
@@ -48,7 +48,8 @@ export function useLiveConversation(args: Arguments) {
     let mounted = true, receivedStatus = false
     const update = (status: S2SAudioStatus) => {
       if (!mounted) return
-      if (capture.current.captureId !== status.captureId) lastPcmAt.current = -Infinity
+      if (capture.current.captureId !== status.captureId) { lastPcmAt.current = -Infinity; setReceiving(false) }
+      if (status.state !== 'active') setReceiving(false)
       capture.current = status; setAudioStatus(status)
       if (controller.active && (status.state !== 'active' || status.captureId !== session.current?.capture.captureId || !sameSource(status.target, session.current?.capture.target ?? null))) controller.pause('Ascolto o scheda cambiati: verifica il collegamento prima di riprendere.')
     }
@@ -76,7 +77,7 @@ export function useLiveConversation(args: Arguments) {
     if (status.state !== 'active' || !status.captureId || !status.target || performance.now() - lastPcmAt.current > 1500) throw new Error('Collega e avvia l’ascolto della scheda dal popup NEB, poi attendi che arrivi il flusso audio.')
     return structuredClone(status)
   }
-  async function start(config: LiveConfig, opening: boolean, save?: () => Promise<LiveConfig | null>): Promise<void> {
+  async function start(config: LiveConfig, opening: boolean, save?: () => Promise<LiveConfig | null>, options: Partial<LiveOptions> = {}): Promise<void> {
     if (controller.locked || startup.current.pending) return
     setStarting(true); setError('')
     try {
@@ -98,7 +99,7 @@ export function useLiveConversation(args: Arguments) {
       }, (prepared) => {
         if (!prepared) return
         session.current = { capture: prepared.source, settings: prepared.settings, profileName: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)?.name ?? 'Conversazione' }
-        controller.start(prepared.config, opening)
+        controller.start(prepared.config, opening, options)
       })
     } catch (reason) { if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { if (!startup.current.pending) setStarting(false) }
@@ -113,7 +114,8 @@ export function useLiveConversation(args: Arguments) {
       controller.resume()
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
-  function stop(): void { startup.current.cancel(); setStarting(false); controller.stop() }
+  function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop() }
+  function newConversation(): void { startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
   function exportLog(): void {
     const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), mode: 'neb-live', profile: session.current?.profileName, snapshot: controller.snapshot }, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -121,6 +123,6 @@ export function useLiveConversation(args: Arguments) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return { snapshot, audioStatus, receiving, error, starting, unavailableReason: args.unavailableReason, locked: controller.locked || starting, active: controller.active,
-    isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, stop, exportLog }
+    isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, stop, newConversation, exportLog }
 }
 export type LiveConversation = ReturnType<typeof useLiveConversation>

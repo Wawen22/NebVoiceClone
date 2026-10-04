@@ -17,7 +17,7 @@ Servono Gemini configurato e `OPENROUTER_API_KEY` nel file locale `.env.local`.
 Le chiavi rimangono nel processo principale. Usa la stessa chiave Gemini alla
 quale appartiene la tua voce personale.
 
-1. Apri **NEB Live → Browser e voce → Configura Edge o Chrome**.
+1. Apri **NEB Live → Configura → Audio → Configura Edge o Chrome**.
 2. Ricarica l'estensione esistente in `edge://extensions` oppure carica la cartella
    indicata da **Apri cartella estensione** in Chrome, con modalità sviluppatore.
    L'estensione ora si chiama **NEB Browser Connector**.
@@ -32,7 +32,8 @@ quale appartiene la tua voce personale.
    microfono. Mantieni l'audio del sito sulle cuffie reali. NEB ascolta la scheda,
    non tutta l'uscita audio del PC. Le applicazioni desktop richiedono un futuro
    percorso di cattura separato.
-6. Scegli un profilo, modifica il contesto della sessione e avvia. Puoi ascoltare
+6. Scegli un profilo dalla barra sopra la chat. Modifica il contesto da
+   **Configura → Profilo** e avvia. Puoi ascoltare
    prima l'interlocutore oppure far generare una breve apertura.
 
 La connessione della scheda e il flusso audio devono risultare disponibili.
@@ -48,7 +49,7 @@ Non avviare Electron direttamente da WSL.
 
 I profili iniziali sono colloquio full-stack, AI e automazione, intervista di ricerca
 e conversazione libera. Puoi aggiungerli, rinominarli e scegliere lingua e tono.
-**Background e stile personale** contiene una sintesi professionale del documento
+**Configura → Profilo → Background e stile personale** contiene una sintesi professionale del documento
 fornito e indicazioni tratte dalla persona comunicativa. Contatti e dettagli
 economici non sono inclusi nei dati iniziali.
 
@@ -62,6 +63,16 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
 
 ## Controlli e limiti
 
+- **Nuova conversazione** ferma elaborazione e voce, annulla un eventuale avvio
+  ancora in salvataggio e pulisce trascrizione, eventi, turni e costo della sessione.
+  Profilo, voce, ritmo e ascolto della scheda restano disponibili. Premi poi
+  **Avvia conversazione** per iniziare da zero. Le risposte tardive della sessione
+  precedente non possono entrare in quella nuova. Esporta prima se vuoi conservare
+  la trascrizione; l'azzeramento non elimina eventuali costi già fatturati.
+- **Configura** apre un pannello richiudibile con tre sezioni: **Profilo**,
+  **Audio** e **Dettagli**. I controlli principali rimangono sotto la chat; eventi,
+  tempi e limiti sono in **Dettagli**. Nelle finestre strette il pannello copre
+  temporaneamente la chat e si chiude con la X.
 - **Pausa** interrompe elaborazione e voce; **Riprendi ascolto** attende un nuovo
   intervento senza ripetere automaticamente la risposta precedente.
 - **Prendi controllo** mette in pausa. Per parlare direttamente scegli il tuo
@@ -76,12 +87,22 @@ l'accuratezza di ogni risposta: controlla il transcript nelle prime prove.
   comincia; se interrotto, il testo completo è etichettato **parziale** e può includere
   parole che non sono state effettivamente pronunciate.
 
-La prima versione attende 2,5 secondi di silenzio ricevuto, poi Qwen elabora e
-Gemini prepara la voce. Il ritardo totale comprende tutte queste fasi. Una pausa
+Per impostazione iniziale NEB attende 2,5 secondi di silenzio ricevuto, poi Qwen
+elabora e Gemini prepara la voce. Da **Configura → Profilo → Pausa prima di
+rispondere** puoi scegliere 1,5, 2,5 o 3,5 secondi. Questa preferenza e chi inizia
+valgono per la finestra corrente e restano disponibili tra nuove conversazioni;
+non sono salvati nei profili. Il ritardo totale comprende tutte queste fasi. Una pausa
 lunga può essere scambiata per fine turno; brevi intercalari mantengono l'ascolto
 quando Qwen li riconosce come intervento incompleto. Durante NEB, 1,2 secondi di
 parlato remoto continuativo interrompono la risposta; brevi cenni vengono ignorati.
 Non è una trascrizione o interpretazione streaming durante il parlato.
+
+Il silenzio finale viene ridotto a 300 ms nell'audio inviato a Qwen, mantenendo
+il parlato e la pausa locale scelta. Il transcript si aggiorna separatamente dal
+livello audio. La riproduzione Live evita la copia WAV per replay usata dalla
+console manuale: non conserva una registrazione della voce a fine turno.
+Queste ottimizzazioni riducono dati e lavoro locale; non garantiscono tempi
+inferiori del provider. I tempi Qwen osservati restano consultabili in Dettagli.
 
 Limiti iniziali: 20 minuti, 40 interventi NEB, $1 di costo OpenRouter osservato,
 120 secondi per intervento remoto, 35 secondi per Qwen e 60 secondi al primo audio
@@ -107,7 +128,10 @@ node scripts/s2s/smoke-renderer.mjs
 
 Gli smoke usano Edge headless, Playwright installato nell'ambiente di test
 `.superpowers/outlier-smoke`, IPC e audio sintetici, senza chiamate AI.
-Verificano profili, avvio libero, transcript, controlli, blocchi e annullamento.
+Verificano profili, ritmo configurabile, avvio libero, transcript, controlli,
+blocchi, azzeramento durante salvataggio o elaborazione e risposte tardive.
+Lo smoke Live verifica anche i pannelli da tastiera, lo scorrimento della chat
+e la visibilità dei comandi nelle finestre compatte.
 La prova hardware su cuffie, VB-CABLE e sito reale è separata: iniziare con una
 breve conversazione di prova prima di usare una sessione lunga.
 
@@ -116,8 +140,8 @@ sintetico ha prodotto una decisione `speak` valida in 2537 ms, costo OpenRouter
 riportato $0,00014499. Questa prova verifica il provider testuale; non misura
 trascrizione audio, Gemini, routing o ritardo completo di una chiamata.
 
-Verifiche finali: build e typecheck WSL passati, 232 test passati e 3 specifici
-Windows saltati in WSL; 7 test bridge/connettore passati su Windows. Smoke NEB Live
+Verifiche finali: build e typecheck WSL passati, 242 test passati e 4 specifici
+Windows saltati in WSL; 16 test bridge/audio/connettore passati su Windows. Smoke NEB Live
 e smoke completo S2S/Console passati in Edge con audio e IPC sintetici. Host C#
 aggiornato compilato per l'istanza Windows esistente. La finestra NEB mantiene
 attivi i timer anche quando minimizzata.

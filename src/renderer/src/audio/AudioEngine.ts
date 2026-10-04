@@ -34,7 +34,7 @@ export class BrowserAudioEngine implements AudioEngine {
   constructor(private readonly streamObserver?: {
     scheduled(pcm: Uint8Array, startAt: number, currentTime: number): void
     suspended(): void
-  }) {}
+  }, private readonly options: { retainRecording?: boolean } = {}) {}
 
   async listOutputs(): Promise<AudioOutput[]> {
     const devices = await navigator.mediaDevices.enumerateDevices()
@@ -86,7 +86,7 @@ export class BrowserAudioEngine implements AudioEngine {
     const output = this.streamOutput
     if (!context || !output || chunk.length === 0 || chunk.length % 2 !== 0) throw new Error('Invalid streaming audio data.')
     const copy = Uint8Array.from(chunk)
-    this.streamChunks.push(copy)
+    if (this.options.retainRecording !== false) this.streamChunks.push(copy)
     this.streamBytes += copy.length
     const samples = context.createBuffer(1, copy.length / 2, 24000)
     const channel = samples.getChannelData(0)
@@ -108,6 +108,16 @@ export class BrowserAudioEngine implements AudioEngine {
 
   finishStream(): number {
     if (this.streamBytes === 0) throw new Error('Gemini returned no audio.')
+    if (this.options.retainRecording !== false) this.saveStreamRecording()
+    this.streamChunks = []
+    this.streamComplete = true
+    if (this.streamSources.size === 0) queueMicrotask(() => {
+      if (this.streamComplete && this.streamSources.size === 0) this.endedCallback()
+    })
+    return this.streamBytes / 48000
+  }
+
+  private saveStreamRecording(): void {
     const wav = new Uint8Array(44 + this.streamBytes)
     const view = new DataView(wav.buffer)
     const label = (offset: number, value: string): void => {
@@ -131,16 +141,10 @@ export class BrowserAudioEngine implements AudioEngine {
       wav.set(chunk, offset)
       offset += chunk.length
     }
-    this.streamChunks = []
     if (this.url) URL.revokeObjectURL(this.url)
     this.url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
     this.element.src = this.url
     this.element.load()
-    this.streamComplete = true
-    if (this.streamSources.size === 0) queueMicrotask(() => {
-      if (this.streamComplete && this.streamSources.size === 0) this.endedCallback()
-    })
-    return this.streamBytes / 48000
   }
 
   private async loadBlob(blob: Blob): Promise<number> {

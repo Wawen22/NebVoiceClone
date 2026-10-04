@@ -123,6 +123,11 @@ export class LiveController {
     this.cancel(); this.resetAudio()
     if (this.snapshot.phase !== 'idle') { this.log('stop', 'Conversazione fermata.'); this.phase('stopped', 'NEB Live fermato.') }
   }
+  reset(): void {
+    this.cancel(); this.session++; this.resetAudio()
+    this.snapshot = { phase: 'idle', message: 'Nuova conversazione pronta.', turns: 0, costUsd: 0, costKnown: true, level: 0, nextText: '', history: [], log: [], startedAt: 0 }
+    this.publish()
+  }
 
   private get profile() { return this.config.profiles.find((profile) => profile.id === this.config.selectedProfileId)! }
   private withinLimits(): boolean {
@@ -137,8 +142,14 @@ export class LiveController {
   private async reason(opening: boolean): Promise<void> {
     const token = ++this.serial, session = this.session
     const operation = new AbortController(); this.operation = operation
-    const pcm = new Uint8Array(this.bytes)
-    let offset = 0; for (const frame of this.frames) { pcm.set(frame, offset); offset += frame.length }
+    // End-of-turn silence is useful locally, but only a short tail is needed by Qwen.
+    const silentFrames = Number.isFinite(this.lastVoiceMs) ? Math.max(0, Math.floor((this.audioMs - this.lastVoiceMs - 300) / 100)) : 0
+    const pcm = new Uint8Array(Math.max(0, this.bytes - silentFrames * 3200))
+    let offset = 0
+    for (const frame of this.frames) {
+      if (offset >= pcm.length) break
+      pcm.set(frame.subarray(0, pcm.length - offset), offset); offset += frame.length
+    }
     this.analyzedVersion = this.voiceVersion
     this.phase('thinking', opening ? 'Preparo una presentazione nel tuo stile…' : 'Qwen ascolta e prepara la risposta…')
     try {

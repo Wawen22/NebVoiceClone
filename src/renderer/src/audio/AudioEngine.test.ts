@@ -7,7 +7,7 @@ afterEach(() => {
 })
 
 describe('BrowserAudioEngine', () => {
-  it('signals completion only after the final streamed chunk and never after stop', async () => {
+  it.each([true, false])('signals completion only after the final streamed chunk and never after stop (retain recording: %s)', async (retainRecording) => {
     const sources: { onended: (() => void) | null; stop: () => void }[] = []
     class FakeAudio {
       volume = 1
@@ -37,10 +37,10 @@ describe('BrowserAudioEngine', () => {
     }
     vi.stubGlobal('Audio', FakeAudio)
     vi.stubGlobal('AudioContext', FakeAudioContext)
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test')
+    const recording = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     const scheduled = vi.fn()
-    const engine = new BrowserAudioEngine({ scheduled, suspended: () => undefined })
+    const engine = new BrowserAudioEngine({ scheduled, suspended: () => undefined }, { retainRecording })
     const ended = vi.fn()
     engine.onEnded(ended)
     await engine.beginStream('default')
@@ -50,6 +50,7 @@ describe('BrowserAudioEngine', () => {
     expect(scheduled.mock.calls[0]).toEqual([Uint8Array.of(0, 0), 0.04, 0])
     expect(scheduled.mock.calls[1][1]).toBeGreaterThan(scheduled.mock.calls[0][1])
     engine.finishStream()
+    expect(recording).toHaveBeenCalledTimes(retainRecording ? 1 : 0)
     expect(ended).not.toHaveBeenCalled()
     sources[0].onended?.()
     expect(ended).not.toHaveBeenCalled()

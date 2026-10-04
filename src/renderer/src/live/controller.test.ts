@@ -149,4 +149,52 @@ describe('NEB Live free conversation', () => {
     expect(h.requests[0].profile.context).toBe('Sviluppo')
     expect(() => setup().controller.start(config, false, { silenceMs: Number.NaN })).toThrow()
   })
+
+  it('new conversation clears history and costs and ignores a late response from the previous session', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.controller.reset()
+    expect(h.signals[0].aborted).toBe(true)
+    expect(h.controller.locked).toBe(false)
+    expect(h.controller.snapshot).toMatchObject({ phase: 'idle', history: [], log: [], turns: 0, costUsd: 0, level: 0, startedAt: 0 })
+    h.controller.start(config, true)
+    expect(h.requests[1].history).toEqual([])
+    h.replies[0].resolve({ ...decision('Vecchia risposta.'), transcript: '' }); await settle()
+    expect(h.controller.snapshot.costUsd).toBe(0)
+    expect(h.controller.snapshot.log).toHaveLength(1)
+    expect(h.controller.snapshot.phase).toBe('thinking')
+    h.replies[1].resolve({ ...decision('Nuova risposta.'), transcript: '' }); await settle(); h.feed(3)
+    expect(h.plays.map((play) => play.text)).toEqual(['Nuova risposta.'])
+  })
+
+  it('new conversation stops playback and an obsolete playback callback cannot repopulate the transcript', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(3); h.plays[0].start()
+    expect(h.controller.snapshot.history).toHaveLength(1)
+    h.controller.reset()
+    expect(h.plays[0].signal.aborted).toBe(true)
+    expect(h.plays[0].start()).toBe(false)
+    h.plays[0].done.resolve(); await settle()
+    expect(h.controller.snapshot).toMatchObject({ phase: 'idle', history: [], log: [], turns: 0, nextText: '' })
+  })
+
+  it('sends the complete speech with only 300ms of trailing silence to Qwen', () => {
+    const h = setup(); h.controller.start(config, false)
+    h.feed(4, true); h.feed(25)
+    const audio = h.requests[0].audioPcm!
+    expect(audio.length).toBe(7 * 3200)
+    expect(audio.slice(0, 4 * 3200).some((byte) => byte !== 0)).toBe(true)
+    expect(audio.slice(4 * 3200).every((byte) => byte === 0)).toBe(true)
+  })
+
+  it('uses the selected silence duration and still invalidates a rapid response when speech resumes', async () => {
+    const h = setup(); h.controller.start(config, false, { silenceMs: 1500 })
+    h.feed(4, true); h.feed(14)
+    expect(h.requests).toHaveLength(0)
+    h.feed(1)
+    expect(h.requests).toHaveLength(1)
+    h.feed(2, true)
+    expect(h.signals[0].aborted).toBe(true)
+    h.replies[0].resolve(decision()); await settle()
+    expect(h.plays).toHaveLength(0)
+  })
 })
