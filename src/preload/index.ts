@@ -3,6 +3,10 @@ import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
 const api: DesktopApi = {
+  getLiveConfig: () => ipcRenderer.invoke('live:getConfig'),
+  saveLiveConfig: (config) => ipcRenderer.invoke('live:saveConfig', config),
+  generateLiveTurn: (request) => ipcRenderer.invoke('live:generate', request),
+  cancelLiveTurn: (id) => ipcRenderer.invoke('live:cancel', id),
   getS2SProviderStatus: () => ipcRenderer.invoke('s2s:providerStatus'),
   adaptS2STurn: (request) => ipcRenderer.invoke('s2s:adapt', request),
   cancelS2SAdaptation: (id) => ipcRenderer.invoke('s2s:cancelAdaptation', id),

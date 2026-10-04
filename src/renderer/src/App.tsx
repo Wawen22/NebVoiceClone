@@ -4,11 +4,13 @@ import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
 import { AutomationPanel, AutomationLauncher } from './s2s/AutomationPanel'
 import { useS2SAutomation } from './s2s/useS2SAutomation'
+import { useLiveConversation } from './live/useLiveConversation'
+import { LivePage } from './live/LivePage'
 import { localSimulationOutputs } from './s2s/simulation'
 import { importReadyLines } from './scriptImport'
 import { DiagnosticsPage, SettingsPage } from './SecondaryViews'
 import { Icon } from './Icons'
-import { PanelLeftClose, PanelLeftOpen, Layers } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Layers, Radio } from 'lucide-react'
 import { OutlierPage } from './outlier/OutlierPage'
 import { useOutlierWorkspace } from './outlier/useOutlierWorkspace'
 import { SetupGuide } from './SetupGuide'
@@ -17,7 +19,7 @@ import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
 import { addReadyLine, completeReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine, type ReadyLinesTab } from './readyLines'
 
-type Page = 'console' | 'outlier' | 'settings' | 'guide' | 'diagnostics'
+type Page = 'console' | 'outlier' | 'live' | 'settings' | 'guide' | 'diagnostics'
 
 export function App(): React.JSX.Element {
   const outlierWorkspace = useOutlierWorkspace()
@@ -67,6 +69,15 @@ export function App(): React.JSX.Element {
   const playbackActive = useRef(false)
   const generationInProgress = useRef(false)
   const scriptInput = useRef<HTMLTextAreaElement>(null)
+  const liveUnavailableReason = info?.platform !== 'win32' ? 'Avvia NEB dalla versione Windows.'
+    : !outlierWorkspace.status?.connected ? 'Collega la scheda dal popup NEB in Edge o Chrome.'
+    : !outlierWorkspace.status.stopAvailable ? 'La scorciatoia globale Ctrl+Alt+S deve essere disponibile.'
+    : outlierWorkspace.locked ? 'Ferma l’inserimento Outlier prima di avviare NEB Live.'
+    : !gemini.ready ? 'Configura la voce Gemini prima di avviare.'
+    : !routingStatus(outputs, settings.outputDeviceId, info?.platform).routed ? 'Seleziona CABLE Input come uscita NEB e CABLE Output come microfono del sito.' : ''
+  const live = useLiveConversation({ settings, available: !liveUnavailableReason, unavailableReason: liveUnavailableReason,
+    otherBusy: () => automation.isLocked() || busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy || outlierWorkspace.locked
+  })
   const s2sProject = outlierWorkspace.data.projects.find((project) => project.id === outlierWorkspace.selectedId)
   const s2sUnavailableReason = info?.platform !== 'win32' ? 'Avvia NEB dalla versione Windows.'
     : !s2sProject || s2sProject.integration !== 's2s' || s2sProject.archived ? 'Seleziona un progetto S2S attivo nella pagina Outlier.'
@@ -79,10 +90,12 @@ export function App(): React.JSX.Element {
     simulationAvailable: gemini.ready && !outlierWorkspace.locked,
     simulationUnavailableReason: !gemini.ready ? 'Configura la voce Gemini prima della simulazione.' : 'Ferma l’inserimento Rationale prima della simulazione.',
     localOutputs: localSimulationOutputs(outputs),
-    manualBusy: busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy,
+    manualBusy: live.locked || busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy,
     tab: activeReadyTab, projectId: outlierWorkspace.selectedId, target: outlierWorkspace.status?.target ?? null,
     onComplete: (tab, id) => (tab === 'modelA' ? setReadyLinesA : setReadyLinesB)((lines) => completeReadyLine(lines, id))
   })
+
+  function sessionLocked(): boolean { return automation.isLocked() || live.isLocked() }
 
   useEffect(() => {
     void window.neb.getAppInfo().then(setInfo).catch((reason: unknown) => setError(message(reason)))
@@ -197,7 +210,7 @@ export function App(): React.JSX.Element {
   }
 
   async function saveGeminiKey(request: SaveGeminiKeyRequest): Promise<boolean> {
-    if (automation.isLocked()) return false
+    if (sessionLocked()) return false
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -215,7 +228,7 @@ export function App(): React.JSX.Element {
   }
 
   async function selectGeminiKey(source: GeminiKeySource): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -232,7 +245,7 @@ export function App(): React.JSX.Element {
   }
 
   async function removeGeminiKey(): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     setKeyBusy(true)
     setKeyError('')
     setKeyMessage('')
@@ -259,7 +272,7 @@ export function App(): React.JSX.Element {
   }
 
   async function update(patch: Partial<AppSettings>): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     try {
       const next = await window.neb.updateSettings(patch)
       audio.current.setVolume(next.outputVolume)
@@ -269,13 +282,13 @@ export function App(): React.JSX.Element {
   }
 
   function previewOutputVolume(volume: number): void {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     audio.current.setVolume(volume)
     setSettings((current) => ({ ...current, outputVolume: volume }))
   }
 
   async function loadFile(file: File | undefined): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (!file) return
     playbackReadyLine.current = null
     playbackActive.current = false
@@ -298,7 +311,7 @@ export function App(): React.JSX.Element {
   }
 
   async function play(): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (!fileName || busy) return
     playbackReadyLine.current = null
     try {
@@ -313,7 +326,7 @@ export function App(): React.JSX.Element {
   }
 
   async function replay(): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (!hasAudio || busy) return
     playbackReadyLine.current = null
     try {
@@ -328,7 +341,7 @@ export function App(): React.JSX.Element {
   }
 
   async function speak(text: string = script, readyLineId: string | null = null): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (busy || !gemini.ready || !text.trim()) return
     if (outputs.length === 0) {
       setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa prima di generare la voce.')
@@ -388,6 +401,7 @@ export function App(): React.JSX.Element {
   }
 
   function stop(): void {
+    live.stop()
     automation.stop()
     playbackReadyLine.current = null
     requestId.current++
@@ -426,7 +440,7 @@ export function App(): React.JSX.Element {
   }
 
   async function importVoiceProfile(): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     setVoiceProfileBusy(true)
     setVoiceProfileError('')
     setVoiceProfileMessage('')
@@ -441,7 +455,7 @@ export function App(): React.JSX.Element {
   }
 
   async function generateModelBLines(): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (readyLinesA.length === 0 || generatingModelB) return
     setGeneratingModelB(true)
     setError('')
@@ -465,7 +479,7 @@ export function App(): React.JSX.Element {
   }
 
   async function regenerateSingleLine(id: string, text: string, index: number): Promise<void> {
-    if (automation.isLocked()) return
+    if (sessionLocked()) return
     if (singleRegeneratingId || generatingModelB) return
     setSingleRegeneratingId(id)
     setError('')
@@ -492,15 +506,15 @@ export function App(): React.JSX.Element {
   const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
   const setLines = activeReadyTab === 'modelA' ? setReadyLinesA : setReadyLinesB
   const common = {
-    settings, gemini, script, scriptInput, routing, isLinux, busy: busy || automation.locked,
+    settings, gemini, script, scriptInput, routing, isLinux, busy: busy || automation.locked || live.locked,
     playing: playing || automation.snapshot.phase === 'speaking', hasAudio,
     status: automation.locked ? automation.snapshot.message : status, error: automation.error || error, metrics, activeKeyName,
-    readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => automation.locked ? setAutomationOpen(true) : setReadyOpen(true),
+    readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => live.locked ? setPage('live') : automation.locked ? setAutomationOpen(true) : setReadyOpen(true),
     onScriptChange: setScript, onSpeak: speak, onStop: stop, onReplay: replay
   }
   const readyPanel = readyOpen && (
     <ReadyLinesPanel
-      automationLocked={automation.locked}
+      automationLocked={automation.locked || live.locked}
       automation={(editorReady) => <AutomationLauncher editorReady={editorReady} onOpen={() => { setReadyOpen(false); setAutomationOpen(true) }} />}
       linesA={readyLinesA}
       linesB={readyLinesB}
@@ -508,7 +522,7 @@ export function App(): React.JSX.Element {
       onTabChange={setActiveReadyTab}
       currentScript={script}
       ready={gemini.ready}
-      busy={busy || automation.locked}
+      busy={busy || automation.locked || live.locked}
       playing={playing || automation.snapshot.phase === 'speaking'}
       activeLineId={activeReadyLineId}
       completedLine={completedReadyLine}
@@ -549,7 +563,7 @@ export function App(): React.JSX.Element {
 
   if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}{automationPanel}</>
 
-  const pageTitle = page === 'console' ? 'Console' : page === 'outlier' ? 'Outlier' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
+  const pageTitle = page === 'console' ? 'Console' : page === 'outlier' ? 'Outlier' : page === 'live' ? 'NEB Live' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
   return <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame'}>
     <aside className="sidebar">
       <button type="button" className="sidebar-toggle" aria-label={sidebarCollapsed ? 'Apri menu' : 'Chiudi menu'} title={sidebarCollapsed ? 'Apri menu' : 'Chiudi menu'} aria-controls="sidebar-nav" aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
@@ -557,6 +571,7 @@ export function App(): React.JSX.Element {
       <nav id="sidebar-nav" aria-label="Navigazione principale">
         <button className={page === 'console' ? 'nav active' : 'nav'} aria-label="Console" title="Console" aria-current={page === 'console' ? 'page' : undefined} onClick={() => setPage('console')}><Icon name="console" /><span className="nav-label">Console</span></button>
         <button className={page === 'outlier' ? 'nav active' : 'nav'} aria-label="Outlier" title="Outlier" aria-current={page === 'outlier' ? 'page' : undefined} onClick={() => setPage('outlier')}><Layers size={20} /><span className="nav-label">Outlier</span></button>
+        <button className={page === 'live' ? 'nav active' : 'nav'} aria-label="NEB Live" title="NEB Live" aria-current={page === 'live' ? 'page' : undefined} onClick={() => setPage('live')}><Radio size={20} /><span className="nav-label">NEB Live</span></button>
         <button className={page === 'settings' ? 'nav active' : 'nav'} aria-label="Impostazioni" title="Impostazioni" aria-current={page === 'settings' ? 'page' : undefined} onClick={() => setPage('settings')}><Icon name="settings" /><span className="nav-label">Impostazioni</span></button>
         <button className={page === 'guide' ? 'nav active' : 'nav'} aria-label="Guida audio" title="Guida audio" aria-current={page === 'guide' ? 'page' : undefined} onClick={() => setPage('guide')}><Icon name="book" /><span className="nav-label">Guida audio</span></button>
         <button className={page === 'diagnostics' ? 'nav active' : 'nav'} aria-label="Diagnostica" title="Diagnostica" aria-current={page === 'diagnostics' ? 'page' : undefined} onClick={() => setPage('diagnostics')}><Icon name="diagnostics" /><span className="nav-label">Diagnostica</span></button>
@@ -567,13 +582,15 @@ export function App(): React.JSX.Element {
     <main className="main">
       <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready && !keyBusy ? 'connection ready' : 'connection'} aria-live="polite"><span className="status-dot" /><span className="connection-copy"><strong title={activeKeyName}>API in uso: {activeKeyName}</strong><small>{keyBusy ? 'Verifica in corso…' : gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</small></span></div></header>
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
-      {page === 'outlier' && <OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} />}
-      {page === 'settings' && <fieldset className="settings-session-lock" disabled={automation.locked}><SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy || automation.locked} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy || automation.locked} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} /></fieldset>}
+      {page === 'outlier' && <fieldset className="settings-session-lock" disabled={live.locked}><OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} /></fieldset>}
+      <div className="neb-live-page" hidden={page !== 'live'}><fieldset className="settings-session-lock" disabled={automation.locked || busy || playing || keyBusy || voiceProfileBusy || outlierWorkspace.locked}><LivePage live={live} settings={settings} outputs={outputs} onUpdate={(patch) => void update(patch)} onRefreshOutputs={() => void refreshOutputs()} platform={info?.platform} geminiReady={gemini.ready} stopAvailable={Boolean(outlierWorkspace.status?.stopAvailable)} /></fieldset></div>
+      {page === 'settings' && <fieldset className="settings-session-lock" disabled={automation.locked || live.locked}><SettingsPage gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy || automation.locked || live.locked} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy || automation.locked || live.locked} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} /></fieldset>}
       {page === 'guide' && <SetupGuide />}
       {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
     </main>
     {readyPanel}
     {automationPanel}
+    {live.locked && page !== 'live' && <button className="neb-live-reopen" onClick={() => setPage('live')}>NEB Live · {live.snapshot.message} · Apri</button>}
   </div>
 }
 

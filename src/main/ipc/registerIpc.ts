@@ -1,5 +1,5 @@
-import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
-import { basename } from 'node:path'
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
+import { basename, join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { clearGeminiVoiceProfile, readSettings, saveReplicatedVoice, setGeminiKeySource, updateSettings } from '../config/settingsStore'
 import { getGeminiKeyStatus, removeSavedGeminiKey, resolveGeminiApiKey, saveGeminiKey } from '../config/geminiKeyStore'
@@ -13,6 +13,9 @@ import { paraphraseSingleLine, paraphraseWithNemotron } from '../providers/openr
 import { adaptS2STurn, S2S_QWEN_MODEL } from '../providers/qwen'
 import { parseS2SAdaptRequest, parseS2SSimulationRequest } from '../../shared/s2s'
 import { generateSimulatedReply } from '../providers/s2sSimulation'
+import { LiveConfigStore } from '../live/configStore'
+import { generateLiveTurn } from '../providers/live'
+import { parseLiveTurnRequest } from '../../shared/live'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -23,9 +26,38 @@ export function registerIpc(
   let activeVoiceCreation = false
   let activeAdaptation: { id: string; controller: AbortController } | null = null
   let activeSimulation: { id: string; controller: AbortController } | null = null
+  let activeLiveTurn: { id: string; controller: AbortController } | null = null
+  const liveStore = new LiveConfigStore(join(app.getPath('userData'), 'neb-live-config.json'))
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
+
+  ipcMain.handle('live:getConfig', (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return liveStore.read()
+  })
+  ipcMain.handle('live:saveConfig', (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return liveStore.save(value)
+  })
+  ipcMain.handle('live:generate', async (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (activeVoiceCreation) throw new Error('Attendi la fine della creazione della voce prima di avviare NEB Live.')
+    const request = parseLiveTurnRequest(value)
+    activeLiveTurn?.controller.abort()
+    const operation = { id: request.requestId, controller: new AbortController() }
+    activeLiveTurn = operation
+    try { return await generateLiveTurn(request, { signal: operation.controller.signal }) }
+    finally { if (activeLiveTurn === operation) activeLiveTurn = null }
+  })
+  ipcMain.handle('live:cancel', (event, id: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (id !== undefined && (typeof id !== 'string' || !id.trim() || id.length > 100)) throw new Error('Identificativo NEB Live non valido.')
+    if (id === undefined || id === activeLiveTurn?.id) {
+      activeLiveTurn?.controller.abort()
+      activeLiveTurn = null
+    }
+  })
 
   ipcMain.handle('app:getInfo', async (event): Promise<AppInfo> => {
     assertTrusted(event.sender, event.senderFrame)
@@ -175,6 +207,7 @@ export function registerIpc(
   })
   ipcMain.handle('s2s:providerStatus', (event) => {
     assertTrusted(event.sender, event.senderFrame)
+    if (activeVoiceCreation) return { ready: false, model: S2S_QWEN_MODEL, message: 'Attendi la fine della creazione della voce prima di avviare la conversazione.' }
     return { ready: Boolean(process.env.OPENROUTER_API_KEY?.trim()), model: S2S_QWEN_MODEL }
   })
   ipcMain.handle('s2s:adapt', async (event, value: unknown) => {

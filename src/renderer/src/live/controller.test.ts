@@ -1,0 +1,152 @@
+import { describe, expect, it } from 'vitest'
+import { LiveController } from './controller'
+import type { LiveConfig, LiveDecision, LiveTurnRequest } from '../../../shared/live'
+
+const config: LiveConfig = { schemaVersion: 1, background: 'Esperienza documentata', persona: 'Diretto e naturale', selectedProfileId: 'interview', profiles: [{ id: 'interview', name: 'Colloquio', context: 'Sviluppo', language: 'it', tone: 'professional' }] }
+const decision = (text = 'Partirei dal problema concreto.'): LiveDecision => ({ action: 'speak', transcript: 'Come affronti il debugging?', text, reason: 'Domanda completa', costUsd: 0.01, qwenMs: 100 })
+const frame = (voice = false): Uint8Array => {
+  const pcm = new Uint8Array(3200)
+  if (voice) { const view = new DataView(pcm.buffer); for (let i = 0; i < pcm.length; i += 2) view.setInt16(i, 3000, true) }
+  return pcm
+}
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r }); return { promise, resolve } }
+function setup() {
+  let now = 0
+  const requests: LiveTurnRequest[] = [], signals: AbortSignal[] = []
+  const replies: ReturnType<typeof deferred<LiveDecision>>[] = []
+  const plays: { text: string; signal: AbortSignal; start: () => boolean; done: ReturnType<typeof deferred<void>> }[] = []
+  const controller = new LiveController({ now: () => now, changed: () => undefined,
+    decide: (request, signal) => { requests.push(request); signals.push(signal); const next = deferred<LiveDecision>(); replies.push(next); return next.promise },
+    speak: (text, signal, start) => { const done = deferred<void>(); plays.push({ text, signal, start, done }); return done.promise }
+  })
+  const feed = (count: number, voice = false) => { for (let i = 0; i < count; i++) { now += 100; controller.feed(frame(voice)); controller.tick() } }
+  return { controller, requests, signals, replies, plays, feed, advance: (ms: number) => { now += ms; controller.tick() } }
+}
+const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
+
+describe('NEB Live free conversation', () => {
+  it('listens first and generates a free response without any prepared line', async () => {
+    const h = setup(); h.controller.start(config, false)
+    expect(h.requests).toHaveLength(0)
+    h.feed(8, true); h.feed(25)
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0].audioPcm?.length).toBeGreaterThan(3200)
+    expect(h.requests[0].profile.context).toBe('Sviluppo')
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    expect(h.plays).toHaveLength(1)
+    expect(h.controller.snapshot.history).toHaveLength(0)
+    expect(h.plays[0].start()).toBe(true)
+    expect(h.controller.snapshot.history.map((item) => item.role)).toEqual(['interlocutor', 'neb'])
+    h.plays[0].done.resolve(); await settle()
+    expect(h.controller.snapshot.phase).toBe('listening')
+    h.feed(4, true); h.feed(25)
+    expect(h.requests[1].history).toHaveLength(2)
+  })
+
+  it('generates an opening and yields if the interlocutor starts talking', async () => {
+    const h = setup(); h.controller.start(config, true)
+    expect(h.requests[0].opening).toBe(true)
+    h.feed(2, true)
+    expect(h.signals[0].aborted).toBe(true)
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(25)
+    expect(h.plays).toHaveLength(0)
+    expect(h.controller.snapshot.costUsd).toBe(0.01)
+    expect(h.requests[1].opening).not.toBe(true)
+  })
+
+  it('retains incomplete audio but does not repeatedly analyze silence', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(4, true); h.feed(25)
+    const previousBytes = h.requests[0].audioPcm!.length
+    h.replies[0].resolve({ ...decision(), action: 'wait', text: '', transcript: 'Ehm, io...' }); await settle()
+    h.feed(30); expect(h.requests).toHaveLength(1)
+    h.feed(5, true); h.feed(25)
+    expect(h.requests[1].audioPcm!.length).toBeGreaterThan(previousBytes)
+    expect(h.controller.snapshot.history).toHaveLength(0)
+  })
+
+  it('invalidates a pending response when speech resumes', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(4, true); h.feed(25)
+    h.feed(2, true); expect(h.signals[0].aborted).toBe(true)
+    h.replies[0].resolve(decision()); await settle(); h.feed(25)
+    expect(h.plays).toHaveLength(0)
+    expect(h.requests).toHaveLength(2)
+  })
+
+  it('marks interrupted speech partial and preserves it in the next reasoning context', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(4, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.plays[0].start()
+    h.feed(12, true)
+    expect(h.plays[0].signal.aborted).toBe(true)
+    expect(h.controller.snapshot.history.at(-1)?.partial).toBe(true)
+    expect(h.controller.snapshot.phase).toBe('listening')
+    h.plays[0].done.resolve(); await settle(); h.feed(25)
+    expect(h.requests[1].history.at(-1)?.partial).toBe(true)
+  })
+
+  it('ignores short backchannels while NEB speaks', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(4, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.plays[0].start()
+    h.feed(3, true); h.feed(5)
+    expect(h.plays[0].signal.aborted).toBe(false)
+    h.plays[0].done.resolve(); await settle(); h.feed(30)
+    expect(h.requests).toHaveLength(1)
+  })
+
+  it('stop suppresses late reasoning and late playback callbacks while retaining observed cost', async () => {
+    const h = setup(); h.controller.start(config, true); h.controller.stop()
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(40)
+    expect(h.controller.snapshot.phase).toBe('stopped'); expect(h.plays).toHaveLength(0)
+    expect(h.controller.snapshot.costUsd).toBe(0.01)
+    const second = setup(); second.controller.start(config, true)
+    second.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); second.feed(3)
+    second.controller.stop(); expect(second.plays[0].start()).toBe(false)
+    second.plays[0].done.resolve(); await settle(); expect(second.controller.snapshot.history).toHaveLength(0)
+  })
+
+  it('pause and resume never replay an interrupted response', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(3); h.plays[0].start()
+    h.controller.pause(); h.controller.resume(); h.feed(30)
+    expect(h.plays).toHaveLength(1); expect(h.controller.snapshot.phase).toBe('listening')
+    expect(h.controller.snapshot.history[0].partial).toBe(true)
+  })
+
+  it('pauses on packet loss instead of interpreting missing audio as silence', () => {
+    const h = setup(); h.controller.start(config, false); h.feed(5, true); h.advance(1600)
+    expect(h.controller.snapshot.phase).toBe('paused'); expect(h.requests).toHaveLength(0)
+  })
+
+  it('pauses on unknown cost and prevents resuming with unknown spend', async () => {
+    const h = setup(); h.controller.start(config, true)
+    h.replies[0].resolve({ ...decision(), transcript: '', costUsd: null }); await settle()
+    expect(h.controller.snapshot.phase).toBe('paused'); expect(h.controller.snapshot.costKnown).toBe(false)
+    h.controller.resume(); expect(h.controller.snapshot.phase).toBe('paused')
+  })
+
+  it('honors cost, turn and session duration limits', async () => {
+    const h = setup(); h.controller.start(config, true, { maxCostUsd: 0.005 })
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); expect(h.plays).toHaveLength(0)
+    const turns = setup(); turns.controller.start(config, true, { maxTurns: 1 })
+    turns.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); turns.feed(3); turns.plays[0].start(); turns.plays[0].done.resolve(); await settle()
+    expect(turns.controller.snapshot.phase).toBe('paused')
+    const duration = setup(); duration.controller.start(config, false, { maxDurationMs: 500 }); duration.feed(5)
+    expect(duration.controller.snapshot.phase).toBe('paused')
+  })
+
+  it('allows the final permitted turn to finish before enforcing the turn limit', async () => {
+    const h = setup(); h.controller.start(config, true, { maxTurns: 1 })
+    h.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); h.feed(3); h.plays[0].start()
+    h.feed(10)
+    expect(h.controller.snapshot.phase).toBe('speaking')
+    expect(h.plays[0].signal.aborted).toBe(false)
+    h.plays[0].done.resolve(); await settle()
+    expect(h.controller.snapshot.phase).toBe('paused')
+    expect(h.controller.snapshot.history[0].partial).not.toBe(true)
+  })
+
+  it('freezes the session profile and rejects invalid session limits', () => {
+    const h = setup(); const copy = structuredClone(config); h.controller.start(copy, true); copy.profiles[0].context = 'Mutated'
+    expect(h.requests[0].profile.context).toBe('Sviluppo')
+    expect(() => setup().controller.start(config, false, { silenceMs: Number.NaN })).toThrow()
+  })
+})

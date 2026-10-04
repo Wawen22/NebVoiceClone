@@ -37,7 +37,7 @@ function connect() {
       const tab = await chrome.tabs.get(target.tabId)
       const window = await chrome.windows.get(target.windowId)
       if (!tab.active || tab.url !== target.url) throw new Error('Scheda o destinazione cambiata.')
-      if (!window.focused) throw new Error('Finestra Edge non in primo piano (focus perso).')
+      if (!window.focused) throw new Error('Finestra del browser non in primo piano (focus perso).')
       let snapshot = await chrome.tabs.sendMessage(target.tabId, { action: message.action, expected: message.payload.expected, documentId: target.documentId, url: target.url }, { frameId: 0 })
       // Activation may complete asynchronously. Wait only during preparation; never refocus during typing.
       if (message.action === 'prepare' && !snapshot.focused && !snapshot.error) {
@@ -78,10 +78,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
         const check = () => { if (capture !== operation || target !== selected) throw new Error('Ascolto annullato o destinazione cambiata.') }
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
         check()
-        if (tabs[0]?.id !== target.tabId || tabs[0]?.url !== target.url) throw new Error('Apri la scheda S2S associata prima di avviare l’ascolto.')
+        if (tabs[0]?.id !== target.tabId || tabs[0]?.url !== target.url) throw new Error('Apri la scheda associata prima di avviare l’ascolto.')
         const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })
         check()
-        if (!contexts.length) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['USER_MEDIA'], justification: 'Ascoltare la risposta vocale della scheda S2S associata a NEB.' })
+        if (!contexts.length) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['USER_MEDIA'], justification: 'Ascoltare l’audio della scheda associata per NEB Live o S2S.' })
         check()
         const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: selected.tabId })
         check()
@@ -104,17 +104,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message.reason !== 'focus') target = null
     return
   }
-  if (message.kind !== 'associate' || sender.tab) return
+  if (message.kind !== 'associate' || sender.tab || sender.url !== chrome.runtime.getURL('popup.html')) return
   ;(async () => {
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
       const tab = tabs[0]
-      if (!tab?.id || !/^(https?:\/\/|file:\/\/)/.test(tab.url || '')) throw new Error('Apri la task S2S o la demo locale.')
+      if (!tab?.id || !/^(https?:\/\/|file:\/\/)/.test(tab.url || '')) throw new Error('Apri una pagina web HTTP(S), una task S2S o la demo locale.')
       await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] })
       const snapshot = await chrome.tabs.sendMessage(tab.id, { action: 'associate' }, { frameId: 0 })
       if (snapshot.error) throw new Error(snapshot.error)
       stopCapture('Scheda associata nuovamente.')
-      target = { tabId: tab.id, windowId: tab.windowId, documentId: snapshot.documentId, url: snapshot.url, title: (tab.title || 'S2S').slice(0, 500) }
+      target = { tabId: tab.id, windowId: tab.windowId, documentId: snapshot.documentId, url: snapshot.url, title: (tab.title || 'Scheda browser').slice(0, 500) }
       connect().postMessage({ kind: 'associated', target })
       reply({ ok: true, title: target.title })
     } catch (error) { reply({ error: error.message }) }

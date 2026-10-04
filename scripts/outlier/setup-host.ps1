@@ -24,9 +24,14 @@ $references = @(
 Add-Type -Path (Join-Path $PSScriptRoot 'NativeHost.cs') -ReferencedAssemblies $references -OutputAssembly $hostExe -OutputType ConsoleApplication
 if ($CompileOnly) { Write-Output 'Compilazione host completata; nessuna registrazione nel browser.'; exit 0 }
 $manifestPath = Join-Path $hostDirectory 'com.nebvoice.outlier.json'
-$json = @{ name = 'com.nebvoice.outlier'; description = 'NEB Outlier native connector'; path = $hostExe; type = 'stdio'; allowed_origins = @("chrome-extension://$ExtensionId/") } | ConvertTo-Json
+$json = @{ name = 'com.nebvoice.outlier'; description = 'NEB browser native connector'; path = $hostExe; type = 'stdio'; allowed_origins = @("chrome-extension://$ExtensionId/") } | ConvertTo-Json
 [IO.File]::WriteAllText($manifestPath, $json, (New-Object Text.UTF8Encoding($false)))
-$registryPath = 'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.nebvoice.outlier'
-New-Item -Path $registryPath -Force | Out-Null
-Set-Item -LiteralPath $registryPath -Value $manifestPath
-Write-Output 'Host NEB Outlier compilato e registrato per questo utente.'
+$registryPaths = @(
+  'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.nebvoice.outlier',
+  'HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.nebvoice.outlier'
+)
+foreach ($registryPath in $registryPaths) {
+  New-Item -Path $registryPath -Force | Out-Null
+  Set-Item -LiteralPath $registryPath -Value $manifestPath
+}
+Write-Output 'Host NEB compilato e registrato per Edge e Chrome per questo utente.'

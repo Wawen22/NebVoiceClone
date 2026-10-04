@@ -2,6 +2,8 @@
 
 Local, manually controlled desktop console for synthetic speech. Gemini 3.8 Flash TTS generates a manually entered script with a prebuilt or user-created replicated voice.
 
+**NEB Live** adds free browser conversations alongside Outlier: it listens to the connected tab, generates responses with Qwen using editable personal background and conversation profiles, and streams the selected Gemini voice. No prepared lines are required. See the [NEB Live Windows guide](docs/neb-live.md) for browser setup, controls and limitations.
+
 ## Architecture
 
 Electron's main process owns settings, the Gemini key, and provider API calls. A sandboxed renderer owns the interface and local audio playback. A narrow, typed preload bridge carries validated operations. See [architecture](docs/architecture.md).

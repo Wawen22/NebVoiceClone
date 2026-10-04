@@ -40,7 +40,8 @@ public class NativeHost {
     static IntPtr EdgeWindow() {
         IntPtr hwnd = GetAncestor(GetForegroundWindow(), 3); uint pid;
         GetWindowThreadProcessId(hwnd, out pid);
-        if (hwnd == IntPtr.Zero || Process.GetProcessById((int)pid).ProcessName != "msedge") throw new InvalidOperationException("Collega la scheda mentre Edge è in primo piano.");
+        string browser = hwnd == IntPtr.Zero ? "" : Process.GetProcessById((int)pid).ProcessName;
+        if (browser != "msedge" && browser != "chrome") throw new InvalidOperationException("Collega la scheda mentre Edge o Chrome è in primo piano.");
         return hwnd;
     }
     static string Serialize(object value) { lock (JsonLock) return Json.Serialize(value); }
@@ -70,9 +71,9 @@ public class NativeHost {
     static Dictionary<string, object> Probe(string expected) {
         IntPtr hwnd = EdgeWindow(); uint pid;
         GetWindowThreadProcessId(hwnd, out pid);
-        if (AssociatedWindow == IntPtr.Zero || hwnd != AssociatedWindow) throw new InvalidOperationException("La finestra Edge non è quella associata.");
+        if (AssociatedWindow == IntPtr.Zero || hwnd != AssociatedWindow) throw new InvalidOperationException("La finestra del browser non è quella associata.");
         AutomationElement element = AutomationElement.FocusedElement;
-        if (element == null || element.Current.ControlType != ControlType.Edit || !element.Current.IsEnabled || !element.Current.HasKeyboardFocus || element.Current.ProcessId != (int)pid) throw new InvalidOperationException("Il focus Windows non è su un campo modificabile di Edge.");
+        if (element == null || element.Current.ControlType != ControlType.Edit || !element.Current.IsEnabled || !element.Current.HasKeyboardFocus || element.Current.ProcessId != (int)pid) throw new InvalidOperationException("Il focus Windows non è su un campo modificabile del browser.");
         if (Text(element) != expected) throw new InvalidOperationException("Il testo del controllo Windows non corrisponde al Rationale atteso (lunghezze " + Text(element).Length + "/" + expected.Length + ").");
         foreach (int key in new int[] { 16, 17, 18, 91, 92 }) if ((GetAsyncKeyState(key) & 0x8000) != 0) throw new InvalidOperationException("Rilascia Shift, Ctrl, Alt e Windows prima di scrivere.");
         return new Dictionary<string, object> { { "hwnd", hwnd.ToInt64().ToString() }, { "controlId", String.Join(",", element.GetRuntimeId()) } };
@@ -82,7 +83,7 @@ public class NativeHost {
         var payload = (Dictionary<string, object>)message["payload"];
         string action = (string)message["action"];
         if (action == "activate") {
-            if (AssociatedWindow == IntPtr.Zero || !SetForegroundWindow(AssociatedWindow)) throw new InvalidOperationException("Windows non permette di attivare la finestra associata. Porta Edge in primo piano e riprova.");
+            if (AssociatedWindow == IntPtr.Zero || !SetForegroundWindow(AssociatedWindow)) throw new InvalidOperationException("Windows non permette di attivare la finestra associata. Porta Edge o Chrome in primo piano e riprova.");
             return new Dictionary<string, object> { { "activated", true } };
         }
         var actual = Probe((string)payload["expected"]);

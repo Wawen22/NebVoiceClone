@@ -25,7 +25,7 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
   const bridge = new NativeBridge((target) => {
     if (audio.status.state === 'active') audio.disconnect('Scheda associata nuovamente: riavvia l’ascolto.')
     controller.associate(target)
-  }, () => { audio.disconnect('Collegamento Edge interrotto.'); controller.disconnect() }, (message, reason) => {
+  }, () => { audio.disconnect('Collegamento browser interrotto.'); controller.disconnect() }, (message, reason) => {
     if (reason !== 'focus') audio.disconnect('Scheda o destinazione cambiata.')
     controller.invalidate(message, reason)
   }, (packet) => audio.receive(packet, controller.status.target))
@@ -96,7 +96,7 @@ export function registerOutlierIpc(getWebContents: () => WebContents | undefined
   })
   ipcMain.handle('outlier:install', async (event, id: unknown) => {
     trust(event.sender, event.senderFrame)
-    if (!supported || typeof id !== 'string' || !/^[a-p]{32}$/.test(id)) throw new Error('Inserisci l’ID completo dell’estensione Edge (32 lettere a–p).')
+    if (!supported || typeof id !== 'string' || !/^[a-p]{32}$/.test(id)) throw new Error('Inserisci l’ID completo dell’estensione Edge o Chrome (32 lettere a–p).')
     if (installing || insertionLocked(controller.status)) throw new Error('Ferma l’inserimento prima di configurare il collegamento.')
     installing = true
     try {

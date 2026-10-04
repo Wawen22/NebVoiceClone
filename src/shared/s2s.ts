@@ -59,7 +59,7 @@ export type S2SAudioEvent =
   | { type: 'pcm'; captureId: string; sequence: number; pcm: Uint8Array }
 
 export interface S2SApi {
-  getS2SProviderStatus(): Promise<{ ready: boolean; model: string }>
+  getS2SProviderStatus(): Promise<{ ready: boolean; model: string; message?: string }>
   adaptS2STurn(request: S2SAdaptRequest): Promise<S2SDecision>
   cancelS2SAdaptation(requestId?: string): Promise<void>
   generateS2SSimulationReply(request: S2SSimulationRequest): Promise<S2SSimulationReply>

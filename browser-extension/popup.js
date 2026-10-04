@@ -13,7 +13,7 @@ for (const kind of ['audio-start', 'audio-stop']) {
     status.textContent = kind === 'audio-start' ? 'Avvio ascolto…' : 'Arresto ascolto…'
     try {
       const result = await chrome.runtime.sendMessage({ kind })
-      status.textContent = result.error || (kind === 'audio-start' ? 'Ascolto attivo. Torna alle Battute Pronte in NEB.' : 'Ascolto fermato.')
+      status.textContent = result.error || (kind === 'audio-start' ? 'Ascolto attivo. Torna a NEB Live o S2S in NEB.' : 'Ascolto fermato.')
     } catch (error) { status.textContent = error.message }
   })
 }

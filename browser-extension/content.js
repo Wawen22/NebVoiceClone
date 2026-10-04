@@ -20,6 +20,11 @@
       associated = false
       url = location.href
       documentId = crypto.randomUUID()
+      // Audio association identifies the document; only insertion needs a Rationale.
+      const candidates = document.querySelectorAll('textarea[data-track="comment:notes"]')
+      field = candidates.length === 1 ? candidates[0] : null
+      associated = true
+      return { documentId, url, value: field?.value, focused: false }
     }
     const candidates = document.querySelectorAll('textarea[data-track="comment:notes"]')
     if (candidates.length !== 1) throw new Error('Serve esattamente un campo Rationale nel documento principale.')
@@ -28,7 +33,6 @@
     field = candidate
     if (field.disabled || field.readOnly || !field.isConnected || field.getClientRects().length === 0) throw new Error('Il Rationale non è disponibile o modificabile.')
     if (location.href !== url || (message.documentId && message.documentId !== documentId) || (message.url && message.url !== url)) throw new Error('Il documento è cambiato. Collega di nuovo la scheda.')
-    if (message.action === 'associate') associated = true
     function autoScroll() {
       try {
         if (field && typeof field.scrollHeight === 'number') {
@@ -57,15 +61,18 @@
   addEventListener('blur', () => invalidate('focus'))
   addEventListener('pagehide', () => invalidate())
   addEventListener('popstate', () => invalidate())
+  addEventListener('hashchange', () => invalidate())
   new MutationObserver(() => {
+    if ((armed || associated) && location.href !== url) { invalidate('destination'); return }
     if (field && (armed || associated)) {
       const candidates = document.querySelectorAll('textarea[data-track="comment:notes"]')
-      if (!field.isConnected || candidates.length !== 1 || candidates[0] !== field || location.href !== url) invalidate('destination')
+      if (!field.isConnected || candidates.length !== 1 || candidates[0] !== field) invalidate('destination')
     }
   }).observe(document, { childList: true, subtree: true })
   if (typeof setInterval === 'function') {
     setInterval(() => {
-      if (field && field.isConnected) {
+      if ((armed || associated) && location.href !== url) invalidate('destination')
+      if (associated) {
         chrome.runtime.sendMessage({ kind: 'heartbeat' }).catch(() => undefined)
       }
     }, 10000)

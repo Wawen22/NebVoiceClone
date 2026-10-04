@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "NEB Outlier Connector",
-  "version": "1.1.0",
-  "description": "Collega esplicitamente una scheda S2S a NEB Voice Console.",
+  "name": "NEB Browser Connector",
+  "version": "1.2.0",
+  "description": "Collega l’audio di una scheda a NEB Live o S2S e il Rationale Outlier a NEB Voice Console.",
   "permissions": ["activeTab", "scripting", "nativeMessaging", "tabCapture", "offscreen"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "Collega S2S a NEB", "default_popup": "popup.html" }
+  "action": { "default_title": "Collega questa scheda a NEB", "default_popup": "popup.html" }
 }

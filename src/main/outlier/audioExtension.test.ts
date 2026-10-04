@@ -41,6 +41,16 @@ it('starts capture only from the extension popup and forwards only the offscreen
   expect(w.posted.at(-1).target.tabId).toBe(1)
 })
 
+it('refuses association and capture requests from other extension pages or web tabs', async () => {
+  const w = worker()
+  for (const sender of [{ url: 'chrome-extension://test/offscreen.html' }, { url: 'https://meet.example.test/interview', tab: { id: 1 } }]) {
+    expect(await w.message({ kind: 'associate' }, sender)).toBeUndefined()
+    expect(await w.message({ kind: 'audio-start' }, sender)).toBeUndefined()
+  }
+  expect(w.posted).toHaveLength(0)
+  expect(w.runtimeMessages).toHaveLength(0)
+})
+
 it('allows NEB to stop audio without bringing Edge to the foreground', async () => {
   const w = worker()
   await w.message({ kind: 'associate' }); await w.message({ kind: 'audio-start' })
