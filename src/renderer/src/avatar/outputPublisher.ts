@@ -9,6 +9,8 @@ export class AvatarOutputPublisher {
   private polling = false
   private epoch = 0
   private generation = ''
+  private rejected = 0
+  private lastDecoded = -1
   private canvas: HTMLCanvasElement
   private captureTimer: ReturnType<typeof setInterval> | null = null
   private statusTimer: ReturnType<typeof setInterval> | null = null
@@ -22,7 +24,7 @@ export class AvatarOutputPublisher {
   setActive(active: boolean): void { if (this.active === active) return; this.active = active; this.invalidate() }
   private invalidate(): void {
     this.epoch++
-    const generation = this.generation; this.generation = ''
+    const generation = this.generation; this.generation = ''; this.rejected = 0
     if (generation) void this.api.clearAvatarOutput(generation).catch(() => undefined)
   }
   private async poll(): Promise<void> {
@@ -39,6 +41,11 @@ export class AvatarOutputPublisher {
   }
   private async capture(): Promise<void> {
     if (this.busy || this.disposed || !this.active || !this.enabled || !this.viewers || this.video.readyState < 2 || !this.video.videoWidth || !this.video.videoHeight) return
+    if (this.video.getVideoPlaybackQuality) {
+      const decoded = this.video.getVideoPlaybackQuality().totalVideoFrames
+      if (decoded === this.lastDecoded) return
+      this.lastDecoded = decoded
+    }
     this.busy = true
     const epoch = this.epoch
     try {
@@ -55,7 +62,10 @@ export class AvatarOutputPublisher {
       const jpeg = new Uint8Array(await blob.arrayBuffer())
       if (this.disposed || epoch !== this.epoch) return
       const accepted = await this.api.publishAvatarOutputFrame({ generation: this.generation, jpeg })
-      if (!accepted && epoch === this.epoch) this.invalidate()
+      if (epoch === this.epoch) {
+        this.rejected = accepted ? 0 : this.rejected + 1
+        if (this.rejected >= 2) this.invalidate()
+      }
     } catch { if (epoch === this.epoch) this.invalidate() }
     finally { this.busy = false }
   }

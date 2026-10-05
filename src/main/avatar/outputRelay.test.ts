@@ -54,4 +54,28 @@ describe('local avatar relay', () => {
       now += 3001; await new Promise((resolve) => setTimeout(resolve, 300)); expect(relay.publish({ generation, jpeg })).toBe(false)
     } finally { connections.forEach((controller) => controller.abort()) }
   })
+  it('delivers a bounded JPEG in the working event transport and clears it on Stop', async () => {
+    relay.setEnabled(true); const controller = new AbortController(), url = new URL(relay.getUrl()); url.pathname = '/events'; url.searchParams.set('viewer', 'event-test')
+    try {
+      const response = await fetch(url, { signal: controller.signal }), reader = response.body!.getReader()
+      await reader.read(); const generation = relay.beginGeneration(); relay.publish({ generation, jpeg })
+      let text = ''; for (let i = 0; i < 4 && !text.includes('jpeg'); i++) text += new TextDecoder().decode((await reader.read()).value)
+      expect(text).toContain(`"jpeg":"${Buffer.from(jpeg).toString('base64')}"`)
+      relay.clear(generation); expect(new TextDecoder().decode((await reader.read()).value)).toContain('"active":false')
+    } finally { controller.abort() }
+  })
+  it('drops a paused network consumer without blocking another viewer', async () => {
+    relay.setEnabled(true)
+    const slowUrl = new URL(relay.getUrl()); slowUrl.pathname = '/events'; slowUrl.searchParams.set('viewer', 'slow')
+    const slow = await new Promise<import('node:http').IncomingMessage>((resolve) => { request(slowUrl, (response) => { response.pause(); resolve(response) }).end() })
+    const controller = new AbortController(), goodUrl = new URL(relay.getUrl()); goodUrl.pathname = '/events'; goodUrl.searchParams.set('viewer', 'good')
+    try {
+      const good = (await fetch(goodUrl, { signal: controller.signal })).body!.getReader(); await good.read()
+      const large = new Uint8Array(256 * 1024); large[0] = 255; large[1] = 216; large[large.length - 2] = 255; large[large.length - 1] = 217
+      const generation = relay.beginGeneration()
+      for (let i = 0; i < 40; i++) { now += 70; relay.publish({ generation, jpeg: large }); await good.read(); await new Promise((resolve) => setImmediate(resolve)) }
+      expect(relay.getStatus().viewers).toBeLessThanOrEqual(2)
+      now += 70; relay.publish({ generation, jpeg }); const received = new TextDecoder().decode((await good.read()).value); expect(received.length).toBeGreaterThan(0)
+    } finally { slow.destroy(); controller.abort() }
+  })
 })

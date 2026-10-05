@@ -47,7 +47,7 @@ export class AvatarOutputRelay {
         const token = Buffer.from(this.token)
         if (supplied.length !== token.length || !timingSafeEqual(supplied, token)) return reject(403)
         if (url.pathname === '/') {
-          res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+          res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
           res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
           res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(createAvatarOutputPage()); return
         }
@@ -64,7 +64,7 @@ export class AvatarOutputRelay {
         res.setHeader('Content-Type', kind === 'video' ? 'multipart/x-mixed-replace; boundary=nebframe' : 'text/event-stream')
         res.flushHeaders()
         if (kind === 'video' && this.frame) this.writeFrame(res, this.frame)
-        if (kind === 'events') this.writeState(res)
+        if (kind === 'events') this.writeState(res, true)
       })
       this.server = server
       await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(this.port, '127.0.0.1', () => { server.removeListener('error', reject); resolve() }) })
@@ -93,7 +93,7 @@ export class AvatarOutputRelay {
     if (this.now() - this.lastFrame < 1000 / 15) return false
     this.frame = Buffer.from(bytes); this.lastFrame = this.now()
     for (const viewer of this.viewers.values()) if (viewer.video) this.writeFrame(viewer.video, this.frame)
-    this.broadcastState(); return true
+    this.broadcastState(true); return true
   }
   private writeFrame(res: ServerResponse, frame: Buffer): void {
     if (res.destroyed || res.writableEnded) return
@@ -101,12 +101,12 @@ export class AvatarOutputRelay {
     if (res.writableNeedDrain) return
     res.write(Buffer.concat([Buffer.from(`--nebframe\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`), frame, Buffer.from('\r\n')]))
   }
-  private writeState(res: ServerResponse): void {
+  private writeState(res: ServerResponse, includeFrame = false): void {
     if (res.destroyed || res.writableEnded) return
-    if (res.writableLength > 4096) { res.destroy(); return }
-    if (!res.writableNeedDrain) res.write(`data: ${JSON.stringify({ active: this.enabled && Boolean(this.frame), timestamp: this.frame ? this.lastFrame : null })}\n\n`)
+    if (res.writableLength > 512 * 1024) { res.destroy(); return }
+    if (!res.writableNeedDrain) res.write(`data: ${JSON.stringify({ active: this.enabled && Boolean(this.frame), timestamp: this.frame ? this.lastFrame : null, ...(includeFrame && this.frame ? { jpeg: this.frame.toString('base64') } : {}) })}\n\n`)
   }
-  private broadcastState(): void { for (const viewer of this.viewers.values()) if (viewer.events) this.writeState(viewer.events) }
+  private broadcastState(includeFrame = false): void { for (const viewer of this.viewers.values()) if (viewer.events) this.writeState(viewer.events, includeFrame) }
   private reset(): void {
     this.generation = ''; this.frame = null; this.lastFrame = -Infinity
     for (const viewer of this.viewers.values()) viewer.video?.end()
