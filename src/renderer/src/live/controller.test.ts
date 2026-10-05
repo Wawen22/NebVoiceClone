@@ -27,6 +27,28 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('starts reasoning after 1.5 seconds of observed silence by default', () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(14)
+    expect(h.requests).toHaveLength(0)
+    h.feed(1)
+    expect(h.requests).toHaveLength(1)
+  })
+  it('records wall-clock time from last observed speech to first playback, not only synthesis', async () => {
+    const h = setup(); h.controller.start(config, false, { silenceMs: 1500 }); h.feed(10, true); h.jump(700); h.feed(15)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3); h.feed(8)
+    expect(h.plays[0].start()).toBe(true)
+    expect(h.controller.snapshot.log.find(item => item.kind === 'turn-response')).toMatchObject({ durationMs: 3300 })
+    expect(h.controller.snapshot.log.find(item => item.kind === 'voice-start')).toMatchObject({ durationMs: 800 })
+  })
+  it('never records response latency for an opening or cancelled playback', async () => {
+    const opening = setup(); opening.controller.start(config, true)
+    opening.replies[0].resolve({ ...decision(), transcript: '' }); await settle(); opening.feed(3); opening.plays[0].start()
+    expect(opening.controller.snapshot.log.some(item => item.kind === 'turn-response')).toBe(false)
+    const stopped = setup(); stopped.controller.start(config, false, { silenceMs: 1500 }); stopped.feed(10, true); stopped.feed(15)
+    stopped.replies[0].resolve(decision()); await settle(); stopped.feed(3); stopped.controller.stop()
+    expect(stopped.plays[0].start()).toBe(false)
+    expect(stopped.controller.snapshot.log.some(item => item.kind === 'turn-response')).toBe(false)
+  })
   it('records preparation and first-audible latency without mixing it with Qwen time', async () => {
     const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
     h.replies[0].resolve(decision()); await settle(); h.feed(3)

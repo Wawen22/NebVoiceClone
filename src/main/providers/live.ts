@@ -17,7 +17,7 @@ async function generationCost(id: unknown, apiKey: string, signal: AbortSignal):
   try {
     const response = await fetch(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(id)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(1500)])
+      signal: AbortSignal.any([signal, AbortSignal.timeout(250)])
     })
     if (!response.ok) return null
     const result = await response.json() as { data?: { total_cost?: unknown } }

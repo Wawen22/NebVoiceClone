@@ -7,6 +7,7 @@ import type { AudioOutput } from '../audio/AudioEngine'
 import type { LiveConversation } from './useLiveConversation'
 import { LiveTranscript, liveTimestamp } from './LiveTranscript'
 import { LiveMaterials } from './LiveMaterials'
+import { DEFAULT_LIVE_OPTIONS } from './controller'
 import './live.css'
 
 interface LivePageProps {
@@ -45,7 +46,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
   const [opening, setOpening] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'details'>('profile')
-  const [silenceMs, setSilenceMs] = useState(2500)
+  const [silenceMs, setSilenceMs] = useState(DEFAULT_LIVE_OPTIONS.silenceMs)
   const [takeover, setTakeover] = useState(false)
   const [setup, setSetup] = useState<OutlierSetup | null>(null)
   const [extensionId, setExtensionId] = useState('')

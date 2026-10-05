@@ -4,7 +4,7 @@ import type { SpeechTimingMetadata } from '../../../shared/speechMetrics'
 
 export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing-voice' | 'speaking' | 'paused' | 'stopped' | 'completed'
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
-export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 2500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
+export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 1500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
 export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null }
 export interface LiveSnapshot {
@@ -40,6 +40,7 @@ export class LiveController {
   private preRoll: Uint8Array[] = []
   private audioMs = 0
   private lastVoiceMs = -Infinity
+  private lastSpeechAt: number | null = null
   private segmentStartMs = 0
   private voiceFrames = 0
   private voiceVersion = 0
@@ -112,6 +113,7 @@ export class LiveController {
       if (this.audioMs - this.lastVoiceMs > 300) { this.voiceFrames = 0; this.segmentStartMs = this.audioMs - 100 }
       this.voiceFrames++
       this.lastVoiceMs = this.audioMs
+      this.lastSpeechAt = this.dependencies.now()
       if (!this.frames.length) { this.frames = this.preRoll.map((frame) => Uint8Array.from(frame)); this.bytes = this.frames.reduce((n, frame) => n + frame.length, 0) }
       if (this.voiceFrames >= 2) {
         this.waitingAt = null; this.waitRechecked = false
@@ -272,6 +274,9 @@ export class LiveController {
         this.playing = this.addHistory('neb', decision.text)
         this.snapshot.turns++
         this.log('voice-start', 'Primo audio in riproduzione.', { durationMs: Math.round(this.dependencies.now() - preparingAt) })
+        if (decision.transcript.trim() && this.voiceVersion > 0 && this.lastSpeechAt !== null) {
+          this.log('turn-response', 'Fine del parlato rilevato → primo audio in riproduzione.', { durationMs: Math.round(this.dependencies.now() - this.lastSpeechAt) })
+        }
         this.resetAudio()
         this.phase('speaking', 'NEB parla · ascolto eventuali interruzioni.')
         return true
@@ -325,7 +330,7 @@ export class LiveController {
     if (this.playing) { this.snapshot.history = this.snapshot.history.map((item) => item.id === this.playing?.id ? { ...item, partial: true } : item); this.log('partial', 'Intervento NEB interrotto; testo pronunciato solo in parte.'); this.playing = null }
     this.proposal = null; this.snapshot.nextText = ''
   }
-  private resetAudio(): void { this.remoteTurnId = null; this.frames = []; this.bytes = 0; this.preRoll = []; this.audioMs = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity; this.voiceVersion = 0; this.analyzedVersion = 0; this.trailingFrames = 0; this.waitingAt = null; this.waitRechecked = false; this.retryableAudio = false }
+  private resetAudio(): void { this.remoteTurnId = null; this.frames = []; this.bytes = 0; this.preRoll = []; this.audioMs = 0; this.voiceFrames = 0; this.lastVoiceMs = -Infinity; this.lastSpeechAt = null; this.voiceVersion = 0; this.analyzedVersion = 0; this.trailingFrames = 0; this.waitingAt = null; this.waitRechecked = false; this.retryableAudio = false }
   private phase(phase: LivePhase, message: string): void { this.snapshot.phase = phase; this.snapshot.message = message; this.phaseAt = this.dependencies.now(); this.publish() }
   private log(kind: string, text: string, details: Partial<LiveLog> = {}): void { this.snapshot.log = [...this.snapshot.log, { atMs: Math.max(0, this.dependencies.now() - this.snapshot.startedAt), kind, text, ...details }].slice(-500) }
   private publish(): void { this.lastPublishAt = this.dependencies.now(); this.dependencies.changed({ ...this.snapshot }) }

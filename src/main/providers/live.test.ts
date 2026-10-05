@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { generateLiveTurn } from './live'
 import { DEFAULT_LIVE_CONFIG, type LiveTurnRequest } from '../../shared/live'
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers() })
 const request: LiveTurnRequest = { requestId: 'live-1', profile: DEFAULT_LIVE_CONFIG.profiles[0], background: 'BACKGROUND VERIFIED', persona: 'PERSONA STYLE', history: [{ role: 'neb', text: 'Ciao.', partial: true }], audioPcm: new Uint8Array([0, 0, 255, 127]) }
 const decision = { action: 'speak', transcript: 'Come lavori?', text: 'Sviluppo applicazioni web.', reason: 'Domanda conclusa.' }
 interface Payload {
@@ -123,6 +123,33 @@ it('recovers missing cost from generation metadata without another completion', 
   expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', costUsd: 0.007 })
   expect(fetcher).toHaveBeenCalledTimes(2)
   expect(fetcher.mock.calls[1][0]).toBe('https://openrouter.ai/api/v1/generation?id=gen-test%2F1')
+})
+
+it.each(['headers', 'body'])('returns the valid decision within 250ms when accounting %s stalls', async (stage) => {
+  vi.useFakeTimers()
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), ms)
+    return controller.signal
+  })
+  let entered!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    if (!url.includes('/generation?')) return new Response(JSON.stringify({ id: 'gen-delayed', choices: [{ message: { content: JSON.stringify(decision) } }] }))
+    const stalled = () => new Promise<never>((_resolve, reject) => {
+      init!.signal!.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true })
+      entered()
+    })
+    return stage === 'headers' ? stalled() : { ok: true, json: stalled }
+  })
+  let settled = false
+  const pending = generateLiveTurn(request, { apiKey: 'test' }).then(result => { settled = true; return result })
+  await waiting
+  await vi.advanceTimersByTimeAsync(249)
+  expect(settled).toBe(false)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(settled).toBe(true)
+  expect(await pending).toMatchObject({ action: 'speak', text: decision.text, costUsd: null })
 })
 
 it.each(['error', 'invalid', 'unavailable'])('keeps the decision when generation accounting is %s', async (mode) => {
