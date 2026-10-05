@@ -45,9 +45,9 @@ export function registerIpc(
     assertTrusted(event.sender, event.senderFrame)
     return { configured: Boolean(process.env.SIMLI_API_KEY?.trim()) }
   })
-  ipcMain.handle('avatar:session', (event, faceId: unknown) => {
+  ipcMain.handle('avatar:session', (event, faceId: unknown, limits: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
-    return createAvatarSession(faceId)
+    return createAvatarSession(faceId, limits)
   })
 
   ipcMain.handle('live:getConfig', (event) => {

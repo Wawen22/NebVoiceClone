@@ -1,6 +1,18 @@
 import { expect, it } from 'vitest'
 import { LiveStartGate } from './startGate'
 
+it('suppresses an obsolete rejection so its caller cannot clean up a newer start', async () => {
+  const gate = new LiveStartGate(), current = deferred<string>(), committed: string[] = []
+  let rejectOld!: (reason: Error) => void
+  const old = gate.run(() => new Promise<string>((_resolve, reject) => { rejectOld = reject }), () => {})
+  gate.cancel()
+  const next = gate.run(() => current.promise, (value) => { committed.push(value) })
+  rejectOld(new Error('Old startup failed'))
+  expect(await old).toBe(false)
+  expect(gate.pending).toBe(true)
+  current.resolve('new'); expect(await next).toBe(true); expect(committed).toEqual(['new'])
+})
+
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
 
 it('owns the entire save-before-start transaction and prevents committing after Stop', async () => {

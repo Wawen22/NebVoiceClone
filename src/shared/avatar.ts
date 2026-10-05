@@ -10,7 +10,16 @@ export function parseAvatarFaceId(value: unknown): string {
 }
 
 export interface AvatarSessionToken { sessionToken: string; iceServers: RTCIceServer[] }
+export interface AvatarSessionLimits { maxSessionLength: number; maxIdleTime: number }
+export function parseAvatarSessionLimits(value: unknown): AvatarSessionLimits {
+  if (value === undefined) return { maxSessionLength: 120, maxIdleTime: 30 }
+  if (!value || typeof value !== 'object') throw new Error('Limiti sessione avatar non validi.')
+  const limits = value as AvatarSessionLimits
+  if (!Number.isInteger(limits.maxSessionLength) || limits.maxSessionLength < 120 || limits.maxSessionLength > 3600
+    || !Number.isInteger(limits.maxIdleTime) || limits.maxIdleTime < 30 || limits.maxIdleTime > limits.maxSessionLength) throw new Error('Limiti sessione avatar non validi.')
+  return { maxSessionLength: limits.maxSessionLength, maxIdleTime: limits.maxIdleTime }
+}
 export interface AvatarApi {
   getAvatarStatus(): Promise<{ configured: boolean }>
-  createAvatarSession(faceId: string): Promise<AvatarSessionToken>
+  createAvatarSession(faceId: string, limits?: AvatarSessionLimits): Promise<AvatarSessionToken>
 }

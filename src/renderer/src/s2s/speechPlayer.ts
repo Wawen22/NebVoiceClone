@@ -4,7 +4,7 @@ import type { AudioEngine } from '../audio/AudioEngine'
 export async function streamS2SSpeech(
   api: Pick<DesktopApi, 'synthesizeStream' | 'stopGeneration'>,
   engine: Pick<AudioEngine, 'beginStream' | 'appendPcm' | 'finishStream' | 'onEnded' | 'stop' | 'onStarted' | 'onError'>,
-  request: SynthesisRequest, deviceId: string, signal: AbortSignal, onStarted: () => boolean, options: { drainOnError?: boolean } = {}
+  request: SynthesisRequest, deviceId: string, signal: AbortSignal, onStarted: () => boolean, options: { drainOnError?: boolean; onFirstChunk?: () => void } = {}
 ): Promise<void> {
   signal.throwIfAborted()
   let generating = false, cancelled = false
@@ -37,7 +37,9 @@ export async function streamS2SSpeech(
       if (signal.aborted || chunkError) return
       try {
         if (first && !engine.onStarted && !start()) throw new Error('Outlier ha ripreso a parlare: audio annullato.')
-        engine.appendPcm(pcm); receivedAudio = true
+        engine.appendPcm(pcm)
+        if (!receivedAudio) options.onFirstChunk?.()
+        receivedAudio = true
       } catch (error) { chunkError = error; engine.stop(); cancelGeneration() }
     }) } catch (error) {
       // Live preserves queued speech on a provider failure. Explicit Stop always cancels immediately.

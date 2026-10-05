@@ -27,6 +27,14 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('records preparation and first-audible latency without mixing it with Qwen time', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    h.feed(8); h.plays[0].start()
+    expect(h.controller.snapshot.log.find((item) => item.kind === 'voice-start')).toMatchObject({ durationMs: 800 })
+    expect(h.controller.snapshot.log.find((item) => item.kind === 'decision')?.qwenMs).toBe(100)
+    expect(h.controller.snapshot.log.some((item) => item.kind === 'reasoning-start')).toBe(true)
+  })
   it('publishes and updates the unanswered transcript before voice, without duplicating the request or chat', async () => {
     const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(25)
     h.replies[0].resolve({ ...decision(), action: 'wait', text: '', transcript: 'How do you' }); await settle()
@@ -480,7 +488,7 @@ describe('NEB Live free conversation', () => {
     expect(h.requests[1].history).toEqual([])
     h.replies[0].resolve({ ...decision('Vecchia risposta.'), transcript: '' }); await settle()
     expect(h.controller.snapshot.costUsd).toBe(0)
-    expect(h.controller.snapshot.log).toHaveLength(1)
+    expect(h.controller.snapshot.log.map((item) => item.kind)).toEqual(['session', 'reasoning-start'])
     expect(h.controller.snapshot.phase).toBe('thinking')
     h.replies[1].resolve({ ...decision('Nuova risposta.'), transcript: '' }); await settle(); h.feed(3)
     expect(h.plays.map((play) => play.text)).toEqual(['Nuova risposta.'])

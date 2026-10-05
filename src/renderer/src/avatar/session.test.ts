@@ -2,6 +2,41 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { AvatarSession, type AvatarClient } from './session'
 
 afterEach(() => vi.useRealTimers())
+it('treats a rejected speech start as turn cancellation, not a lost connection', async () => {
+  const f = fixture(), error = vi.fn()
+  await f.session.begin('face', 'cable', 0.5, () => { f.session.cancelTurn(); return false }, vi.fn(), error)
+  f.session.append(new Uint8Array(480)); f.emit('speaking')
+  expect(f.session.snapshot.phase).toBe('ready')
+  expect(f.client.stop).not.toHaveBeenCalled()
+  expect(error).not.toHaveBeenCalled()
+  f.session.disconnect()
+})
+it('uses live duration with a startup margin, restores console limits and rejects invalid duration', async () => {
+  const token = vi.fn(async () => ({ sessionToken: 'temporary', iceServers: [] }))
+  const f = fixture()
+  const session = new AvatarSession(token, () => f.client)
+  session.attach({ pause() {}, play: async () => {} } as HTMLVideoElement, f.audio)
+  expect(() => session.configureLive(-1)).toThrow()
+  session.configureLive(30); await session.connect('face', 'cable', 0.5)
+  expect(token).toHaveBeenLastCalledWith('face', { maxSessionLength: 1860, maxIdleTime: 1860 })
+  session.endLive(); await session.connect('face', 'cable', 0.5)
+  expect(token).toHaveBeenLastCalledWith('face', undefined)
+  session.disconnect()
+})
+it('cancels only the current turn while keeping the connected avatar ready for the next turn', async () => {
+  const f = fixture(), error = vi.fn()
+  await f.session.begin('face', 'cable', 0.5, vi.fn(), vi.fn(), error)
+  f.session.append(new Uint8Array(480)); f.emit('speaking')
+  f.session.cancelTurn()
+  expect(f.session.snapshot.phase).toBe('ready')
+  expect(f.audio.muted).toBe(true)
+  expect(f.client.ClearBuffer).toHaveBeenCalledOnce()
+  expect(f.client.stop).not.toHaveBeenCalled()
+  expect(error).not.toHaveBeenCalled()
+  await f.session.begin('face', 'cable', 0.5, vi.fn(), vi.fn(), error)
+  expect(f.client.start).toHaveBeenCalledOnce()
+  f.session.disconnect()
+})
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 function fixture() {
   const events = new Map<string, () => void>()

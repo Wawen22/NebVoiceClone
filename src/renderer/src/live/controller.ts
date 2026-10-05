@@ -5,7 +5,7 @@ export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
 export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 2500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
-export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number }
+export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number }
 export interface LiveSnapshot {
   phase: LivePhase; message: string; turns: number; costUsd: number; costKnown: boolean; level: number; nextText: string
   history: LiveUtterance[]; log: LiveLog[]; startedAt: number
@@ -54,6 +54,10 @@ export class LiveController {
   get locked(): boolean { return this.active || this.snapshot.phase === 'paused' }
   get limits(): LiveLimits { return { durationMinutes: this.options.maxDurationMs / 60000, maxTurns: this.options.maxTurns, maxCostUsd: this.options.maxCostUsd } }
   get canRespond(): boolean { return this.snapshot.phase === 'listening' && (this.voiceVersion > 0 && this.bytes > 0 || this.snapshot.materials.length > 0) && this.audioMs - this.lastVoiceMs >= 300 }
+  recordTiming(kind: 'avatar-connect' | 'voice-first-chunk', durationMs: number): void {
+    if (!this.active || !Number.isFinite(durationMs) || durationMs < 0) return
+    this.log(kind, kind === 'avatar-connect' ? 'Avatar collegato prima della conversazione.' : 'Primo blocco audio generato ricevuto.', { durationMs: Math.round(durationMs) }); this.publish()
+  }
 
   respondNow(): void {
     if (this.canRespond && this.withinLimits()) { this.log('manual-response', 'Risposta richiesta dall’utente.'); void this.reason(false, true, !(this.voiceVersion > 0 && this.bytes > 0)) }
@@ -209,6 +213,7 @@ export class LiveController {
     if (endOfTurn) this.waitRechecked = true
     this.reasoningTimeoutMs = Math.max(liveReasoningTimeoutMs(opening || visualOnly ? 0 : pcm.length), this.snapshot.materials.some((item) => item.kind === 'image') ? 60000 : 0)
     this.phase('thinking', opening ? 'Preparo una presentazione nel tuo stile…' : visualOnly ? 'Qwen analizza gli allegati e l’ultima domanda…' : `Domanda acquisita · ${(pcm.length / 32000).toFixed(1)} s. Qwen prepara la risposta…`)
+    this.log('reasoning-start', `Richiesta Qwen · ${(pcm.length / 32000).toFixed(1)} s di audio.`)
     try {
       const result = await this.dependencies.decide({ requestId: `live-${session}-${token}`, profile: { ...this.profile }, background: this.config.background, persona: this.config.persona,
         history: this.snapshot.history.filter((item) => visualOnly || item.id !== this.remoteTurnId).slice(-60).map(({ role, text, partial }) => ({ role, text, ...(partial ? { partial: true } : {}) })), ...(opening ? { opening: true } : visualOnly ? { visualOnly: true } : { audioPcm: pcm }), ...(endOfTurn ? { endOfTurn: true } : {}), ...(this.snapshot.materials.length ? { materials: [...this.snapshot.materials] } : {}) }, operation.signal)
@@ -257,12 +262,15 @@ export class LiveController {
     this.proposal = decision
     this.snapshot.nextText = decision.text
     this.phase('preparing-voice', 'Preparo la tua voce…')
+    const preparingAt = this.dependencies.now()
+    this.log('voice-preparing', 'Avvio generazione della voce.')
     try {
       await this.dependencies.speak(decision.text, operation.signal, () => {
         if (token !== this.serial || operation.signal.aborted || !this.active) return false
         if (this.audioMs - this.lastVoiceMs < this.options.silenceMs) { this.cancel(); this.phase('listening', 'L’interlocutore sta parlando · attendo.'); return false }
         this.playing = this.addHistory('neb', decision.text)
         this.snapshot.turns++
+        this.log('voice-start', 'Primo audio in riproduzione.', { durationMs: Math.round(this.dependencies.now() - preparingAt) })
         this.resetAudio()
         this.phase('speaking', 'NEB parla · ascolto eventuali interruzioni.')
         return true

@@ -4,6 +4,12 @@ import type { SynthesisRequest } from '../../../shared/contracts'
 
 const request: SynthesisRequest = { providerId: 'gemini', modelId: 'gemini-3.8-flash-tts', text: 'Ciao', voice: { mode: 'prebuilt', voiceId: 'Kore' } }
 const flush = async (): Promise<void> => { for (let i = 0; i < 6; i++) await Promise.resolve() }
+it('reports the first accepted audio chunk once, separately from playback start', async () => {
+  const f = fixture(), firstChunk = vi.fn()
+  f.api.synthesizeStream = async (_request, onChunk) => { onChunk(new Uint8Array([1, 2])); onChunk(new Uint8Array([3, 4])); return { generationMs: 10 } }
+  const playing = streamS2SSpeech(f.api, f.engine, request, 'cable', new AbortController().signal, () => true, { onFirstChunk: firstChunk })
+  await flush(); expect(firstChunk).toHaveBeenCalledOnce(); f.end(); await playing
+})
 function fixture() {
   let ended = () => {}
   const samples: number[] = []

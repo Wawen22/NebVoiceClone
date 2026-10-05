@@ -65,7 +65,7 @@ export function App(): React.JSX.Element {
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyMessage, setKeyMessage] = useState('')
   const [keyError, setKeyError] = useState('')
-  const [avatar] = useState(() => new AvatarSession((faceId) => window.neb.createAvatarSession(faceId), createAvatarClient))
+  const [avatar] = useState(() => new AvatarSession((faceId, limits) => window.neb.createAvatarSession(faceId, limits), createAvatarClient))
   const [consoleAudio] = useState(() => new AvatarAudioEngine(new BrowserAudioEngine(), avatar))
   const audio = useRef(consoleAudio)
   const requestId = useRef(0)

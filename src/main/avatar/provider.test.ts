@@ -3,6 +3,18 @@ import { createAvatarSession } from './provider'
 import { AVATAR_PRESETS, parseAvatarFaceId } from '../../shared/avatar'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+it('accepts bounded continuous session options and rejects invalid limits before network access', async () => {
+  vi.stubEnv('SIMLI_API_KEY', 'secret-fixture')
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ session_token: 'temporary' }))).mockResolvedValueOnce(new Response(JSON.stringify([{ urls: 'stun:example.invalid' }])))
+  vi.stubGlobal('fetch', fetcher)
+  await createAvatarSession(AVATAR_PRESETS[0].id, { maxSessionLength: 1860, maxIdleTime: 1860 })
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ maxSessionLength: 1860, maxIdleTime: 1860, handleSilence: true })
+  fetcher.mockClear()
+  for (const limits of [{ maxSessionLength: 3601, maxIdleTime: 30 }, { maxSessionLength: 120, maxIdleTime: 121 }, { maxSessionLength: 0, maxIdleTime: 0 }]) {
+    await expect(createAvatarSession(AVATAR_PRESETS[0].id, limits)).rejects.toThrow('Limiti')
+  }
+  expect(fetcher).not.toHaveBeenCalled()
+})
 it('rejects malformed face IDs and missing credentials before any request', async () => {
   vi.stubEnv('SIMLI_API_KEY', '')
   const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher)

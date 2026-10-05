@@ -41,7 +41,19 @@ Lo script legge la password OBS localmente, non la stampa e non avvia webcam, st
 6. Premi **Stop** in NEB: voce interrotta e uscita video neutra. Disattivando Uscita OBS ottieni lo stesso sfondo neutro senza dover fermare la voce.
 7. Alla fine ferma la webcam virtuale in OBS. Chiudendo NEB il relay si arresta; la pagina deve tornare neutra entro tre secondi.
 
-Una sessione Free disconnessa/inattiva mostra lo sfondo neutro; non resta aperta artificialmente e non vengono modificati i limiti Simli. Alcuni siti possono rifiutare webcam virtuali. La risoluzione e il realismo originali di Fred non aumentano.
+Una sessione disconnessa mostra lo sfondo neutro; non vengono aggirati i limiti del piano Simli. Alcuni siti possono rifiutare webcam virtuali. La risoluzione e il realismo originali di Fred non aumentano.
+
+## Avatar Continuo In NEB Live
+
+Live collega Simli prima di iniziare l'ascolto e conserva la stessa sessione durante ascolto, preparazione e risposte successive. Il completamento di una frase svuota il buffer audio senza scollegare il video. Non viene creata una nuova connessione a ogni risposta. Pausa, Stop, fine conversazione e disconnessione interrompono la sessione; Riprendi ascolto effettua una nuova connessione. Un errore Simli mette Live in pausa, senza proseguire automaticamente con una webcam vuota.
+
+La richiesta Simli usa la durata Live configurata piu 60 secondi di margine iniziale, con lo stesso valore per l'inattivita. L'app accetta fino a 59 minuti con avatar continuo; questi valori richiesti non garantiscono che il piano/account li consenta. Console mantiene invece i valori precedenti di 120 secondi e 30 secondi di inattivita. Considera anche il tempo di ascolto nel budget di una sessione continua: verifica consumo e condizioni nel tuo account Simli prima di un'intervista lunga.
+
+La [documentazione dell'integrazione Simli di LiveKit](https://docs.livekit.io/reference/python/livekit/plugins/simli/index.html) distingue la durata massima assoluta dal tempo senza parlato, entrambi inviati a `/compose/token`. Non documenta le condizioni del singolo account NEB.
+
+Prova breve: attiva Simli e Uscita OBS, avvia Live, attendi almeno 35 secondi senza parlare, fai due domande e controlla il video anche tra le risposte. Prosegui oltre due minuti, quindi verifica Pausa, Riprendi ascolto e Stop. Esporta JSON alla fine. Non iniziare la prova da 30 minuti finche disponibilita e consumo della quota non sono verificati.
+
+I log JSON includono `avatar-connect`, `reasoning-start`, `voice-preparing`, `voice-first-chunk` e `voice-start`, con durate dove applicabili; la decisione conserva `qwenMs`. Il primo chunk misura la disponibilita di PCM per il motore, mentre `voice-start` misura l'inizio della riproduzione dalla preparazione. Nel JSON fornito dall'utente il 2026-10-05 Qwen impiega 6670 ms e passano circa 7878 ms dalla decisione al primo audio: non documenta un'attesa di 90 secondi e non identifica da solo quale parte dei 7878 ms dipenda da Simli. Modello Qwen e timeout di ragionamento restano invariati.
 
 ## Verifiche Di Sviluppo
 
@@ -51,7 +63,9 @@ Misure storiche prima dell'ottimizzazione: prove Windows sintetiche di 20.5 seco
 
 Ottimizzazione del 2026-10-05: il test sintetico 512x512 ha misurato 21.1-23.9 fps, p95 locale 72-83 ms e CPU dell'app 5.1-6.1% su tutti i core. Due prove 1024x1024 ridotte a 720x720, dopo la correzione della decodifica, hanno misurato 18.6-21.9 fps, p95 92-100 ms e CPU 8.0-8.8%. Prima della correzione, ripetizioni a 720 pixel erano scese fino a 3-9 fps e circa un secondo di ritardo: quei risultati non sono considerati accettabili. I frame grandi hanno un costo maggiore; 25 fps e un tetto, non una garanzia. La soglia sintetica e 20 fps a 512 pixel e 16 fps a 720 pixel, con p95 inferiore a 250 ms in entrambi i casi. I fps attuali contano i caricamenti dell'immagine, mentre le vecchie misure campionavano i timestamp: il confronto storico non e un benchmark A/B identico. Il ritardo sintetico misura solo il percorso locale, non la risposta NEB o il rendering Simli. Fred resta 512x512: non viene ingrandito artificialmente.
 
-Questa fase non modifica la durata delle sessioni Simli: il codice richiede ancora 120 secondi e 30 secondi di inattivita. Sono impostazioni dell'app, non limiti Free dimostrati. Prima di dichiarare pronte interviste da 10-30 minuti o suggerire l'upgrade, verificare condizioni del piano e fare una prova continuativa reale della durata richiesta.
+La successiva modifica di Live richiede sessioni continue come descritto sopra. I test di regressione e la prova renderer usano un SDK Simli sintetico e verificano preconnessione, due risposte senza riconnessione, video durante l'ascolto, pausa/ripresa ed errore. Non sostituiscono la verifica cloud: prima di dichiarare pronte interviste da 10-30 minuti o suggerire l'upgrade, verificare condizioni del piano e fare una prova continuativa reale della durata richiesta.
+
+Verifica della modifica Live: build e typecheck passati, 371 test Vitest passati e quattro saltati; prova renderer Windows/Edge passata. La nuova prova cloud continua non e stata eseguita: al controllo OBS aveva ancora la webcam virtuale attiva. La prova OBS reale descritta sotto riguarda la precedente ottimizzazione dell'output, non certifica questa nuova gestione della sessione Live.
 
 Verifica OBS/Virtual Camera completata su Windows: Fred visibile nella sorgente Browser e immagini in movimento. Nell'ultima prova con l'ottimizzazione: 511 frame decodificati in 20.5 secondi con NEB minimizzato, circa 18.8 fps di output, CPU app 7.0% su tutti i core, altri 60 frame con finestra coperta. OBS Virtual Camera ricevuta a 1280x720, 61 frame in circa due secondi, zero tracce audio; cambiando Programma a una scena vuota il video resta su NEB Avatar. La disconnessione torna neutra. Il test ripristina la configurazione di produzione e lascia la webcam ferma. L'utente ha gia confermato il funzionamento webcam/microfono nel proprio sito prima di questa ottimizzazione; le prove automatiche non entrano in chiamate.
 

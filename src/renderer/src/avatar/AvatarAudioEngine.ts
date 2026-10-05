@@ -3,6 +3,7 @@ import type { AvatarSession } from './session'
 
 export class AvatarAudioEngine implements AudioEngine {
   private avatarMode = false
+  private avatarStopped = true
   private serial = 0
   private volume = 0.85
   private chunks: Uint8Array[] = []
@@ -11,7 +12,7 @@ export class AvatarAudioEngine implements AudioEngine {
   private ended: () => void = () => {}
   private started: () => boolean | void = () => {}
   private failed: (error: Error) => void = () => {}
-  constructor(private readonly local: AudioEngine, private readonly avatar: AvatarSession, private readonly retainRecording = true) {
+  constructor(private readonly local: AudioEngine, private readonly avatar: AvatarSession, private readonly retainRecording = true, private readonly keepSession = false) {
     local.onEnded(() => this.ended())
   }
 
@@ -22,6 +23,7 @@ export class AvatarAudioEngine implements AudioEngine {
     this.local.stop(); this.chunks = []; this.bytes = 0
     const serial = ++this.serial
     this.avatarMode = this.avatar.enabled
+    this.avatarStopped = false
     if (this.avatarMode) {
       await this.avatar.begin(this.avatar.faceId, deviceId, this.volume,
         () => serial === this.serial ? this.started() : false,
@@ -61,7 +63,7 @@ export class AvatarAudioEngine implements AudioEngine {
     await this.beginStream(deviceId); chunks.forEach((chunk) => this.appendPcm(chunk)); this.finishStream()
   }
 
-  stop(): void { this.serial++; this.local.stop(); if (this.avatarMode) this.avatar.disconnect(); this.chunks = []; this.bytes = 0 }
+  stop(): void { this.serial++; this.local.stop(); if (this.avatarMode && !this.avatarStopped) { this.avatarStopped = true; if (this.keepSession) this.avatar.cancelTurn(); else this.avatar.disconnect() }; this.chunks = []; this.bytes = 0 }
   setVolume(volume: number): void { this.volume = volume; this.local.setVolume(volume); if (this.avatarMode) this.avatar.setVolume(volume) }
   onEnded(callback: () => void): void { this.ended = callback }
   onStarted(callback: () => boolean | void): void { this.started = callback }

@@ -1,5 +1,5 @@
-import type { AvatarSessionToken } from '../../../shared/avatar'
-import { AVATAR_PRESETS } from '../../../shared/avatar'
+import type { AvatarSessionToken, AvatarSessionLimits } from '../../../shared/avatar'
+import { AVATAR_PRESETS, parseAvatarSessionLimits } from '../../../shared/avatar'
 import { PcmResampler } from './pcm'
 
 export interface AvatarClient {
@@ -28,8 +28,16 @@ export class AvatarSession {
   private beginning: object | null = null
   private resampler = new PcmResampler()
   private listeners = new Set<() => void>()
+  private limits: AvatarSessionLimits | undefined
 
-  constructor(private readonly token: (faceId: string) => Promise<AvatarSessionToken>, private readonly create: (token: AvatarSessionToken, video: HTMLVideoElement, audio: HTMLAudioElement) => AvatarClient | Promise<AvatarClient>) {}
+  constructor(private readonly token: (faceId: string, limits?: AvatarSessionLimits) => Promise<AvatarSessionToken>, private readonly create: (token: AvatarSessionToken, video: HTMLVideoElement, audio: HTMLAudioElement) => AvatarClient | Promise<AvatarClient>) {}
+  configureLive(durationMinutes: number): void {
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 59) throw new Error('Avatar continuo: imposta una durata Live tra 1 e 59 minuti.')
+    const seconds = Math.max(120, Math.ceil(durationMinutes * 60) + 60)
+    const limits = parseAvatarSessionLimits({ maxSessionLength: seconds, maxIdleTime: seconds })
+    this.disconnect(); this.limits = limits
+  }
+  endLive(): void { this.disconnect(); this.limits = undefined }
   attach(video: HTMLVideoElement, audio: HTMLAudioElement): void { this.video = video; this.audio = audio }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private state(phase: AvatarSnapshot['phase'], message: string, connectedAt = this.snapshot.connectedAt): void {
@@ -48,7 +56,7 @@ export class AvatarSession {
     this.state('connecting', 'Connessione Simli...', null)
     const cancelled = new Promise<never>((_resolve, reject) => { this.cancelConnect = () => reject(new Error('Connessione avatar interrotta.')) })
     const work = async () => {
-      const credentials = await this.token(faceId)
+      const credentials = await this.token(faceId, this.limits)
       if (epoch !== this.epoch) throw new Error('Connessione avatar interrotta.')
       const client = await this.create(credentials, video, audio)
       if (epoch !== this.epoch) { void client.stop().catch(() => undefined); throw new Error('Connessione avatar interrotta.') }
@@ -111,7 +119,12 @@ export class AvatarSession {
     turn.silent = false
     if (this.drainTimer) clearTimeout(this.drainTimer)
     if (turn.startAt === null) {
-      try { if (turn.started() === false) { this.fail(new Error('Riproduzione avatar annullata.')); return } }
+      try {
+        if (turn.started() === false) {
+          if (this.turn === turn) { this.cancelTurn(); turn.error(new Error('Riproduzione avatar annullata.')) }
+          return
+        }
+      }
       catch { this.fail(new Error('Riproduzione avatar annullata.')); return }
       turn.startAt = Date.now()
       turn.estimatedEnd = turn.startAt + turn.bytes / 48
@@ -143,6 +156,15 @@ export class AvatarSession {
   }
 
   setVolume(volume: number): void { if (this.audio) this.audio.volume = Math.min(1, Math.max(0, volume)) }
+  cancelTurn(): void {
+    if (this.pending || this.beginning) { this.disconnect(); return }
+    this.turn = null; this.clearTimers()
+    if (this.audio) this.audio.muted = true
+    if (this.client) {
+      try { this.client.ClearBuffer() } catch { this.fail(new Error('Simli non disponibile: impossibile interrompere la voce.')); return }
+      this.state('ready', 'Avatar pronto')
+    }
+  }
   private fail(error: Error): void {
     const turn = this.turn
     this.disconnect(false)

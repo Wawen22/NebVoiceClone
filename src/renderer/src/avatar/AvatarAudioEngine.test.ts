@@ -4,6 +4,14 @@ import { AvatarSession, type AvatarClient } from './session'
 import type { AudioEngine } from '../audio/AudioEngine'
 
 afterEach(() => vi.useRealTimers())
+it('preserves the live connection on engine cleanup, but clears queued speech', async () => {
+  const session = { enabled: true, faceId: 'face', begin: vi.fn(async () => {}), cancelTurn: vi.fn(), disconnect: vi.fn(), setVolume() {} } as unknown as AvatarSession
+  const local = { stop() {}, onEnded() {}, dispose() {} } as unknown as AudioEngine
+  const engine = new AvatarAudioEngine(local, session, false, true)
+  await engine.beginStream('cable'); engine.stop(); engine.dispose()
+  expect(session.cancelTurn).toHaveBeenCalled()
+  expect(session.disconnect).not.toHaveBeenCalled()
+})
 it('plays received avatar audio exclusively and retains generated speech for avatar replay', async () => {
   vi.useFakeTimers()
   const events = new Map<string, () => void>()

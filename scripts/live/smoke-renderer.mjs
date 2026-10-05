@@ -24,6 +24,22 @@ const browser = await chromium.launch({ channel: 'msedge', headless: true })
 let page
 try {
   page = await browser.newPage({ viewport: { width: 1260, height: 850 } })
+  await page.route('**/assets/client-*.js', (route) => route.fulfill({ contentType: 'text/javascript', body: `
+export const LogLevel={CRITICAL:0};
+export class SimliClient {
+  constructor(_token,video){this.video=video;this.events=new Map();this.timers=[];window.fixture.avatarError=()=>this.events.get('error')?.();}
+  on(name,callback){this.events.set(name,callback);}
+  async start(){
+    window.fixture.avatarStarts++;
+    const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;
+    const ctx=canvas.getContext('2d');let n=0;
+    this.draw=setInterval(()=>{ctx.fillStyle=n++%2?'#467c86':'#76b297';ctx.fillRect(0,0,512,512);},40);
+    this.video.srcObject=canvas.captureStream(25);
+  }
+  sendAudioData(){this.timers.push(setTimeout(()=>this.events.get('speaking')?.(),50),setTimeout(()=>this.events.get('silent')?.(),800));}
+  ClearBuffer(){this.timers.forEach(clearTimeout);this.timers=[];}
+  async stop(){window.fixture.avatarStops++;this.ClearBuffer();clearInterval(this.draw);this.video.srcObject=null;}
+}` }))
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {
@@ -33,7 +49,7 @@ try {
     let capture = { state: 'active', captureId: 'capture-1', target, message: 'Fixture audio active' }
     let sequence = 0, voiceFrames = 0
     const insertion = { supported: true, connected: true, stopAvailable: true, phase: 'ready', target, confirmed: 0, total: 0, message: 'Fixture connected' }
-    const fixture = window.fixture = { spoken: [], played: [], filePlays: [], audioEvents: [], speechCodes: {}, holdPcm: false, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, providerUnavailable: false, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null, holdUserVoice: false, releaseUserVoice: null,
+    const fixture = window.fixture = { avatarStarts: 0, avatarStops: 0, avatarLimits: [], spoken: [], played: [], filePlays: [], audioEvents: [], speechCodes: {}, holdPcm: false, adaptationRequests: [], adaptations: 0, holdAdapt: false, release: null, providerUnavailable: false, modelRequests: [], holdModel: false, releaseModel: null, holdVoice: false, releaseVoice: null, holdUserVoice: false, releaseUserVoice: null,
       disconnect: () => {
         capture = { state: 'inactive', captureId: null, target: null, message: 'Edge fixture disconnected' }
         for (const listener of listeners) listener({ type: 'status', status: capture })
@@ -68,8 +84,13 @@ try {
       async close() {}
     }
     window.Audio = Audio
+    HTMLMediaElement.prototype.setSinkId = async () => {}
+    const playMedia = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function () { return this instanceof HTMLAudioElement ? Promise.resolve() : playMedia.call(this) }
     window.AudioContext = AudioContext
     window.neb = {
+      getAvatarStatus: async () => ({ configured: true }),
+      createAvatarSession: async (_face, limits) => { fixture.avatarLimits.push(limits); return { sessionToken: 'fixture', iceServers: [] } },
       getAppInfo: async () => ({ electron: 'fixture', node: 'fixture', platform: 'win32', geminiConfigured: true }),
       getSettings: async () => ({ ...settings }), updateSettings: async (patch) => ({ ...Object.assign(settings, patch) }),
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, environmentLabel: 'Fixture', projectLabel: 'Fixture', savedLabel: null, secureStorageAvailable: false }),
@@ -383,8 +404,39 @@ try {
   await page.getByRole('button', { name: 'Configura', exact: true }).click()
   assert(await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).evaluate((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight }))
   await page.getByRole('button', { name: 'Chiudi configurazione', exact: true }).click()
+  await page.setViewportSize({ width: 1260, height: 850 })
+  await page.getByRole('checkbox', { name: 'Attiva avatar' }).check()
+  await start.click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto') && document.querySelector('.avatar-status')?.textContent.includes('Avatar pronto'))
+  const liveStarts = await page.evaluate(() => fixture.avatarStarts)
+  assert.equal(liveStarts, 1, 'Live connects before listening')
+  assert((await page.evaluate(() => fixture.avatarLimits.at(-1).maxIdleTime)) > 120)
+  for (let turn = 0; turn < 2; turn++) {
+    const previous = await page.locator('.neb-live-turn-neb').count()
+    await page.evaluate(() => fixture.voice(3))
+    await page.waitForFunction((count) => document.querySelectorAll('.neb-live-turn-neb').length > count, previous)
+    await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+    assert.equal(await page.evaluate(() => fixture.avatarStarts), liveStarts, 'reply cleanup must not reconnect Simli')
+    assert.equal(await page.evaluate(() => fixture.avatarStops), 0, 'reply cleanup keeps the avatar connected')
+    assert((await page.locator('.avatar-status').innerText()).includes('Avatar pronto'))
+  }
+  const video = page.locator('video[aria-label="Anteprima avatar"]')
+  const beforeIdle = await video.evaluate((node) => node.getVideoPlaybackQuality().totalVideoFrames)
+  await new Promise((resolve) => setTimeout(resolve, 2200))
+  assert((await video.evaluate((node) => node.getVideoPlaybackQuality().totalVideoFrames)) > beforeIdle, 'idle avatar stays in motion')
+  await page.getByRole('button', { name: 'Pausa', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In pausa'))
+  assert.equal(await video.evaluate((node) => node.srcObject), null)
+  await page.getByRole('button', { name: 'Riprendi ascolto', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto') && document.querySelector('.avatar-status')?.textContent.includes('Avatar pronto'))
+  assert.equal(await page.evaluate(() => fixture.avatarStarts), 2)
+  await page.evaluate(() => fixture.avatarError())
+  await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In pausa'))
+  assert((await page.locator('.neb-live-session-status').innerText()).includes('Avatar disconnesso'))
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  assert.equal(await video.evaluate((node) => node.srcObject), null)
   assert.deepEqual(errors, [])
-  console.log('NEB Live renderer smoke passed: window capture, clipboard/file/paste images, code snippets, material updates during reasoning and uninterrupted speech, visual-only analysis, material reset and stale capture, automatic wait recheck, Respond now, retained question after failure, missing-cost playback, partial-cost notice, provider error and recovery, saved limits, profiles, transcript, reset, locks, pause/resume, Stop/stale response, Escape, changed tab, accessible tabs and compact controls.')
+  console.log('NEB Live renderer smoke passed: materials, reasoning and playback, profiles, limits, recovery, locks, compact controls; synthetic avatar preconnect, two replies without reconnect, idle video, pause/resume, disconnect handling and Stop.')
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

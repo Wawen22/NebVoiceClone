@@ -10,6 +10,9 @@ export class LiveStartGate {
       if (operation.signal.aborted || this.operation !== operation) return false
       commit(value)
       return true
+    } catch (error) {
+      if (operation.signal.aborted || this.operation !== operation) return false
+      throw error
     } finally { if (this.operation === operation) this.operation = null }
   }
   cancel(): void { this.operation?.abort(); this.operation = null }
