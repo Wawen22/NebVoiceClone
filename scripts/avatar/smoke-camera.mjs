@@ -4,13 +4,15 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 
-export function assertAvatarCameraTarget(target) {
+export function assertAvatarCameraTarget(target, humanConfirmed = false) {
+  if (humanConfirmed === true) return
   if (target?.type2 !== 1 || target.scene !== 'NEB Avatar') throw new Error('Imposta webcam virtuale OBS: Scena -> NEB Avatar, non Programma.')
 }
 
-export async function verifyAvatarCamera(browser, obs) {
+export async function verifyAvatarCamera(browser, obs, humanConfirmed = false) {
   const collection = JSON.parse(await readFile(path.join(process.env.APPDATA, 'obs-studio/basic/scenes/Untitled.json'), 'utf8'))
-  assertAvatarCameraTarget(collection['virtual-camera'])
+  // OBS may retain the live dialog selection without saving its scene file yet.
+  assertAvatarCameraTarget(collection['virtual-camera'], humanConfirmed)
   assert.equal((await obs.request('GetVirtualCamStatus')).outputActive, false, 'Ferma la webcam virtuale prima del test locale.')
   const original = (await obs.request('GetCurrentProgramScene')).currentProgramSceneName
   const blankScene = 'NEB test ' + randomUUID(), context = await browser.newContext()

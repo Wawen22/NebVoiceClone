@@ -136,7 +136,7 @@ try {
     assert.notEqual(screenshot, firstObs, 'OBS avatar image is frozen or blank')
     await writeFile(path.join(artifacts, cloud ? 'obs-cloud.png' : 'obs-synthetic.png'), Buffer.from(screenshot.split(',')[1], 'base64'))
     result.obsChangingFrames = true
-    if (useCamera) result.camera = await verifyAvatarCamera(browser, obs)
+    if (useCamera) result.camera = await verifyAvatarCamera(browser, obs, process.argv.includes('--camera-target-confirmed'))
     if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene })
   }
   if (!cloud) { assert(result.outputFps >= 10, `Output FPS ${result.outputFps}`); assert(result.p95LocalDelayMs < 250, `Delay ${result.p95LocalDelayMs}`) }
