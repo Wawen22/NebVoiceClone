@@ -8,7 +8,11 @@ export const GEMINI_MODELS = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts
 export const GEMINI_PREBUILT_VOICES = ['Kore', 'Puck'] as const
 export type GeminiModel = (typeof GEMINI_MODELS)[number]
 export type GeminiPrebuiltVoice = (typeof GEMINI_PREBUILT_VOICES)[number]
-export type ProviderId = 'gemini' | 'azure'
+export const FISH_MODELS = ['fish-audio/s2.1-pro-free:free', 'fish-audio/s2.1-pro'] as const
+export type FishModel = (typeof FISH_MODELS)[number]
+export interface FishVoiceRecord { id: string; displayName: string; createdAt: string }
+export interface FishVoiceImport { displayName: string; sourceAudio: Uint8Array; transcript: string; consentConfirmed: boolean }
+export type ProviderId = 'gemini' | 'azure' | 'fish-openrouter'
 export type GeminiKeySource = 'environment' | 'project' | 'saved'
 
 export interface GeminiKeyStatus {
@@ -49,6 +53,7 @@ export interface CreateReplicatedVoiceRequest {
 }
 
 export type VoiceReference =
+  | { mode: 'reference'; voiceId: string }
   | { mode: 'prebuilt'; voiceId: string }
   | { mode: 'stateful'; voiceId: string }
   | { mode: 'stateless'; voiceKey: string; expiresAt?: string }
@@ -84,6 +89,8 @@ export interface TtsProvider {
 export interface AppSettings {
   schemaVersion: 1
   providerId: ProviderId
+  fishModel: FishModel
+  fishVoice: FishVoiceRecord | null
   geminiModel: GeminiModel
   geminiKeySource: GeminiKeySource
   geminiVoiceId: string
@@ -98,6 +105,8 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   providerId: 'gemini',
+  fishModel: FISH_MODELS[0],
+  fishVoice: null,
   geminiModel: 'gemini-3.8-flash-tts',
   geminiKeySource: 'environment',
   geminiVoiceId: 'Kore',

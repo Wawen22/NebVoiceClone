@@ -1,7 +1,7 @@
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { DEFAULT_SETTINGS, GEMINI_PREBUILT_VOICES, type AppSettings, type GeminiKeySource, type ReplicatedVoiceRecord } from '../../shared/contracts'
+import { DEFAULT_SETTINGS, GEMINI_PREBUILT_VOICES, type AppSettings, type FishVoiceRecord, type GeminiKeySource, type ReplicatedVoiceRecord } from '../../shared/contracts'
 import { parseSettings, validateSettingsPatch } from '../../shared/settings'
 
 function settingsPath(): string {
@@ -31,6 +31,10 @@ export async function saveReplicatedVoice(record: ReplicatedVoiceRecord, source?
   const current = await readSettings()
   const voiceProfiles = { ...current.voiceProfiles, [source ?? current.geminiKeySource]: { replicatedVoice: record, selectedVoiceId: record.id } }
   return writeSettings(parseSettings({ ...current, voiceProfiles }))
+}
+
+export async function setFishVoiceRecord(fishVoice: FishVoiceRecord | null): Promise<AppSettings> {
+  return writeSettings(parseSettings({ ...(await readSettings()), fishVoice }))
 }
 
 export async function setGeminiKeySource(source: GeminiKeySource): Promise<AppSettings> {

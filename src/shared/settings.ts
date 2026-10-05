@@ -1,4 +1,5 @@
-import { DEFAULT_SETTINGS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppSettings, type GeminiKeySource, type GeminiVoiceProfiles, type ReplicatedVoiceRecord } from './contracts'
+import { DEFAULT_SETTINGS, FISH_MODELS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppSettings, type GeminiKeySource, type GeminiVoiceProfiles, type ReplicatedVoiceRecord } from './contracts'
+import { parseFishVoiceRecord } from './fishVoice'
 import { isReplicatedVoiceId } from './voiceReplication'
 
 function parseReplicatedVoice(value: unknown): ReplicatedVoiceRecord | null {
@@ -26,7 +27,9 @@ export function parseSettings(value: unknown): AppSettings {
   const { replicatedVoice, selectedVoiceId: geminiVoiceId } = voiceProfiles[geminiKeySource]
   return {
     schemaVersion: 1,
-    providerId: candidate.providerId === 'azure' ? 'azure' : 'gemini',
+    providerId: candidate.providerId === 'fish-openrouter' ? 'fish-openrouter' : candidate.providerId === 'azure' ? 'azure' : 'gemini',
+    fishModel: FISH_MODELS.find(model => model === candidate.fishModel) ?? DEFAULT_SETTINGS.fishModel,
+    fishVoice: parseFishVoiceRecord(candidate.fishVoice),
     geminiModel: GEMINI_MODELS.find((model) => model === candidate.geminiModel) ?? DEFAULT_SETTINGS.geminiModel,
     geminiKeySource,
     geminiVoiceId,
@@ -42,10 +45,11 @@ export function parseSettings(value: unknown): AppSettings {
 export function validateSettingsPatch(value: unknown): Partial<AppSettings> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid settings update.')
   const candidate = value as Record<string, unknown>
-  const allowed = new Set(['providerId', 'geminiModel', 'geminiVoiceId', 'outputDeviceId', 'outputVolume', 'monitorDeviceId', 'saveScriptHistory'])
+  const allowed = new Set(['providerId', 'fishModel', 'geminiModel', 'geminiVoiceId', 'outputDeviceId', 'outputVolume', 'monitorDeviceId', 'saveScriptHistory'])
   for (const [key, entry] of Object.entries(candidate)) {
     if (!allowed.has(key)) throw new Error(`Unsupported setting: ${key}`)
-    if (key === 'providerId' && entry !== 'gemini' && entry !== 'azure') throw new Error('Invalid provider.')
+    if (key === 'providerId' && entry !== 'gemini' && entry !== 'azure' && entry !== 'fish-openrouter') throw new Error('Invalid provider.')
+    if (key === 'fishModel' && !FISH_MODELS.some(model => model === entry)) throw new Error('Invalid Fish model.')
     if (key === 'geminiModel' && !GEMINI_MODELS.some((model) => model === entry)) throw new Error('Invalid Gemini model.')
     if (key === 'geminiVoiceId' && typeof entry !== 'string') throw new Error('Invalid Gemini voice.')
     if ((key === 'outputDeviceId' || key === 'monitorDeviceId') && typeof entry !== 'string') throw new Error('Invalid audio device.')
