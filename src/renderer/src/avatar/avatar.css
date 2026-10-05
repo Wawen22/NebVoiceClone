@@ -1,0 +1,14 @@
+.avatar-panel { flex: none; border-bottom: 1px solid #34404a; background: #111c20; color: #e6eef0; }
+.avatar-panel[hidden], .avatar-stage[hidden] { display: none; }
+.avatar-toolbar { display: flex; align-items: center; gap: 10px; padding: 6px 16px; min-height: 42px; flex-wrap: wrap; }
+.avatar-toolbar strong { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.avatar-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.avatar-toggle input { accent-color: #26b69b; }
+.avatar-toolbar select, .avatar-toolbar > input { min-width: 0; width: 150px; max-width: 100%; background: #16282c; border: 1px solid #43555d; border-radius: 4px; color: #e6eef0; padding: 5px 8px; font-size: 12px; }
+.avatar-toolbar > input { width: 280px; }
+.avatar-status { flex: 1; min-width: 120px; font-size: 11px; color: #a7c4c8; overflow-wrap: anywhere; }
+.avatar-stage { position: relative; height: 180px; width: 100%; background: #090e10; display: flex; justify-content: center; }
+.avatar-stage video { width: 240px; height: 180px; object-fit: contain; background: #090e10; }
+.avatar-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a7c4c8; font-size: 13px; pointer-events: none; }
+.avatar-panel audio { display: none; }
+@media (max-height: 750px) { .avatar-stage, .avatar-stage video { height: 120px; } }

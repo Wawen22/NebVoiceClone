@@ -17,6 +17,7 @@ import { LiveConfigStore } from '../live/configStore'
 import { generateLiveTurn } from '../providers/live'
 import { parseLiveTurnRequest } from '../../shared/live'
 import { captureLiveSource, getLiveCaptureSources, importLiveImage, readLiveClipboardImage } from '../live/materialCapture'
+import { createAvatarSession } from '../avatar/provider'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
@@ -32,6 +33,15 @@ export function registerIpc(
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
+
+  ipcMain.handle('avatar:status', (event) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return { configured: Boolean(process.env.SIMLI_API_KEY?.trim()) }
+  })
+  ipcMain.handle('avatar:session', (event, faceId: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    return createAvatarSession(faceId)
+  })
 
   ipcMain.handle('live:getConfig', (event) => {
     assertTrusted(event.sender, event.senderFrame)

@@ -26,7 +26,7 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await rm(fake.path, { force: true, recursive: true }) })
 
 it('rejects unauthorized windows and child frames before reading, saving or generating', async () => {
-  for (const channel of ['live:getConfig', 'live:saveConfig', 'live:generate', 'live:cancel', 'live:captureSources', 'live:captureSource', 'live:clipboardImage', 'live:importImage']) {
+  for (const channel of ['avatar:status', 'avatar:session', 'live:getConfig', 'live:saveConfig', 'live:generate', 'live:cancel', 'live:captureSources', 'live:captureSource', 'live:clipboardImage', 'live:importImage']) {
     for (const untrusted of [{ sender: {}, senderFrame: frame }, { sender, senderFrame: {} }]) {
       await expect(Promise.resolve().then(() => invoke(channel, untrusted, channel === 'live:saveConfig' ? DEFAULT_LIVE_CONFIG : request))).rejects.toThrow('Untrusted')
     }

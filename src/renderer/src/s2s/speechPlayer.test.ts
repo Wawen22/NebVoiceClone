@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { streamS2SSpeech } from './speechPlayer'
 import type { SynthesisRequest } from '../../../shared/contracts'
 
@@ -79,4 +79,16 @@ it('reports a provider failure before any audio without waiting for playback', a
   const f = fixture()
   f.api.synthesizeStream = async () => { throw new Error('No audio') }
   await expect(streamS2SSpeech(f.api, f.engine, request, 'cable', new AbortController().signal, () => true, { drainOnError: true })).rejects.toThrow('No audio')
+})
+
+it('uses the received avatar speaking event and rejects async playback failure', async () => {
+  const f = fixture(), started = () => true
+  let start!: () => boolean, fail!: (error: Error) => void
+  const engine = { ...f.engine, onStarted: (callback: () => boolean) => { start = callback }, onError: (callback: (error: Error) => void) => { fail = callback } }
+  const onStarted = vi.fn(started)
+  const pending = streamS2SSpeech(f.api, engine, request, 'cable', new AbortController().signal, onStarted)
+  const rejected = expect(pending).rejects.toThrow('Disconnected')
+  await flush(); expect(onStarted).not.toHaveBeenCalled()
+  start(); expect(onStarted).toHaveBeenCalledOnce()
+  fail(new Error('Disconnected')); await rejected
 })

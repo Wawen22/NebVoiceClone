@@ -3,7 +3,7 @@ import type { AudioEngine } from '../audio/AudioEngine'
 
 export async function streamS2SSpeech(
   api: Pick<DesktopApi, 'synthesizeStream' | 'stopGeneration'>,
-  engine: Pick<AudioEngine, 'beginStream' | 'appendPcm' | 'finishStream' | 'onEnded' | 'stop'>,
+  engine: Pick<AudioEngine, 'beginStream' | 'appendPcm' | 'finishStream' | 'onEnded' | 'stop' | 'onStarted' | 'onError'>,
   request: SynthesisRequest, deviceId: string, signal: AbortSignal, onStarted: () => boolean, options: { drainOnError?: boolean } = {}
 ): Promise<void> {
   signal.throwIfAborted()
@@ -18,19 +18,25 @@ export async function streamS2SSpeech(
   let resolvePlayback!: () => void
   const playback = new Promise<void>((resolve) => { resolvePlayback = resolve })
   engine.onEnded(resolvePlayback)
+  let rejectPlayback!: (error: Error) => void
+  const playbackFailed = new Promise<never>((_resolve, reject) => { rejectPlayback = reject })
+  engine.onError?.((error) => { cancelGeneration(); rejectPlayback(error) })
   const work = async (): Promise<void> => {
     await engine.beginStream(deviceId)
     if (signal.aborted) { engine.stop(); signal.throwIfAborted() }
     let first = true, receivedAudio = false
+    const start = (): boolean => {
+      if (signal.aborted) return false
+      if (first) { if (!onStarted()) return false; first = false }
+      return true
+    }
+    engine.onStarted?.(start)
     let chunkError: unknown = null
     generating = true
     try { await api.synthesizeStream(request, (pcm) => {
       if (signal.aborted || chunkError) return
       try {
-        if (first) {
-          if (!onStarted()) throw new Error('Outlier ha ripreso a parlare: audio annullato.')
-          first = false
-        }
+        if (first && !engine.onStarted && !start()) throw new Error('Outlier ha ripreso a parlare: audio annullato.')
         engine.appendPcm(pcm); receivedAudio = true
       } catch (error) { chunkError = error; engine.stop(); cancelGeneration() }
     }) } catch (error) {
@@ -45,7 +51,7 @@ export async function streamS2SSpeech(
     engine.finishStream()
     await playback
   }
-  try { await Promise.race([work(), aborted]) }
+  try { await Promise.race([work(), aborted, playbackFailed]) }
   catch (error) { cancelGeneration(); throw error }
-  finally { signal.removeEventListener('abort', abort); engine.onEnded(() => undefined); engine.stop() }
+  finally { signal.removeEventListener('abort', abort); engine.onEnded(() => undefined); engine.onError?.(() => undefined); engine.onStarted?.(() => false); engine.stop() }
 }

@@ -3,6 +3,8 @@ import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
 const api: DesktopApi = {
+  getAvatarStatus: () => ipcRenderer.invoke('avatar:status'),
+  createAvatarSession: (faceId) => ipcRenderer.invoke('avatar:session', faceId),
   getLiveConfig: () => ipcRenderer.invoke('live:getConfig'),
   saveLiveConfig: (config) => ipcRenderer.invoke('live:saveConfig', config),
   generateLiveTurn: (request) => ipcRenderer.invoke('live:generate', request),

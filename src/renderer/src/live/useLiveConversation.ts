@@ -5,12 +5,14 @@ import { MAX_LIVE_IMAGE_FILE_BYTES, type LiveImageData } from '../../../shared/l
 import { sameTarget, type BrowserTarget } from '../../../shared/outlier'
 import type { S2SAudioStatus } from '../../../shared/s2s'
 import { BrowserAudioEngine } from '../audio/AudioEngine'
+import { AvatarAudioEngine } from '../avatar/AvatarAudioEngine'
+import type { AvatarSession } from '../avatar/session'
 import { streamS2SSpeech } from '../s2s/speechPlayer'
 import { LiveController, type LiveOptions } from './controller'
 import { LiveStartGate } from './startGate'
 import { buildLiveSpeechRequest } from './speechRequest'
 
-interface Arguments { settings: AppSettings; available: boolean; unavailableReason: string; otherBusy(): boolean }
+interface Arguments { settings: AppSettings; avatar?: AvatarSession; available: boolean; unavailableReason: string; otherBusy(): boolean }
 const inactive: S2SAudioStatus = { state: 'inactive', captureId: null, target: null, message: 'Nel popup NEB: Collega questa scheda → Ascolta questa scheda.' }
 const sameSource = (a: BrowserTarget | null, b: BrowserTarget | null): boolean => Boolean(a && b && sameTarget(a, b))
 
@@ -26,7 +28,10 @@ export function useLiveConversation(args: Arguments) {
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const [controller] = useState(() => new LiveController({
-    now: () => performance.now(), changed: (next) => setSnapshot(next),
+    now: () => performance.now(), changed: (next) => {
+      setSnapshot(next)
+      if (next.phase === 'paused' || next.phase === 'stopped' || next.phase === 'completed') latest.current.avatar?.disconnect()
+    },
     decide: async (request, signal) => {
       signal.throwIfAborted()
       const abort = () => { void window.neb.cancelLiveTurn(request.requestId).catch(() => undefined) }
@@ -37,7 +42,8 @@ export function useLiveConversation(args: Arguments) {
     speak: async (text, signal, onStarted) => {
       const settings = session.current?.settings
       if (!settings) throw new Error('Sessione vocale non disponibile.')
-      const engine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') }, { retainRecording: false })
+      const localEngine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') }, { retainRecording: false })
+      const engine = latest.current.avatar ? new AvatarAudioEngine(localEngine, latest.current.avatar, false) : localEngine
       engine.setVolume(settings.outputVolume)
       try {
         await streamS2SSpeech(window.neb, engine, buildLiveSpeechRequest(settings, text, session.current?.language), settings.outputDeviceId, signal, onStarted, { drainOnError: true })
@@ -116,7 +122,7 @@ export function useLiveConversation(args: Arguments) {
       controller.resume()
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
-  function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop() }
+  function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop(); latest.current.avatar?.disconnect() }
   function respondNow(): void {
     setError('')
     try {
@@ -139,7 +145,7 @@ export function useLiveConversation(args: Arguments) {
     await addImage(async () => window.neb.importLiveImage(new Uint8Array(await file.arrayBuffer()), file.name.slice(0, 160)))
   }
   function addSnippet(text: string): void { controller.addMaterial({ id: crypto.randomUUID(), name: 'Snippet di codice', kind: 'text', text, addedAt: Date.now() }) }
-  function newConversation(): void { materialEpoch.current++; startup.current.cancel(); setStarting(false); controller.reset(); session.current = null; setError('') }
+  function newConversation(): void { materialEpoch.current++; startup.current.cancel(); setStarting(false); controller.reset(); latest.current.avatar?.disconnect(); session.current = null; setError('') }
   function applyLimits(limits: LiveLimits): void { if (controller.snapshot.phase === 'paused') controller.updateLimits(limits) }
   function exportLog(): void {
     const snapshotForExport = { ...controller.snapshot, materials: controller.snapshot.materials.map((item) => item.kind === 'image' ? { id: item.id, kind: item.kind, name: item.name, addedAt: item.addedAt } : item) }
@@ -149,7 +155,7 @@ export function useLiveConversation(args: Arguments) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return { snapshot, audioStatus, receiving, error, starting, unavailableReason: args.unavailableReason, locked: controller.locked || starting, active: controller.active,
-    sessionLimits: controller.limits, canRespond: controller.canRespond, isLocked: () => controller.locked || startup.current.pending, start, pause: () => controller.pause(), resume, respondNow, stop, newConversation, applyLimits, exportLog,
+    sessionLimits: controller.limits, canRespond: controller.canRespond, isLocked: () => controller.locked || startup.current.pending, start, pause: () => { controller.pause(); latest.current.avatar?.disconnect() }, resume, respondNow, stop, newConversation, applyLimits, exportLog,
     captureSource: (id: string) => addImage(() => window.neb.captureLiveSource(id)), pasteImage: () => addImage(() => window.neb.readLiveClipboardImage()), importImage, addSnippet, removeMaterial: (id: string) => controller.removeMaterial(id) }
 }
 export type LiveConversation = ReturnType<typeof useLiveConversation>

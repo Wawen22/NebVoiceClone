@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserAudioEngine, type AudioOutput } from './audio/AudioEngine'
+import { AvatarSession } from './avatar/session'
+import { createAvatarClient } from './avatar/sdk'
+import { AvatarAudioEngine } from './avatar/AvatarAudioEngine'
+import { AvatarPanel } from './avatar/AvatarPanel'
 import { ConsoleView, ConversationView, type Metrics } from './ConsoleViews'
 import { ReadyLinesPanel } from './ReadyLinesPanel'
 import { AutomationPanel, AutomationLauncher } from './s2s/AutomationPanel'
@@ -61,7 +65,9 @@ export function App(): React.JSX.Element {
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyMessage, setKeyMessage] = useState('')
   const [keyError, setKeyError] = useState('')
-  const audio = useRef(new BrowserAudioEngine())
+  const [avatar] = useState(() => new AvatarSession((faceId) => window.neb.createAvatarSession(faceId), createAvatarClient))
+  const [consoleAudio] = useState(() => new AvatarAudioEngine(new BrowserAudioEngine(), avatar))
+  const audio = useRef(consoleAudio)
   const requestId = useRef(0)
   const geminiCheckId = useRef(0)
   const playbackStartedAt = useRef<number | null>(null)
@@ -75,7 +81,7 @@ export function App(): React.JSX.Element {
     : outlierWorkspace.locked ? 'Ferma l’inserimento Outlier prima di avviare NEB Live.'
     : !gemini.ready ? 'Configura la voce Gemini prima di avviare.'
     : !routingStatus(outputs, settings.outputDeviceId, info?.platform).routed ? 'Seleziona CABLE Input come uscita NEB e CABLE Output come microfono del sito.' : ''
-  const live = useLiveConversation({ settings, available: !liveUnavailableReason, unavailableReason: liveUnavailableReason,
+  const live = useLiveConversation({ settings, avatar, available: !liveUnavailableReason, unavailableReason: liveUnavailableReason,
     otherBusy: () => automation.isLocked() || busy || playing || generatingModelB || Boolean(singleRegeneratingId) || keyBusy || voiceProfileBusy || outlierWorkspace.locked
   })
   const s2sProject = outlierWorkspace.data.projects.find((project) => project.id === outlierWorkspace.selectedId)
@@ -123,6 +129,19 @@ export function App(): React.JSX.Element {
         playbackStartedAt.current = null
         setMetrics((previous) => previous ? { ...previous, playbackMs: playbackMs.current ?? undefined } : null)
       }
+    })
+    audio.current.onStarted(() => {
+      playbackActive.current = true
+      setPlaying(true)
+      playbackStartedAt.current = performance.now()
+      if (avatar.enabled) setStatus('Avatar sta parlando...')
+      return true
+    })
+    audio.current.onError((reason) => {
+      requestId.current++; generationInProgress.current = false; playbackActive.current = false
+      playbackReadyLine.current = null; setPlaying(false); setBusy(false); setActiveReadyLineId(null)
+      setError(reason.message); setStatus('Riproduzione interrotta'); audio.current.stop()
+      void window.neb.stopGeneration().catch(() => undefined)
     })
     const onDeviceChange = (): void => { void refreshOutputs() }
     navigator.mediaDevices?.addEventListener('devicechange', onDeviceChange)
@@ -329,20 +348,24 @@ export function App(): React.JSX.Element {
     if (sessionLocked()) return
     if (!hasAudio || busy) return
     playbackReadyLine.current = null
+    const current = ++requestId.current
+    setBusy(true)
     try {
       await audio.current.replay(settings.outputDeviceId)
+      if (current !== requestId.current) return
       setActiveReadyLineId(null)
       playbackActive.current = true
       setPlaying(true)
-      playbackStartedAt.current = performance.now()
+      if (!avatar.enabled) playbackStartedAt.current = performance.now()
       setStatus(`Riascolto su ${selectedOutputLabel(outputs, settings.outputDeviceId)}`)
       setError('')
-    } catch (reason) { setError(`Riascolto non riuscito: ${message(reason)}`) }
+    } catch (reason) { if (current === requestId.current) setError(`Riascolto non riuscito: ${message(reason)}`) }
+    finally { if (current === requestId.current) setBusy(false) }
   }
 
   async function speak(text: string = script, readyLineId: string | null = null): Promise<void> {
     if (sessionLocked()) return
-    if (busy || !gemini.ready || !text.trim()) return
+    if (busy || playing || !gemini.ready || !text.trim()) return
     if (outputs.length === 0) {
       setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa prima di generare la voce.')
       return
@@ -376,9 +399,7 @@ export function App(): React.JSX.Element {
           audio.current.appendPcm(chunk)
           if (firstChunkMs === null) {
             firstChunkMs = Math.round(performance.now() - started)
-            playbackActive.current = true
             setPlaying(true)
-            playbackStartedAt.current = performance.now()
             setStatus(`Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)} · generazione in corso…`)
           }
         } catch (reason) {
@@ -394,7 +415,7 @@ export function App(): React.JSX.Element {
       setFileName('')
       setDuration(null)
       setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined })
-      setStatus(playbackActive.current ? `Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : 'Riproduzione terminata')
+      setStatus(playbackActive.current ? `Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : avatar.enabled ? 'Attendo la voce avatar...' : 'Riproduzione terminata')
     } catch (reason) {
       if (current === requestId.current) { playbackReadyLine.current = null; generationInProgress.current = false; playbackActive.current = false; setPlaying(false); setActiveReadyLineId(null); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }
     } finally { if (current === requestId.current) setBusy(false) }
@@ -406,6 +427,7 @@ export function App(): React.JSX.Element {
     playbackReadyLine.current = null
     requestId.current++
     audio.current.stop()
+    avatar.disconnect()
     generationInProgress.current = false
     playbackActive.current = false
     setPlaying(false)
@@ -561,7 +583,8 @@ export function App(): React.JSX.Element {
     {!automationOpen && automation.locked && <button className="s2s-reopen" onClick={() => setAutomationOpen(true)}><span className="status-dot green" /> Automatico · {automation.snapshot.lineIndex}/{automation.snapshot.total} · Apri player</button>}
   </>
 
-  if (conversationMode) return <><ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}{automationPanel}</>
+  const avatarPanel = <AvatarPanel session={avatar} deviceId={settings.outputDeviceId} volume={settings.outputVolume} locked={busy || playing || live.locked || automation.locked || keyBusy || voiceProfileBusy} ready={gemini.ready} visible={conversationMode || page === 'console' || page === 'live'} onStop={stop} onTest={() => void speak('Ciao, sono NEB. Questa e una breve prova della voce e del movimento delle labbra.')} />
+  if (conversationMode) return <>{avatarPanel}<ConversationView {...common} conversationStatus={conversationStatus} onClose={() => void toggleConversationMode()} />{readyPanel}{automationPanel}</>
 
   const pageTitle = page === 'console' ? 'Console' : page === 'outlier' ? 'Outlier' : page === 'live' ? 'NEB Live' : page === 'settings' ? 'Impostazioni' : page === 'guide' ? 'Guida' : 'Diagnostica'
   return <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame'}>
@@ -581,6 +604,7 @@ export function App(): React.JSX.Element {
 
     <main className="main">
       <header className="topbar"><div><span className="eyebrow">NEB VOICE / {pageTitle.toUpperCase()}</span><h1>{pageTitle}</h1></div><div className={gemini.ready && !keyBusy ? 'connection ready' : 'connection'} aria-live="polite"><span className="status-dot" /><span className="connection-copy"><strong title={activeKeyName}>API in uso: {activeKeyName}</strong><small>{keyBusy ? 'Verifica in corso…' : gemini.ready ? 'Gemini disponibile' : 'Gemini non disponibile'}</small></span></div></header>
+      {avatarPanel}
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
       {page === 'outlier' && <fieldset className="settings-session-lock" disabled={live.locked}><OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} /></fieldset>}
       <div className="neb-live-page" hidden={page !== 'live'}><fieldset className="settings-session-lock" disabled={automation.locked || busy || playing || keyBusy || voiceProfileBusy || outlierWorkspace.locked}><LivePage live={live} settings={settings} outputs={outputs} onUpdate={(patch) => void update(patch)} onRefreshOutputs={() => void refreshOutputs()} platform={info?.platform} geminiReady={gemini.ready} stopAvailable={Boolean(outlierWorkspace.status?.stopAvailable)} /></fieldset></div>

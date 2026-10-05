@@ -16,6 +16,8 @@ export interface AudioEngine {
   setVolume(volume: number): void
   dispose(): void
   onEnded(callback: () => void): void
+  onStarted?(callback: () => boolean | void): void
+  onError?(callback: (error: Error) => void): void
 }
 
 export class BrowserAudioEngine implements AudioEngine {
