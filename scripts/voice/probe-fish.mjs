@@ -97,7 +97,11 @@ export async function probeFish(options, { fetchImpl = fetch, now = () => perfor
       if (byteCount > 32 * 1024 * 1024) throw Error('Fish: audio oltre il limite della prova.')
     }
     if (!byteCount) throw Error('Fish: stream audio vuoto.')
-    return { model, httpStatus: response.status, contentType: contentType.slice(0, 150), firstByteMs, completedMs: Math.round(now() - started), byteCount, chunkCount, formatVerified: false }
+    // OpenRouter documents raw PCM as 16-bit little-endian; rate/channels still require response metadata.
+    const parts = contentType.toLowerCase().split(';').map(part => part.trim())
+    const rate = parts.find(part => /^rate=\d+$/.test(part))
+    const formatVerified = parts.length === 3 && parts[0] === 'audio/pcm' && parts.includes('channels=1') && /^(rate=8000|rate=16000|rate=24000|rate=32000|rate=44100|rate=48000)$/.test(rate ?? '') && byteCount % 2 === 0
+    return { model, httpStatus: response.status, contentType: contentType.slice(0, 150), firstByteMs, completedMs: Math.round(now() - started), byteCount, chunkCount, formatVerified }
   } catch (error) {
     const safe = error instanceof Error && /^Fish: (HTTP \d{3}\.|formato PCM non disponibile\.|timeout della prova\.|audio oltre il limite della prova\.|stream audio vuoto\.)$/.test(error.message)
     throw Error(controller.signal.aborted ? 'Fish: timeout della prova.' : safe ? error.message : 'Fish: prova remota non riuscita.')

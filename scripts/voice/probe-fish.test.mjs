@@ -67,6 +67,24 @@ test('streams Free metadata without claiming an unverified format or retaining s
   assert(result.firstByteMs <= result.completedMs)
 })
 
+test('verifies the documented PCM encoding only with explicit mono rate and whole samples', async () => {
+  for (const [contentType, length, verified] of [
+    ['audio/pcm;rate=44100;channels=1', 4, true],
+    ['audio/pcm; channels=1; rate=24000', 4, true],
+    ['audio/pcm;rate=44100;channels=1', 3, false],
+    ['audio/pcm;rate=44100;channels=2', 4, false],
+    ['audio/pcm;rate=44100', 4, false],
+    ['audio/pcm;rate=12345;channels=1', 4, false],
+    ['audio/pcm;rate=44100;rate=24000;channels=1', 4, false],
+    ['audio/pcm;rate=44100;channels=1;bits=32', 4, false]
+  ]) {
+    const result = await probeFish({apiKey: 'fixture', presetOnly: true, consent: true}, {
+      fetchImpl: async () => new Response(new Uint8Array(length), {headers: {'content-type': contentType}})
+    })
+    assert.equal(result.formatVerified, verified, `${contentType}, ${length} bytes`)
+  }
+})
+
 test('redacts provider and transport errors and never switches Free to paid', async () => {
   let calls = 0
   for (const fetchImpl of [async () => { calls++; return new Response('secret reference base64', { status: 429 }) }, async () => { calls++; throw Error('secret key in URL') }]) {
