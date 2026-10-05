@@ -22,8 +22,19 @@ let obs, originalScene, productionUrl, programChanged = false, sourceConfigured 
 try {
   const page = await app.firstWindow()
   if (!cloud) {
+    await page.route('**/assets/client-*.js', (route) => route.fulfill({ contentType: 'text/javascript', body: `
+export const LogLevel={CRITICAL:0};
+export class SimliClient {
+ constructor(_token,video){this.video=video;this.events=new Map();}
+ on(name,callback){this.events.set(name,callback);}
+ async start(){const canvas=document.createElement('canvas');canvas.width=${process.argv.includes('--large-fixture') ? 1024 : 512};canvas.height=canvas.width;const ctx=canvas.getContext('2d');ctx.scale(canvas.width/512,canvas.width/512);const draw=()=>{const now=Date.now();ctx.fillStyle='hsl('+Math.floor(now/100)%360+' 70% 45%)';ctx.fillRect(0,0,512,512);for(let bit=0;bit<48;bit++){ctx.fillStyle=Math.floor(now/2**bit)%2?'#fff':'#000';ctx.fillRect(bit%16*20,Math.floor(bit/16)*20,20,20);}};draw();this.draw=setInterval(draw,40);this.video.srcObject=canvas.captureStream(25);}
+ sendAudioData(){} ClearBuffer(){}
+ async stop(){clearInterval(this.draw);this.video.srcObject=null;}
+}` }))
     await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('avatar:session'); ipcMain.handle('avatar:session', () => ({ sessionToken: 'fixture', iceServers: [{ urls: 'stun:fixture.invalid' }] })) })
     await page.addInitScript((large) => {
+      const play = HTMLMediaElement.prototype.play
+      HTMLMediaElement.prototype.play = function () { return this instanceof HTMLAudioElement ? Promise.resolve() : play.call(this) }
       const canvas = document.createElement('canvas'); canvas.width = large ? 1024 : 512; canvas.height = canvas.width
       const ctx = canvas.getContext('2d')
       if (large) ctx.scale(2, 2)
@@ -158,6 +169,16 @@ try {
   assert(coveredAfter - coveredBefore >= 20, 'Video stopped with covered window'); result.coveredDecodedFrames = coveredAfter - coveredBefore
   const videoIdentity = await page.locator('video[aria-label="Anteprima avatar"]').evaluate((video) => { window.originalOutputVideo = video; return true }); assert(videoIdentity)
   await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click(); await page.keyboard.press('Escape')
+  assert(await page.evaluate(() => window.originalOutputVideo === document.querySelector('video[aria-label="Anteprima avatar"]')))
+  await page.getByRole('button', { name: 'Nascondi anteprima avatar', exact: true }).click()
+  assert.equal(await page.getByRole('region', { name: 'Video avatar', exact: true }).count(), 0)
+  await viewer.evaluate(() => { window.measure.signatures = []; window.measure.loads = [] })
+  await new Promise((resolve) => setTimeout(resolve, 10000))
+  const hiddenOutput = await viewer.evaluate(() => ({ visible: window.measure.visible, distinct: new Set(window.measure.signatures).size, frames: window.measure.loads.length }))
+  if (!hiddenOutput.visible || hiddenOutput.distinct < 20 || hiddenOutput.frames < 100) console.log(JSON.stringify({ hiddenOutput, video: await page.locator('video').evaluate((v) => ({ frames: v.getVideoPlaybackQuality(), paused: v.paused, ready: v.readyState })) }))
+  assert(hiddenOutput.visible && hiddenOutput.distinct >= 20 && hiddenOutput.frames >= 100, 'Hiding preview must not freeze or stop OBS output')
+  result.hiddenPreviewChangingFrames = hiddenOutput.frames
+  await page.getByRole('button', { name: 'Mostra anteprima avatar', exact: true }).click()
   assert(await page.evaluate(() => window.originalOutputVideo === document.querySelector('video[aria-label="Anteprima avatar"]')))
   await viewer.screenshot({ path: path.join(artifacts, cloud ? 'cloud-output.png' : 'synthetic-output.png') })
   await page.getByRole('button', { name: 'Scollega avatar', exact: true }).click()

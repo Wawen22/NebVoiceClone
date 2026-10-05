@@ -42,6 +42,16 @@ try {
   const page = await browser.newPage({ viewport: { width: 1260, height: 850 } })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message.replace(/session_token=[^ &]+/g, 'session_token=REDACTED')))
+  if (!cloud) await page.route('**/assets/client-*.js', (route) => route.fulfill({ contentType: 'text/javascript', body: `
+export const LogLevel={CRITICAL:0};
+export class SimliClient {
+ constructor(_token,video){this.video=video;this.events=new Map();this.timers=[];window.fixture.sockets.push({onclose:()=>this.events.get('error')?.()});}
+ on(name,callback){this.events.set(name,callback);}
+ async start(){window.fixture.sdkStarts=(window.fixture.sdkStarts??0)+1;const canvas=document.createElement('canvas');canvas.width=320;canvas.height=240;const ctx=canvas.getContext('2d');this.draw=setInterval(()=>{ctx.fillStyle='#22a688';ctx.fillRect(0,0,320,240)},40);this.video.srcObject=canvas.captureStream(25);}
+ sendAudioData(){window.fixture.chunks++;this.timers.push(setTimeout(()=>this.events.get('speaking')?.(),20),setTimeout(()=>this.events.get('silent')?.(),250));}
+ ClearBuffer(){this.timers.forEach(clearTimeout);this.timers=[];}
+ async stop(){window.fixture.stops++;this.ClearBuffer();clearInterval(this.draw);this.video.srcObject=null;}
+}` }))
   await page.addInitScript(({ cloud }) => {
     const f = window.fixture = { localPlays: 0, chunks: 0, stops: 0, sessions: 0, peers: [], sockets: [], holdVoice: false, release: null, spoken: [], audioFrames: 0 }
     const originalStart = AudioBufferSourceNode.prototype.start
@@ -80,6 +90,10 @@ try {
     const settings = { schemaVersion: 1, providerId: 'gemini', geminiModel: 'gemini-3.8-flash-tts', geminiKeySource: 'environment', geminiVoiceId: 'Kore', replicatedVoice: null, voiceProfiles: { environment: profile, project: profile, saved: profile }, outputDeviceId: cloud ? 'default' : 'cable', outputVolume: cloud ? 0.05 : 0, monitorDeviceId: '', saveScriptHistory: false }
     Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { value: async () => [{ kind: 'audiooutput', deviceId: cloud ? 'default' : 'cable', label: cloud ? 'Default Windows output' : 'CABLE Input (fixture)' }] })
     if (!cloud) HTMLMediaElement.prototype.setSinkId = async function () {}
+    if (!cloud) {
+      const play = HTMLMediaElement.prototype.play
+      HTMLMediaElement.prototype.play = function () { return this instanceof HTMLAudioElement ? Promise.resolve() : play.call(this) }
+    }
     const noop = () => () => {}, target = { tabId: 1, windowId: 2, documentId: 'fixture', url: 'https://fixture.invalid', title: 'Fixture' }
     const capture = { state: 'active', captureId: 'fixture', target, message: 'Connected' }
     const listeners = new Set()
@@ -90,6 +104,8 @@ try {
       getAppInfo: async () => ({ platform: 'win32', electron: 'fixture', node: 'fixture' }),
       getSettings: async () => settings, updateSettings: async (patch) => Object.assign(settings, patch),
       checkGemini: async () => ({ ready: true, message: 'Fixture' }),
+      getSpeechProviderStatus: async () => ({ ready: true, message: 'Fixture' }),
+      setSpeechSessionLock: async () => {},
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, savedLabel: null, secureStorageAvailable: false }),
       getOutlierData: async () => ({ schemaVersion: 1, projects: [], charactersPerMinute: 600 }),
       getInsertionStatus: async () => ({ supported: true, connected: true, stopAvailable: true, target, phase: 'ready' }),
@@ -130,6 +146,26 @@ try {
   assert.equal(await page.evaluate(() => fixture.localPlays), 0, 'Duplicate local audio playback')
   const video = await page.locator('video[aria-label="Anteprima avatar"]').evaluate((element) => ({ width: element.videoWidth, height: element.videoHeight, frames: element.getVideoPlaybackQuality().totalVideoFrames }))
   assert(video.width > 0 && video.frames > 0, 'No video frames received')
+  const floating = page.getByRole('region', { name: 'Video avatar', exact: true })
+  assert.equal(await floating.evaluate((element) => getComputedStyle(element).position), 'fixed', 'Preview must not occupy a full-width layout row')
+  const initialBounds = await floating.boundingBox()
+  assert(initialBounds.width <= 300)
+  await page.screenshot({ path: '.superpowers/avatar/floating-active-desktop.png' })
+  const handle = page.getByRole('button', { name: 'Sposta anteprima avatar', exact: true })
+  const grip = await handle.boundingBox()
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+  await page.mouse.down(); await page.mouse.move(380, 320, { steps: 12 }); await page.mouse.up()
+  const movedBounds = await floating.boundingBox()
+  assert(Math.abs(movedBounds.x - initialBounds.x) > 100, 'Dragging must move preview')
+  const savedPosition = await page.evaluate(() => JSON.parse(localStorage.getItem('neb:avatar-preview-position')))
+  assert(Math.abs(savedPosition.x - movedBounds.x) < 2)
+  await page.getByRole('button', { name: 'Nascondi anteprima avatar', exact: true }).click()
+  assert.equal(await floating.count(), 0)
+  assert((await page.locator('.avatar-toolbar').boundingBox()).height < 100)
+  await page.getByRole('button', { name: 'Mostra anteprima avatar', exact: true }).click()
+  assert(Math.abs((await floating.boundingBox()).x - movedBounds.x) < 2)
+  await handle.focus(); await page.keyboard.press('ArrowLeft')
+  assert((await floating.boundingBox()).x < movedBounds.x)
   assert.equal(await page.getByRole('button', { name: 'Espandi avatar', exact: true }).count(), 1)
   await page.evaluate(() => { fixture.preview = document.querySelector('video[aria-label="Anteprima avatar"]'); fixture.beforeExpand = { sessions: fixture.sessions, stops: fixture.stops } })
   await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click()
@@ -178,13 +214,24 @@ try {
   await mkdir('.superpowers/avatar', { recursive: true })
   await page.screenshot({ path: `.superpowers/avatar/${cloud ? 'cloud' : 'synthetic'}-desktop.png` })
   if (!cloud) {
+    const handleBounds = await handle.boundingBox()
+    await page.mouse.move(handleBounds.x + 20, handleBounds.y + 10)
+    await page.mouse.down(); await page.mouse.move(1250, 840, { steps: 8 }); await page.mouse.up()
     await page.setViewportSize({ width: 980, height: 680 }); await page.screenshot({ path: '.superpowers/avatar/synthetic-compact.png' })
+    assert((await page.locator('.avatar-toolbar').boundingBox()).height < 60, 'Compact toolbar must not leave a single action on another row')
+    const compactBounds = await floating.boundingBox()
+    assert(compactBounds.x >= 8 && compactBounds.y >= 8 && compactBounds.x + compactBounds.width <= 972 && compactBounds.y + compactBounds.height <= 672, 'Resizing must keep preview accessible')
     await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click()
     await page.screenshot({ path: '.superpowers/avatar/expanded-compact.png' })
     const bounds = await page.getByRole('dialog', { name: 'Avatar ingrandito', exact: true }).boundingBox()
     assert(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 980 && bounds.y + bounds.height <= 680)
     await page.getByRole('button', { name: 'Chiudi avatar ingrandito' }).click()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+    const remembered = await floating.boundingBox()
+    await page.reload()
+    await page.getByRole('checkbox', { name: 'Attiva avatar' }).check()
+    const restored = await floating.boundingBox()
+    assert(Math.abs(restored.x - remembered.x) < 2 && Math.abs(restored.y - remembered.y) < 2, 'Preview position must survive restart')
   }
   if (await page.getByRole('button', { name: 'Scollega avatar' }).isEnabled()) await page.getByRole('button', { name: 'Scollega avatar' }).click()
   assert.deepEqual(errors, [], 'Browser errors')

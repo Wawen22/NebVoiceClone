@@ -7,17 +7,27 @@
 .avatar-toolbar select, .avatar-toolbar > input { min-width: 0; width: 150px; max-width: 100%; background: #16282c; border: 1px solid #43555d; border-radius: 4px; color: #e6eef0; padding: 5px 8px; font-size: 12px; }
 .avatar-toolbar > input { width: 280px; }
 .avatar-status { flex: 1; min-width: 120px; font-size: 11px; color: #a7c4c8; overflow-wrap: anywhere; }
-.avatar-stage { position: relative; inset: auto; margin: 0; padding: 0; border: 0; max-width: none; max-height: none; height: 180px; width: 100%; background: #090e10; color: #e6eef0; }
+.avatar-stage { position: fixed; inset: 310px 24px auto auto; z-index: 40; margin: 0; padding: 0; border: 1px solid #43555d; border-radius: 8px; overflow: hidden; max-width: none; max-height: none; height: min(284px, calc(100dvh - 16px)); width: min(242px, calc(100vw - 16px)); background: #090e10; color: #e6eef0; box-shadow: 0 8px 24px rgb(0 0 0 / 30%); }
 .avatar-stage[open] { display: flex; flex-direction: column; }
 .avatar-video-surface { position: relative; min-height: 0; flex: 1; display: flex; justify-content: center; }
-.avatar-stage video { width: 240px; height: 180px; object-fit: contain; background: #090e10; }
+.avatar-stage video { width: 100%; height: 100%; min-height: 0; position: absolute; inset: 0; object-fit: contain; background: #090e10; }
 .avatar-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a7c4c8; font-size: 13px; pointer-events: none; }
 .avatar-panel audio { display: none; }
-@media (max-height: 750px) { .avatar-stage, .avatar-stage video { height: 120px; } }
+@media (max-height: 750px) { .avatar-stage { height: min(244px, calc(100dvh - 16px)); width: min(222px, calc(100vw - 16px)); } }
 .avatar-stage.avatar-expanded { position: fixed; inset: 0; margin: auto; width: min(960px, calc(100vw - 32px)); height: min(860px, calc(100dvh - 32px)); border: 1px solid #43555d; border-radius: 8px; overflow: hidden; }
 .avatar-expanded::backdrop { background: rgb(0 0 0 / 75%); }
-.avatar-preview-heading { display: flex; flex: none; align-items: center; gap: 12px; padding: 10px 14px; background: #111c20; border-bottom: 1px solid #34404a; }
+.avatar-preview-heading { display: flex; flex: none; align-items: center; gap: 12px; padding: 5px 8px; background: #111c20; border-bottom: 1px solid #34404a; }
+.avatar-drag-handle { display: flex; align-items: center; gap: 6px; align-self: stretch; flex: 1; min-width: 0; padding: 0; background: none; border: 0; color: inherit; cursor: grab; touch-action: none; user-select: none; }
+.avatar-drag-handle:active { cursor: grabbing; }
+.avatar-drag-handle:focus-visible { outline: 2px solid #26b69b; outline-offset: 2px; }
+.avatar-expanded .avatar-preview-heading { padding: 10px 14px; }
 .avatar-preview-heading strong { font-size: 14px; }
 .avatar-preview-heading span { flex: 1; min-width: 0; font-size: 12px; color: #a7c4c8; overflow-wrap: anywhere; }
 .avatar-expanded video { width: 100%; height: 100%; min-height: 0; position: absolute; inset: 0; object-fit: contain; }
 .avatar-output-status { font-size: 11px; overflow-wrap: anywhere; max-width: 260px; }
+@media (max-width: 1100px) {
+  .avatar-toolbar { gap: 6px; padding-inline: 8px; }
+  .avatar-toolbar select { width: 130px; }
+  .avatar-status { min-width: 90px; }
+  .avatar-output-status { max-width: 140px; }
+}
