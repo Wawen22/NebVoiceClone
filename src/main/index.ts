@@ -5,6 +5,7 @@ import { loadEnvFile } from 'node:process'
 import { registerIpc } from './ipc/registerIpc'
 import { WindowPresentationController } from './windowPresentation'
 import { registerOutlierIpc } from './outlier/registerOutlierIpc'
+import { AvatarOutputRelay } from './avatar/outputRelay'
 
 const localEnv = join(process.cwd(), '.env.local')
 if (existsSync(localEnv)) loadEnvFile(localEnv)
@@ -20,6 +21,8 @@ if (instance && instance !== 'dev' && /^[A-Za-z0-9_-]+$/.test(instance)) {
 
 let mainWindow: BrowserWindow | null = null
 let outlier: ReturnType<typeof registerOutlierIpc> | null = null
+let avatarOutput: AvatarOutputRelay | null = null
+let closingOutput = false
 const windowPresentation = new WindowPresentationController(
   () => mainWindow ?? undefined,
   globalShortcut,
@@ -62,8 +65,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  avatarOutput = new AvatarOutputRelay({ userData: app.getPath('userData') })
+  await avatarOutput.start()
   outlier = registerOutlierIpc(() => mainWindow?.webContents)
-  registerIpc(() => mainWindow?.webContents, windowPresentation)
+  registerIpc(() => mainWindow?.webContents, windowPresentation, avatarOutput)
   createWindow()
   windowPresentation.registerFocusShortcut()
   outlier.controller.setStopAvailable(windowPresentation.isStopShortcutAvailable())
@@ -73,4 +78,9 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('before-quit', (event) => {
+  if (!avatarOutput || closingOutput) return
+  event.preventDefault(); closingOutput = true
+  void avatarOutput.close().finally(() => app.quit())
+})
 app.on('will-quit', () => { outlier?.close(); globalShortcut.unregister('Ctrl+Alt+P'); windowPresentation.dispose() })

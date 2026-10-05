@@ -3,6 +3,12 @@ import type { DesktopApi } from '../shared/contracts'
 
 let nextStreamId = 0
 const api: DesktopApi = {
+  getAvatarOutputStatus: () => ipcRenderer.invoke('avatarOutput:status'),
+  setAvatarOutputEnabled: (enabled) => ipcRenderer.invoke('avatarOutput:enabled', enabled),
+  getAvatarOutputUrl: () => ipcRenderer.invoke('avatarOutput:url'),
+  beginAvatarOutput: () => ipcRenderer.invoke('avatarOutput:begin'),
+  publishAvatarOutputFrame: (frame) => ipcRenderer.invoke('avatarOutput:frame', frame),
+  clearAvatarOutput: (generation) => ipcRenderer.invoke('avatarOutput:clear', generation),
   getAvatarStatus: () => ipcRenderer.invoke('avatar:status'),
   createAvatarSession: (faceId) => ipcRenderer.invoke('avatar:session', faceId),
   getLiveConfig: () => ipcRenderer.invoke('live:getConfig'),

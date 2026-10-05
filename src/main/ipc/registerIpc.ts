@@ -18,10 +18,13 @@ import { generateLiveTurn } from '../providers/live'
 import { parseLiveTurnRequest } from '../../shared/live'
 import { captureLiveSource, getLiveCaptureSources, importLiveImage, readLiveClipboardImage } from '../live/materialCapture'
 import { createAvatarSession } from '../avatar/provider'
+import type { AvatarOutputRelay } from '../avatar/outputRelay'
+import { registerAvatarOutputIpc } from '../avatar/outputIpc'
 
 export function registerIpc(
   getWebContents: () => WebContents | undefined,
-  windowPresentation: WindowPresentationController
+  windowPresentation: WindowPresentationController,
+  avatarOutput?: AvatarOutputRelay
 ): void {
   const gemini = new GeminiTtsProvider(resolveGeminiApiKey)
   let activeGeneration: AbortController | null = null
@@ -33,6 +36,10 @@ export function registerIpc(
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
+  if (avatarOutput) registerAvatarOutputIpc<Electron.IpcMainInvokeEvent>(
+    (channel, handler) => ipcMain.handle(channel, handler),
+    (event) => assertTrusted(event.sender, event.senderFrame), avatarOutput
+  )
 
   ipcMain.handle('avatar:status', (event) => {
     assertTrusted(event.sender, event.senderFrame)
