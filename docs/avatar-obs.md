@@ -51,6 +51,8 @@ Verifica OBS/Virtual Camera completata su Windows: Fred visibile nella sorgente 
 
 Revisione indipendente: corretti con regressioni RED->GREEN gli URL HTTP malformati e la rimozione globale di sorgenti OBS omonime. Miglioramento di test rimandato: dimostrare esplicitamente la disconnessione di un consumatore lento, oltre ai limiti di buffer e alla risposta del consumatore sano gia coperti.
 
+Decisioni di implementazione: lavoro su main e sincronizzazione dei due mirror come richiesto (senza isolamento di branch); registrazione IPC in modulo dedicato per test focalizzati; SSE al posto del viewer MJPEG non funzionante in Edge, con circa 33% di traffico locale aggiuntivo. La revisione del codice non sostituisce la prova Windows: quest'ultima e stata completata separatamente, inclusa la conferma visiva del target OBS non ancora salvato su disco. Verifiche finali: build/typecheck passati, 358 test Vitest passati e quattro saltati su WSL, cinque test Node passati.
+
 Comandi di prova (Windows, workspace con Playwright gia disponibile):
 
 ```powershell
