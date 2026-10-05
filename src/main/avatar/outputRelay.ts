@@ -42,7 +42,9 @@ export class AvatarOutputRelay {
         const reject = (status: number): void => { res.writeHead(status); res.end() }
         if (req.method !== 'GET') return reject(405)
         if (req.headers.host !== `127.0.0.1:${this.port}`) return reject(403)
-        const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`)
+        if (!req.url?.startsWith('/') || req.url.startsWith('//') || req.url.length > 2048) return reject(400)
+        let url: URL
+        try { url = new URL(req.url, `http://127.0.0.1:${this.port}`) } catch { return reject(400) }
         const supplied = Buffer.from(url.searchParams.get('token') ?? '')
         const token = Buffer.from(this.token)
         if (supplied.length !== token.length || !timingSafeEqual(supplied, token)) return reject(403)

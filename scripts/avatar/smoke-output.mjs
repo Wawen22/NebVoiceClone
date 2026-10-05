@@ -5,16 +5,20 @@ import path from 'node:path'
 import { cpus } from 'node:os'
 import assert from 'node:assert/strict'
 import { connectObs, configureAvatarObs, readOutputUrl } from './configure-obs.mjs'
+import { verifyAvatarCamera } from './smoke-camera.mjs'
 const require = createRequire(path.resolve('.superpowers/outlier-smoke/package.json'))
 const { _electron, chromium } = require('playwright')
 const cloud = process.argv.includes('--cloud')
-const useObs = process.argv.includes('--obs')
+const passiveObs = process.argv.includes('--obs-passive')
+const useObs = process.argv.includes('--obs') || passiveObs
+const useCamera = process.argv.includes('--camera')
+assert(!useCamera || useObs, '--camera requires --obs')
 const { ELECTRON_RUN_AS_NODE: ignored, ...env } = process.env
 const app = await _electron.launch({ executablePath: path.join(process.env.LOCALAPPDATA, 'NEBVoiceConsole/dev/node_modules/electron/dist/electron.exe'), args: [path.resolve('out/main/index.js')], cwd: process.cwd(), env: { ...env, NEB_INSTANCE: 'avatar-output-smoke' } })
 const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] })
 const artifacts = path.resolve('.superpowers/avatar/output')
 await mkdir(artifacts, { recursive: true })
-let obs, originalScene, productionUrl
+let obs, originalScene, productionUrl, programChanged = false
 try {
   const page = await app.firstWindow()
   if (!cloud) {
@@ -54,11 +58,18 @@ try {
     obs = await connectObs()
     assert.equal((await obs.request('GetStreamStatus')).outputActive, false, 'Refusing OBS test during streaming')
     assert.equal((await obs.request('GetRecordStatus')).outputActive, false, 'Refusing OBS test during recording')
-    assert.equal((await obs.request('GetVirtualCamStatus')).outputActive, false, 'Close active virtual camera before test')
+    const cameraActive = (await obs.request('GetVirtualCamStatus')).outputActive
     productionUrl = await readOutputUrl(path.join(process.env.APPDATA, 'neb-voice-console/avatar-output.json'))
     originalScene = (await obs.request('GetCurrentProgramScene')).currentProgramSceneName
+    if (cameraActive) {
+      assert(passiveObs && !useCamera, 'Close active virtual camera before test')
+      const collection = JSON.parse(await readFile(path.join(process.env.APPDATA, 'obs-studio/basic/scenes/Untitled.json'), 'utf8'))
+      assert.equal(collection['virtual-camera']?.type2, 3, 'Passive test requires camera pinned to unchanged Program')
+      const items = (await obs.request('GetSceneItemList', { sceneName: originalScene })).sceneItems
+      assert(items.every((item) => item.inputKind && item.sourceName !== 'NEB Avatar - video locale'), 'Passive test refuses nested scenes or avatar in Program')
+    }
     await configureAvatarObs(obs, url)
-    await obs.request('SetCurrentProgramScene', { sceneName: 'NEB Avatar' })
+    if (!passiveObs) { await obs.request('SetCurrentProgramScene', { sceneName: 'NEB Avatar' }); programChanged = true }
   }
   const viewer = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   const network = []
@@ -124,7 +135,8 @@ try {
     assert.notEqual(screenshot, firstObs, 'OBS avatar image is frozen or blank')
     await writeFile(path.join(artifacts, cloud ? 'obs-cloud.png' : 'obs-synthetic.png'), Buffer.from(screenshot.split(',')[1], 'base64'))
     result.obsChangingFrames = true
-    await obs.request('SetCurrentProgramScene', { sceneName: originalScene })
+    if (useCamera) result.camera = await verifyAvatarCamera(browser, obs)
+    if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene })
   }
   if (!cloud) { assert(result.outputFps >= 10, `Output FPS ${result.outputFps}`); assert(result.p95LocalDelayMs < 250, `Delay ${result.p95LocalDelayMs}`) }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore())
@@ -143,6 +155,6 @@ try {
   await writeFile(path.join(artifacts, cloud ? 'cloud-result.json' : 'synthetic-result.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result))
 } finally {
-  try { if (obs) { try { if (originalScene) await obs.request('SetCurrentProgramScene', { sceneName: originalScene }); if (productionUrl) await configureAvatarObs(obs, productionUrl) } finally { obs.close() } } }
+  try { if (obs) { try { if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene }); if (productionUrl) await configureAvatarObs(obs, productionUrl) } finally { obs.close() } } }
   finally { await browser.close(); await app.close() }
 }

@@ -27,6 +27,14 @@ describe('local avatar relay', () => {
     const unknown = new URL(relay.getUrl()); unknown.pathname = '/private'; expect((await fetch(unknown)).status).toBe(404)
     const status = await new Promise<number>((resolve) => { const req = request(relay.getUrl(), { headers: { Host: 'attacker.example' } }, (res) => { res.resume(); resolve(res.statusCode!) }); req.end() }); expect(status).toBe(403)
   })
+  it('rejects malformed HTTP request targets without crashing the server', async () => {
+    const url = new URL(relay.getUrl())
+    const status = await new Promise<number>((resolve) => {
+      const req = request({ hostname: url.hostname, port: url.port, path: '//[', headers: { Host: url.host } }, (response) => { response.resume(); resolve(response.statusCode!) })
+      req.on('error', () => resolve(0)); req.setTimeout(500, () => req.destroy()); req.end()
+    })
+    expect(status).toBe(400); expect((await fetch(relay.getUrl())).status).toBe(200)
+  })
   it('rejects stale, disabled, oversized and non-JPEG frames and rate limits', () => {
     const old = relay.beginGeneration(); expect(relay.publish({ generation: old, jpeg })).toBe(false)
     relay.setEnabled(true); const current = relay.beginGeneration()

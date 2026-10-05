@@ -45,13 +45,19 @@ Una sessione Free disconnessa/inattiva mostra lo sfondo neutro; non resta aperta
 
 Il publisher esporta solo l'elemento video esistente: massimo 15 fps, JPEG 0.85, lato massimo 640 pixel senza upsampling. La pagina usa eventi SSE con JPEG base64 limitati; il tentativo MJPEG nativo non ha dato immagini utilizzabili nella prova Edge locale. Restano buffer limitati e un solo encoding/invio pendente; nessun frame viene salvato dall'app.
 
-Prova Windows sintetica: 20.5 secondi realmente minimizzati, 513 frame decodificati, circa 14.1 fps di output, ritardo locale p95 89 ms. Prova Simli reale: 509 frame decodificati in 20.5 secondi minimizzati, 52 immagini distinte campionate, Stop neutro. Questi numeri descrivono le prove locali, non garantiscono latenza o qualita del servizio cloud.
+Prove Windows sintetiche: 20.5 secondi realmente minimizzati, 513-514 frame decodificati, circa 12.9-14.1 fps di output, ritardo locale p95 89-92 ms; ultima misura CPU media dell'app circa 3.9% su tutti i core. Finestra coperta: altri 57 frame decodificati in circa due secondi. Prova Simli reale: 509 frame decodificati in 20.5 secondi minimizzati, 52 immagini distinte campionate, Stop neutro. Questi numeri descrivono le prove locali, non garantiscono latenza o qualita del servizio cloud.
+
+Verifica OBS/Virtual Camera ancora da completare: nelle ultime letture la webcam era attiva sull'uscita Programma e la scena Programma era NEB Avatar. I test hanno rifiutato di modificarne il video. Serve fermare la webcam e selezionare il target Scena -> NEB Avatar prima di eseguire il test completo. La scena Browser e configurata ma non viene dichiarata verificata visivamente finche questa prova non passa.
+
+Revisione indipendente: corretti con regressioni RED->GREEN gli URL HTTP malformati e la rimozione globale di sorgenti OBS omonime. Miglioramento di test rimandato: dimostrare esplicitamente la disconnessione di un consumatore lento, oltre ai limiti di buffer e alla risposta del consumatore sano gia coperti.
 
 Comandi di prova (Windows, workspace con Playwright gia disponibile):
 
 ```powershell
 node .\scripts\avatar\smoke-output.mjs
 node .\scripts\avatar\smoke-output.mjs --cloud --obs
+node .\scripts\avatar\smoke-output.mjs --cloud --obs --camera
 ```
 
 La prova cloud richiede il WAV locale di test in `.superpowers/avatar/probe.wav`, usa minuti Simli e non usa una webcam fisica. La prova OBS rifiuta registrazioni, streaming o una webcam virtuale gia attivi e ripristina scena Programma e URL di produzione.
+La prova camera verifica prima il target salvato Scena -> NEB Avatar, concede camera solo alla pagina locale di test e richiede esattamente OBS Virtual Camera con audio:false. Usa una scena Programma vuota temporanea per verificare l'isolamento, poi la elimina, ripristina la scena e ferma la webcam avviata dal test.

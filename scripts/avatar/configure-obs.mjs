@@ -53,7 +53,8 @@ export async function configureAvatarObs(obs, url) {
     try { previous = new URL(settings.inputSettings.url) } catch {}
     if (existing.inputKind !== 'browser_source' || previous?.hostname !== '127.0.0.1' || previous?.port !== parsed.port || previous?.pathname !== '/') throw new Error('Sorgente NEB esistente non riconosciuta; nessuna modifica.')
   }
-  const old = inputs.find((input) => input.inputName === 'NEB Avatar - finestra')
+  const oldItem = items.find((item) => item.sourceName === 'NEB Avatar - finestra')
+  const old = oldItem ? inputs.find((input) => input.inputName === oldItem.sourceName) : undefined
   if (old) {
     const settings = await obs.request('GetInputSettings', { inputName: old.inputName })
     if (old.inputKind !== 'window_capture' || settings.inputSettings.window) throw new Error('La cattura finestra esistente non e vuota; nessuna modifica.')
@@ -69,7 +70,7 @@ export async function configureAvatarObs(obs, url) {
   await obs.request('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: { positionX: 0, positionY: 0, rotation: 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: video.baseWidth, boundsHeight: video.baseHeight, boundsAlignment: 0, alignment: 5, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0 } })
   await obs.request('SetSceneItemEnabled', { sceneName, sceneItemId, sceneItemEnabled: true })
   await obs.request('SetSceneItemLocked', { sceneName, sceneItemId, sceneItemLocked: true })
-  if (old) await obs.request('RemoveInput', { inputName: old.inputName })
+  if (old && oldItem) await obs.request('RemoveSceneItem', { sceneName, sceneItemId: oldItem.sceneItemId })
   return { sceneName, inputName }
 }
 
