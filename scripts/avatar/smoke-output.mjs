@@ -23,9 +23,10 @@ try {
   const page = await app.firstWindow()
   if (!cloud) {
     await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('avatar:session'); ipcMain.handle('avatar:session', () => ({ sessionToken: 'fixture', iceServers: [{ urls: 'stun:fixture.invalid' }] })) })
-    await page.addInitScript(() => {
-      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512
+    await page.addInitScript((large) => {
+      const canvas = document.createElement('canvas'); canvas.width = large ? 1024 : 512; canvas.height = canvas.width
       const ctx = canvas.getContext('2d')
+      if (large) ctx.scale(2, 2)
       const draw = () => {
         const now = Date.now(); ctx.fillStyle = `hsl(${Math.floor(now / 100) % 360} 70% 45%)`; ctx.fillRect(0, 0, 512, 512)
         for (let bit = 0; bit < 48; bit++) { ctx.fillStyle = Math.floor(now / 2 ** bit) % 2 ? '#fff' : '#000'; ctx.fillRect((bit % 16) * 20, Math.floor(bit / 16) * 20, 20, 20) }
@@ -48,7 +49,7 @@ try {
         send(data) { if (typeof data === 'string' && data.includes('sdp')) setTimeout(() => this.onmessage?.({ data: '{"sdp":"fixture","type":"answer"}' }), 10) }
         close() { this.readyState = 3 }
       }
-    })
+    }, process.argv.includes('--large-fixture'))
     await page.reload()
   }
   await page.getByRole('checkbox', { name: 'Attiva avatar' }).check()
@@ -79,7 +80,8 @@ try {
   viewer.on('requestfailed', (request) => { if (request.url().startsWith('http')) network.push({ path: new URL(request.url()).pathname, failure: request.failure()?.errorText }) })
   await viewer.goto(url)
   await viewer.evaluate(() => {
-    window.measure = { timestamps: [], signatures: [], visible: false }
+    window.measure = { timestamps: [], signatures: [], loads: [], visible: false }
+    document.querySelector('img').addEventListener('load', () => window.measure.loads.push(Date.now()))
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512; const ctx = canvas.getContext('2d')
     setInterval(() => {
       const image = document.querySelector('img'); const visible = getComputedStyle(image).visibility === 'visible' && image.naturalWidth > 0
@@ -91,7 +93,7 @@ try {
         const pixels = ctx.getImageData(200, 200, 24, 24).data; let signature = 0; for (let i = 0; i < pixels.length; i++) signature = (signature * 31 + pixels[i]) >>> 0
         window.measure.signatures.push(signature); window.measure.timestamps.push({ source: timestamp, received: Date.now() })
       } catch {}
-    }, 50)
+    }, 20)
   })
   await page.getByRole('button', { name: 'Collega avatar', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.avatar-status')?.textContent.includes('Avatar pronto'), null, { timeout: 30000 })
@@ -116,7 +118,7 @@ try {
   })
   let firstObs
   if (obs) { await new Promise((resolve) => setTimeout(resolve, 1500)); firstObs = (await obs.request('GetSourceScreenshot', { sourceName: 'NEB Avatar', imageFormat: 'png', imageWidth: 1280, imageHeight: 720 })).imageData }
-  await viewer.evaluate(() => { window.measure.timestamps = []; window.measure.signatures = [] })
+  await viewer.evaluate(() => { window.measure.timestamps = []; window.measure.signatures = []; window.measure.loads = [] })
   const beforeFrames = await page.locator('video[aria-label="Anteprima avatar"]').evaluate((video) => video.getVideoPlaybackQuality().totalVideoFrames)
   const cpuBefore = await app.evaluate(({ app }) => app.getAppMetrics().map(({ pid, cpu }) => ({ pid, seconds: cpu.cumulativeCPUUsage })))
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize())
@@ -130,7 +132,8 @@ try {
   const latency = deltas.map((sample) => sample.received - sample.source).sort((a, b) => a - b)
   const cpuAfter = await app.evaluate(({ app }) => app.getAppMetrics().map(({ pid, cpu }) => ({ pid, seconds: cpu.cumulativeCPUUsage })))
   const cpuSeconds = cpuAfter.reduce((total, value) => total + Math.max(0, value.seconds - (cpuBefore.find((item) => item.pid === value.pid)?.seconds ?? value.seconds)), 0)
-  const result = { cloud, minimizedSeconds: 20.5, decodedFrames: afterFrames - beforeFrames, distinctSignatures: unique, ...(cloud ? {} : { outputFps: deltas.length / 20.5, p95LocalDelayMs: latency[Math.floor(latency.length * 0.95)] }), averageAppCpuPercentAllCores: cpuSeconds / 20.5 * 100 / cpus().length }
+  const dimensions = await viewer.locator('img').evaluate((image) => ({ width: image.naturalWidth, height: image.naturalHeight }))
+  const result = { cloud, outputDimensions: dimensions, minimizedSeconds: 20.5, decodedFrames: afterFrames - beforeFrames, distinctSignatures: unique, outputFps: measurements.loads.length / 20.5, ...(cloud ? {} : { p95LocalDelayMs: latency[Math.floor(latency.length * 0.95)] }), averageAppCpuPercentAllCores: cpuSeconds / 20.5 * 100 / cpus().length }
   if (obs) {
     const screenshot = (await obs.request('GetSourceScreenshot', { sourceName: 'NEB Avatar', imageFormat: 'png', imageWidth: 1280, imageHeight: 720 })).imageData
     assert.notEqual(screenshot, firstObs, 'OBS avatar image is frozen or blank')
@@ -139,7 +142,13 @@ try {
     if (useCamera) result.camera = await verifyAvatarCamera(browser, obs, process.argv.includes('--camera-target-confirmed'))
     if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene })
   }
-  if (!cloud) { assert(result.outputFps >= 10, `Output FPS ${result.outputFps}`); assert(result.p95LocalDelayMs < 250, `Delay ${result.p95LocalDelayMs}`) }
+  if (!cloud) {
+    const large = process.argv.includes('--large-fixture')
+    console.log(JSON.stringify({ benchmark: result }))
+    assert(result.outputFps >= (large ? 16 : 20), `Output FPS ${result.outputFps}`)
+    assert(result.p95LocalDelayMs < 250, `Delay ${result.p95LocalDelayMs}`)
+    assert.equal(dimensions.width, large ? 720 : 512)
+  }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].restore())
   const coveredBefore = await page.locator('video[aria-label="Anteprima avatar"]').evaluate((video) => video.getVideoPlaybackQuality().totalVideoFrames)
   await app.evaluate(async ({ BrowserWindow }) => { const main = BrowserWindow.getAllWindows()[0]; global.outputCover = new BrowserWindow({ ...main.getBounds(), title: 'NEB output test', alwaysOnTop: true, webPreferences: { sandbox: true, nodeIntegration: false } }); await global.outputCover.loadURL('data:text/html,<body style="background:%23101416">') })

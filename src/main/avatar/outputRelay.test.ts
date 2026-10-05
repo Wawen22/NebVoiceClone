@@ -52,6 +52,15 @@ describe('local avatar relay', () => {
     expect(occupied.getStatus().available).toBe(false); expect(occupied.getStatus().error).toContain('17890') // User-facing guidance names the default port.
     await occupied.close()
   })
+  it('tolerates timing jitter while enforcing at most 25 frames in a second', () => {
+    relay.setEnabled(true); const generation = relay.beginGeneration()
+    expect(relay.publish({ generation, jpeg })).toBe(true)
+    for (let i = 1; i < 25; i++) { now += i % 2 ? 42 : 38; expect(relay.publish({ generation, jpeg })).toBe(true) }
+    now += 39; expect(relay.publish({ generation, jpeg })).toBe(false)
+    now++; expect(relay.publish({ generation, jpeg })).toBe(true)
+    relay.clear(generation); const next = relay.beginGeneration()
+    expect(relay.publish({ generation: next, jpeg })).toBe(true)
+  })
   it('caps four viewers and expires video after three seconds', async () => {
     relay.setEnabled(true); const connections: AbortController[] = []
     try {

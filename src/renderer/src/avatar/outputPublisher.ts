@@ -1,4 +1,5 @@
 import type { AvatarOutputApi } from '../../../shared/avatarOutput'
+import { AVATAR_OUTPUT_MAX_DIMENSION, AVATAR_OUTPUT_MAX_FPS } from '../../../shared/avatarOutput'
 
 export class AvatarOutputPublisher {
   private active = false
@@ -19,7 +20,8 @@ export class AvatarOutputPublisher {
     if (this.captureTimer || this.disposed) return
     void this.poll()
     this.statusTimer = setInterval(() => void this.poll(), 500)
-    this.captureTimer = setInterval(() => void this.capture(), 70)
+    // Keep capture slightly below the maximum output rate.
+    this.captureTimer = setInterval(() => void this.capture(), Math.ceil(1000 / AVATAR_OUTPUT_MAX_FPS) + 2)
   }
   setActive(active: boolean): void { if (this.active === active) return; this.active = active; this.invalidate() }
   private invalidate(): void {
@@ -54,8 +56,10 @@ export class AvatarOutputPublisher {
         if (this.disposed || this.epoch !== epoch) { await this.api.clearAvatarOutput(generation); return }
         this.generation = generation
       }
-      const scale = Math.min(1, 640 / Math.max(this.video.videoWidth, this.video.videoHeight))
-      this.canvas.width = Math.max(1, Math.round(this.video.videoWidth * scale)); this.canvas.height = Math.max(1, Math.round(this.video.videoHeight * scale))
+      const scale = Math.min(1, AVATAR_OUTPUT_MAX_DIMENSION / Math.max(this.video.videoWidth, this.video.videoHeight))
+      const width = Math.max(1, Math.round(this.video.videoWidth * scale)), height = Math.max(1, Math.round(this.video.videoHeight * scale))
+      if (this.canvas.width !== width) this.canvas.width = width
+      if (this.canvas.height !== height) this.canvas.height = height
       this.canvas.getContext('2d')?.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height)
       const blob = await new Promise<Blob | null>((resolve) => this.canvas.toBlob(resolve, 'image/jpeg', 0.85))
       if (!blob || blob.size > 256 * 1024 || this.disposed || epoch !== this.epoch) return

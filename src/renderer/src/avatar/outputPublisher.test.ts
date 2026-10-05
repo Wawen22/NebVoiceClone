@@ -17,12 +17,23 @@ describe('avatar output publisher', () => {
   }
   it('bounds dimensions, JPEG quality and frame rate without upsampling', async () => {
     const f = fixture(); f.publisher.start(); f.publisher.setActive(true); await vi.advanceTimersByTimeAsync(1000)
-    expect(f.frames.length).toBeGreaterThanOrEqual(10); expect(f.frames.length).toBeLessThanOrEqual(15); expect(f.canvas.width).toBe(640); expect(f.canvas.height).toBe(360); expect(f.encodes[0]).toEqual(['image/jpeg', 0.85]); f.publisher.dispose()
+    expect(f.frames.length).toBeGreaterThanOrEqual(22); expect(f.frames.length).toBeLessThanOrEqual(25); expect(f.canvas.width).toBe(720); expect(f.canvas.height).toBe(405); expect(f.encodes[0]).toEqual(['image/jpeg', 0.85]); f.publisher.dispose()
     const small = fixture(512, 512); small.publisher.start(); small.publisher.setActive(true); await vi.advanceTimersByTimeAsync(200); expect(small.canvas.width).toBe(512); expect(small.canvas.height).toBe(512); small.publisher.dispose()
   })
   it('does not encode without viewers or while output is disabled', async () => {
     const f = fixture(); f.noViewers(); f.publisher.start(); f.publisher.setActive(true); await vi.advanceTimersByTimeAsync(1000); expect(f.encodes).toHaveLength(0); f.publisher.dispose()
     const off = fixture(); off.disable(); off.publisher.start(); off.publisher.setActive(true); await vi.advanceTimersByTimeAsync(1000); expect(off.encodes).toHaveLength(0); off.publisher.dispose()
+  })
+  it('reuses the canvas allocation until source dimensions change', async () => {
+    const f = fixture(); let width = 0, height = 0
+    const resizeWidth = vi.fn((value: number) => { width = value }), resizeHeight = vi.fn((value: number) => { height = value })
+    Object.defineProperty(f.canvas, 'width', { get: () => width, set: resizeWidth })
+    Object.defineProperty(f.canvas, 'height', { get: () => height, set: resizeHeight })
+    f.publisher.start(); f.publisher.setActive(true); await vi.advanceTimersByTimeAsync(500)
+    expect(resizeWidth).toHaveBeenCalledTimes(1); expect(resizeHeight).toHaveBeenCalledTimes(1)
+    Object.assign(f.video, { videoWidth: 512, videoHeight: 512 }); await vi.advanceTimersByTimeAsync(100)
+    expect(width).toBe(512); expect(height).toBe(512); expect(resizeWidth).toHaveBeenCalledTimes(2); expect(resizeHeight).toHaveBeenCalledTimes(2)
+    f.publisher.dispose()
   })
   it('drops asynchronous encoding after Stop and clears its generation', async () => {
     const f = fixture(); f.hold(); f.publisher.start(); f.publisher.setActive(true); await vi.advanceTimersByTimeAsync(1000)

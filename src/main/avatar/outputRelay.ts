@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AvatarOutputFrame, AvatarOutputStatus } from '../../shared/avatarOutput'
+import { AVATAR_OUTPUT_MAX_FPS } from '../../shared/avatarOutput'
 import { createAvatarOutputPage } from './outputPage'
 
 interface Viewer { video?: ServerResponse; events?: ServerResponse; touched: number }
@@ -17,6 +18,7 @@ export class AvatarOutputRelay {
   private generation = ''
   private frame: Buffer | null = null
   private lastFrame = -Infinity
+  private frameTimes: number[] = []
   private viewers = new Map<string, Viewer>()
   private readonly now: () => number
   constructor(private readonly options: { userData: string; port?: number; now?: () => number }) {
@@ -92,8 +94,13 @@ export class AvatarOutputRelay {
     if (!this.available || !this.enabled || !this.generation || frame.generation !== this.generation) return false
     const bytes = frame.jpeg
     if (!(bytes instanceof Uint8Array) || bytes.byteLength < 4 || bytes.byteLength > 256 * 1024 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217) return false
-    if (this.now() - this.lastFrame < 1000 / 15) return false
-    this.frame = Buffer.from(bytes); this.lastFrame = this.now()
+    const now = this.now()
+    if (now <= this.lastFrame) return false
+    // Bound a rolling second instead of discarding frames for small timer jitter.
+    this.frameTimes = this.frameTimes.filter((timestamp) => now - timestamp < 1000)
+    if (this.frameTimes.length >= AVATAR_OUTPUT_MAX_FPS) return false
+    this.frameTimes.push(now)
+    this.frame = Buffer.from(bytes); this.lastFrame = now
     for (const viewer of this.viewers.values()) if (viewer.video) this.writeFrame(viewer.video, this.frame)
     this.broadcastState(true); return true
   }
@@ -110,7 +117,7 @@ export class AvatarOutputRelay {
   }
   private broadcastState(includeFrame = false): void { for (const viewer of this.viewers.values()) if (viewer.events) this.writeState(viewer.events, includeFrame) }
   private reset(): void {
-    this.generation = ''; this.frame = null; this.lastFrame = -Infinity
+    this.generation = ''; this.frame = null; this.lastFrame = -Infinity; this.frameTimes = []
     for (const viewer of this.viewers.values()) viewer.video?.end()
     this.broadcastState()
   }
