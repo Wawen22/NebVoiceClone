@@ -21,6 +21,8 @@ Il timer mostra i secondi della connessione corrente, non il credito residuo. Il
 
 Le frasi generate supportano Riascolta con avatar. Per ascoltare un WAV importato, disattiva Avatar: la conversione di file arbitrari non e inclusa in questa prima versione.
 
+Il pulsante Espandi avatar nella barra apre una vista grande del volto, sia in Console sia in NEB Live. X oppure Esc richiudono soltanto la vista, senza fermare la voce. Il video e la sessione rimangono gli stessi: non viene aperta una seconda connessione. Il modale si adatta alle dimensioni della finestra.
+
 ## Volto personale
 
 Dopo aver creato il volto nel proprio account Simli, scegli Face ID personale e inserisci il relativo UUID. Il Face ID viene salvato localmente; non occorre cambiare il percorso voce o OpenRouter. La disponibilita della creazione del volto dipende dal piano Simli e non viene verificata dalla UI NEB.

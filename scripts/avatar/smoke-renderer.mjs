@@ -130,6 +130,18 @@ try {
   assert.equal(await page.evaluate(() => fixture.localPlays), 0, 'Duplicate local audio playback')
   const video = await page.locator('video[aria-label="Anteprima avatar"]').evaluate((element) => ({ width: element.videoWidth, height: element.videoHeight, frames: element.getVideoPlaybackQuality().totalVideoFrames }))
   assert(video.width > 0 && video.frames > 0, 'No video frames received')
+  assert.equal(await page.getByRole('button', { name: 'Espandi avatar', exact: true }).count(), 1)
+  await page.evaluate(() => { fixture.preview = document.querySelector('video[aria-label="Anteprima avatar"]'); fixture.beforeExpand = { sessions: fixture.sessions, stops: fixture.stops } })
+  await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click()
+  const expanded = page.getByRole('dialog', { name: 'Avatar ingrandito', exact: true })
+  await expanded.waitFor({ state: 'visible' })
+  assert((await expanded.locator('video').boundingBox()).height > 400)
+  await page.screenshot({ path: '.superpowers/avatar/expanded-desktop.png' })
+  await page.keyboard.press('Escape')
+  assert.equal(await expanded.count(), 0)
+  assert(await page.evaluate(() => fixture.preview === document.querySelector('video[aria-label="Anteprima avatar"]')))
+  assert.deepEqual(await page.evaluate(() => ({ sessions: fixture.sessions, stops: fixture.stops })), await page.evaluate(() => fixture.beforeExpand))
+  assert(await page.getByRole('button', { name: 'Espandi avatar', exact: true }).evaluate((element) => element === document.activeElement))
   if (cloud) {
     const stats = await page.evaluate(async () => {
       const results = []
@@ -143,6 +155,12 @@ try {
     await page.waitForFunction(() => document.querySelector('.avatar-status')?.textContent.includes('connessione chiusa'))
     await page.getByRole('button', { name: /^Riascolta/ }).click()
     await page.waitForFunction(() => fixture.chunks >= 2)
+    const stopsDuringSpeech = await page.evaluate(() => fixture.stops)
+    await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click()
+    await page.keyboard.press('Tab')
+    assert(await page.getByRole('button', { name: 'Chiudi avatar ingrandito' }).evaluate((element) => element === document.activeElement))
+    await page.keyboard.press('Escape')
+    assert.equal(await page.evaluate(() => fixture.stops), stopsDuringSpeech)
     await page.getByRole('button', { name: 'Scollega avatar' }).click()
     await page.waitForFunction(() => document.querySelector('.avatar-status')?.textContent.includes('non collegato'))
     await page.getByRole('button', { name: 'NEB Live', exact: true }).click()
@@ -161,6 +179,11 @@ try {
   await page.screenshot({ path: `.superpowers/avatar/${cloud ? 'cloud' : 'synthetic'}-desktop.png` })
   if (!cloud) {
     await page.setViewportSize({ width: 980, height: 680 }); await page.screenshot({ path: '.superpowers/avatar/synthetic-compact.png' })
+    await page.getByRole('button', { name: 'Espandi avatar', exact: true }).click()
+    await page.screenshot({ path: '.superpowers/avatar/expanded-compact.png' })
+    const bounds = await page.getByRole('dialog', { name: 'Avatar ingrandito', exact: true }).boundingBox()
+    assert(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= 980 && bounds.y + bounds.height <= 680)
+    await page.getByRole('button', { name: 'Chiudi avatar ingrandito' }).click()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
   }
   if (await page.getByRole('button', { name: 'Scollega avatar' }).isEnabled()) await page.getByRole('button', { name: 'Scollega avatar' }).click()

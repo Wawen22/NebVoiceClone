@@ -1,5 +1,5 @@
 .avatar-panel { flex: none; border-bottom: 1px solid #34404a; background: #111c20; color: #e6eef0; }
-.avatar-panel[hidden], .avatar-stage[hidden] { display: none; }
+.avatar-panel[hidden], .avatar-stage:not([open]), .avatar-preview-heading[hidden] { display: none; }
 .avatar-toolbar { display: flex; align-items: center; gap: 10px; padding: 6px 16px; min-height: 42px; flex-wrap: wrap; }
 .avatar-toolbar strong { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .avatar-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; }
@@ -7,8 +7,16 @@
 .avatar-toolbar select, .avatar-toolbar > input { min-width: 0; width: 150px; max-width: 100%; background: #16282c; border: 1px solid #43555d; border-radius: 4px; color: #e6eef0; padding: 5px 8px; font-size: 12px; }
 .avatar-toolbar > input { width: 280px; }
 .avatar-status { flex: 1; min-width: 120px; font-size: 11px; color: #a7c4c8; overflow-wrap: anywhere; }
-.avatar-stage { position: relative; height: 180px; width: 100%; background: #090e10; display: flex; justify-content: center; }
+.avatar-stage { position: relative; inset: auto; margin: 0; padding: 0; border: 0; max-width: none; max-height: none; height: 180px; width: 100%; background: #090e10; color: #e6eef0; }
+.avatar-stage[open] { display: flex; flex-direction: column; }
+.avatar-video-surface { position: relative; min-height: 0; flex: 1; display: flex; justify-content: center; }
 .avatar-stage video { width: 240px; height: 180px; object-fit: contain; background: #090e10; }
 .avatar-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a7c4c8; font-size: 13px; pointer-events: none; }
 .avatar-panel audio { display: none; }
 @media (max-height: 750px) { .avatar-stage, .avatar-stage video { height: 120px; } }
+.avatar-stage.avatar-expanded { position: fixed; inset: 0; margin: auto; width: min(960px, calc(100vw - 32px)); height: min(860px, calc(100dvh - 32px)); border: 1px solid #43555d; border-radius: 8px; overflow: hidden; }
+.avatar-expanded::backdrop { background: rgb(0 0 0 / 75%); }
+.avatar-preview-heading { display: flex; flex: none; align-items: center; gap: 12px; padding: 10px 14px; background: #111c20; border-bottom: 1px solid #34404a; }
+.avatar-preview-heading strong { font-size: 14px; }
+.avatar-preview-heading span { flex: 1; min-width: 0; font-size: 12px; color: #a7c4c8; overflow-wrap: anywhere; }
+.avatar-expanded video { width: 100%; height: 100%; min-height: 0; position: absolute; inset: 0; object-fit: contain; }

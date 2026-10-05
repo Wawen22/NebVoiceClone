@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Plug, Unplug, Play, Video } from 'lucide-react'
+import { Plug, Unplug, Play, Video, Maximize2, X } from 'lucide-react'
 import { AVATAR_PRESETS, parseAvatarFaceId } from '../../../shared/avatar'
 import type { AvatarSession } from './session'
 import './avatar.css'
@@ -8,9 +8,35 @@ interface Props { session: AvatarSession; deviceId: string; volume: number; lock
 export function AvatarPanel({ session, deviceId, volume, locked, ready, visible, onStop, onTest }: Props) {
   const snapshot = useSyncExternalStore((listener) => session.subscribe(listener), () => session.snapshot)
   const video = useRef<HTMLVideoElement>(null), audio = useRef<HTMLAudioElement>(null)
+  const preview = useRef<HTMLDialogElement>(null), expandButton = useRef<HTMLButtonElement>(null)
+  const [expanded, setExpanded] = useState(false)
   const [enabled, setEnabled] = useState(session.enabled), [configured, setConfigured] = useState(false)
   const [faceId, setFaceId] = useState(session.faceId), [custom, setCustom] = useState(''), [error, setError] = useState(''), [now, setNow] = useState(Date.now())
   const connecting = snapshot.phase === 'connecting'
+  useEffect(() => {
+    if (!expanded) return
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault(); event.stopImmediatePropagation(); setExpanded(false)
+    }
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => window.removeEventListener('keydown', closeOnEscape, true)
+  }, [expanded])
+  useEffect(() => {
+    const element = preview.current
+    if (!element) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    if (element.open) element.close()
+    if (enabled && visible) {
+      if (expanded) element.showModal()
+      else {
+        element.show()
+        if (previousFocus?.closest('.avatar-preview-heading')) expandButton.current?.focus()
+        else previousFocus?.focus()
+      }
+    } else if (expanded) setExpanded(false)
+    return () => { if (element.open) element.close() }
+  }, [enabled, visible, expanded])
   useEffect(() => {
     if (video.current && audio.current) session.attach(video.current, audio.current)
     const saved = localStorage.getItem('neb:avatar-face-id')
@@ -36,12 +62,18 @@ export function AvatarPanel({ session, deviceId, volume, locked, ready, visible,
       <span className="avatar-status" role="status">{!configured ? 'Chiave Simli non configurata' : error || snapshot.message}{snapshot.connectedAt !== null && ` · ${Math.max(0, Math.floor((now - snapshot.connectedAt) / 1000))} s`}</span>
       <button className="icon-button" aria-label="Collega avatar" title="Collega avatar" disabled={!enabled || locked || connecting || snapshot.phase === 'ready' || snapshot.phase === 'speaking'} onClick={() => { setError(''); void session.connect(session.faceId, deviceId, volume).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Connessione Simli fallita.')) }}><Plug size={17} /></button>
       <button className="icon-button" aria-label="Test voce avatar" title="Test voce avatar" disabled={!enabled || !ready || locked || connecting} onClick={onTest}><Play size={17} /></button>
+      <button ref={expandButton} className="icon-button" aria-label="Espandi avatar" title="Espandi avatar" disabled={!enabled} onClick={() => setExpanded(true)}><Maximize2 size={17} /></button>
       <button className="icon-button" aria-label="Scollega avatar" title="Scollega avatar" disabled={snapshot.phase === 'off'} onClick={() => { onStop(); session.disconnect() }}><Unplug size={17} /></button>
     </div>
-    <div className="avatar-stage" hidden={!enabled}>
+    <dialog ref={preview} className={`avatar-stage${expanded ? ' avatar-expanded' : ''}`} role={expanded ? 'dialog' : 'region'} aria-label={expanded ? 'Avatar ingrandito' : 'Video avatar'} aria-modal={expanded || undefined} onCancel={(event) => { event.preventDefault(); setExpanded(false) }} onKeyDown={(event) => {
+      if (expanded && event.key === 'Tab') { event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>('.avatar-preview-heading button')?.focus() }
+    }}>
+      <header className="avatar-preview-heading" hidden={!expanded}><strong>Avatar</strong><span>{snapshot.message}</span><button className="icon-button" aria-label="Chiudi avatar ingrandito" title="Chiudi avatar ingrandito" onClick={() => setExpanded(false)}><X size={20} /></button></header>
+      <div className="avatar-video-surface">
       <video ref={video} autoPlay playsInline muted aria-label="Anteprima avatar" />
       {(snapshot.phase === 'off' || snapshot.phase === 'connecting' || snapshot.phase === 'error') && <span className="avatar-placeholder">{snapshot.phase === 'connecting' ? 'Connessione...' : snapshot.phase === 'error' ? 'Avatar non disponibile' : AVATAR_PRESETS.find((item) => item.id === faceId)?.name || 'Avatar'}</span>}
-    </div>
+      </div>
+    </dialog>
     <audio ref={audio} autoPlay />
   </section>
 }
