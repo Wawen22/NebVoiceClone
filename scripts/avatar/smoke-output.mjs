@@ -18,7 +18,7 @@ const app = await _electron.launch({ executablePath: path.join(process.env.LOCAL
 const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-proxy-server'] })
 const artifacts = path.resolve('.superpowers/avatar/output')
 await mkdir(artifacts, { recursive: true })
-let obs, originalScene, productionUrl, programChanged = false
+let obs, originalScene, productionUrl, programChanged = false, sourceConfigured = false
 try {
   const page = await app.firstWindow()
   if (!cloud) {
@@ -69,6 +69,7 @@ try {
       assert(items.every((item) => item.inputKind && item.sourceName !== 'NEB Avatar - video locale'), 'Passive test refuses nested scenes or avatar in Program')
     }
     await configureAvatarObs(obs, url)
+    sourceConfigured = true
     if (!passiveObs) { await obs.request('SetCurrentProgramScene', { sceneName: 'NEB Avatar' }); programChanged = true }
   }
   const viewer = await browser.newPage({ viewport: { width: 1280, height: 720 } })
@@ -155,6 +156,6 @@ try {
   await writeFile(path.join(artifacts, cloud ? 'cloud-result.json' : 'synthetic-result.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result))
 } finally {
-  try { if (obs) { try { if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene }); if (productionUrl) await configureAvatarObs(obs, productionUrl) } finally { obs.close() } } }
+  try { if (obs) { try { if (programChanged) await obs.request('SetCurrentProgramScene', { sceneName: originalScene }); if (sourceConfigured && productionUrl) await configureAvatarObs(obs, productionUrl) } finally { obs.close() } } }
   finally { await browser.close(); await app.close() }
 }
