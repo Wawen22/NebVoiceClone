@@ -76,6 +76,7 @@ export interface SynthesizedAudio {
 
 export interface StreamedAudioResult {
   generationMs: number
+  ttsEstimatedCostUsd?: number | null
 }
 
 export interface TtsProvider {

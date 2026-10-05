@@ -220,7 +220,7 @@ export function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [settings, script, busy, speechStatus.ready, hasAudio, readyOpen])
+  }, [settings, script, busy, playing, keyBusy, voiceProfileBusy, speechStatus.ready, hasAudio, readyOpen])
 
   useEffect(() => {
     let current = true
@@ -421,7 +421,7 @@ export function App(): React.JSX.Element {
       setHasAudio(true)
       setFileName('')
       setDuration(null)
-      setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined })
+      setMetrics({ firstChunkMs: firstChunkMs ?? result.generationMs, generationMs: result.generationMs, durationSeconds, playbackMs: playbackMs.current ?? undefined, modelId: settings.providerId === 'fish-openrouter' ? settings.fishModel : settings.geminiModel, ttsEstimatedCostUsd: result.ttsEstimatedCostUsd })
       setStatus(playbackActive.current ? `Audio su ${selectedOutputLabel(outputs, settings.outputDeviceId)}` : avatar.enabled ? 'Attendo la voce avatar...' : 'Riproduzione terminata')
     } catch (reason) {
       if (current === requestId.current) { playbackReadyLine.current = null; generationInProgress.current = false; playbackActive.current = false; setPlaying(false); setActiveReadyLineId(null); audio.current.stop(); setError(message(streamError ?? reason)); setStatus('Generazione non riuscita') }

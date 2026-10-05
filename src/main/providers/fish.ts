@@ -1,6 +1,7 @@
 import type { AppSettings, ProviderStatus, StreamedAudioResult, SynthesizedAudio, SynthesisRequest, TtsProvider, VoiceReference } from '../../shared/contracts'
 import { parseSpeechRequest } from '../../shared/speechRequest'
 import { Pcm24kStream } from './pcmStream'
+import { estimateFishCost } from '../../shared/speechMetrics'
 
 interface FishOptions {
   fetchImpl?: typeof fetch
@@ -73,8 +74,8 @@ export class FishTtsProvider implements TtsProvider {
         if(first) {
           const joined=new Uint8Array(prefix.length+bytes.length);joined.set(prefix);joined.set(bytes,prefix.length)
           if(joined.length<4) {prefix=joined;continue}
-          const tag=Buffer.from(joined.subarray(0,4)).toString('ascii')
-          if(tag==='RIFF' || tag==='OggS' || tag.startsWith('ID3') || tag.startsWith('{') || tag.startsWith('[')) throw new Error('Fish: contenuto audio inatteso.')
+          const tag=Buffer.from(joined.subarray(0,4)).toString('latin1')
+          if(tag==='RIFF' || tag==='OggS' || tag.startsWith('ID3')) throw new Error('Fish: contenuto audio inatteso.')
           first=false;input=joined
         }
         emit(pcm.push(input))
@@ -82,7 +83,7 @@ export class FishTtsProvider implements TtsProvider {
       if(first || !count) throw new Error('Fish: risposta audio vuota.')
       emit(pcm.finish())
       if(!output) throw new Error('Fish: risposta audio vuota.')
-      return {generationMs:Math.round(performance.now()-started)}
+      return {generationMs:Math.round(performance.now()-started),ttsEstimatedCostUsd:estimateFishCost(request.modelId,request.text,null)}
     } catch(error) {
       if(timedOut) throw new Error('Fish: timeout della generazione.')
       if(signal.aborted) throw new Error('Fish: generazione annullata.')

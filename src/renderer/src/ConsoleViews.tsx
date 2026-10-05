@@ -7,7 +7,7 @@ import { GEMINI_MODELS, GEMINI_PREBUILT_VOICES } from '../../shared/contracts'
 import { speechVoiceLabel } from '../../shared/speechRequest'
 import { conversationShortcutLabel, type RoutingStatus } from './conversationMode'
 
-export type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number }
+export type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number; modelId?: string; ttsEstimatedCostUsd?: number | null }
 
 interface ConsoleProps {
   settings: AppSettings
@@ -132,7 +132,7 @@ function VoiceWave(): React.JSX.Element {
 
 function MetricDetails({ metrics }: { metrics: Metrics | null }): React.JSX.Element | null {
   if (!metrics) return null
-  return <details className="metric-details"><summary>Dettagli generazione</summary><div className="metrics"><span>Primo audio <strong>{metrics.firstChunkMs} ms</strong></span><span>Generazione <strong>{metrics.generationMs} ms</strong></span><span>Durata <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Riproduzione <strong>{metrics.playbackMs} ms</strong></span>}</div></details>
+  return <details className="metric-details"><summary>Dettagli generazione</summary>{metrics.modelId && <p>{metrics.modelId}</p>}<div className="metrics"><span>Primo audio <strong>{metrics.firstChunkMs} ms</strong></span><span>Generazione <strong>{metrics.generationMs} ms</strong></span><span>Durata <strong>{metrics.durationSeconds.toFixed(1)} s</strong></span>{metrics.playbackMs !== undefined && <span>Riproduzione <strong>{metrics.playbackMs} ms</strong></span>}{metrics.ttsEstimatedCostUsd !== undefined && <span>Stima TTS <strong>{metrics.ttsEstimatedCostUsd === null ? 'Non disponibile' : `$${metrics.ttsEstimatedCostUsd.toFixed(5)}`}</strong></span>}</div></details>
 }
 
 function outputLabel(outputs: AudioOutput[], deviceId: string): string {

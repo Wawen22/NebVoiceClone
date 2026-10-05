@@ -45,6 +45,12 @@ export function registerIpc(
   function assertMutable(): void {
     if (activeGeneration || activeVoiceCreation || activeProfileMutation || speechSessionLocked || activeLiveTurn) throw new Error('Attendi la fine dell\'operazione o premi Stop prima di cambiare la voce.')
   }
+  async function mutateProfile<T>(operation: () => Promise<T>): Promise<T> {
+    assertMutable()
+    activeProfileMutation = true
+    try { return await operation() }
+    finally { activeProfileMutation = false }
+  }
   ipcMain.handle('speech:sessionLock', (event, locked: unknown, sessionId: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
     if (typeof locked !== 'boolean' || typeof sessionId !== 'string' || !sessionId || sessionId.length > 100) throw new Error('Blocco sessione non valido.')
@@ -141,33 +147,33 @@ export function registerIpc(
   })
   ipcMain.handle('geminiKey:save', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
-    assertMutable()
-    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
-    const status = await saveGeminiKey(value)
-    await clearGeminiVoiceProfile('saved')
-    return status
+    return mutateProfile(async () => {
+      const status = await saveGeminiKey(value)
+      await clearGeminiVoiceProfile('saved')
+      return status
+    })
   })
   ipcMain.handle('geminiKey:select', async (event, source: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
-    assertMutable()
-    if (source !== 'environment' && source !== 'project' && source !== 'saved') throw new Error('Selezione della chiave Gemini non valida.')
-    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
-    if ((source as GeminiKeySource) === 'saved') {
-      const status = await getGeminiKeyStatus()
-      if (!status.savedLabel) throw new Error('Salva prima la chiave Gemini aggiuntiva.')
-      if (!status.secureStorageAvailable) throw new Error('L’archiviazione cifrata non è disponibile su questo sistema.')
-    }
-    if (source === 'project' && !process.env.GEMINI_API_KEY_NEBVOICCLONE?.trim()) throw new Error('La seconda chiave Gemini non è configurata in questo ambiente.')
-    return setGeminiKeySource(source as GeminiKeySource)
+    return mutateProfile(async () => {
+      if (source !== 'environment' && source !== 'project' && source !== 'saved') throw new Error('Selezione della chiave Gemini non valida.')
+      if ((source as GeminiKeySource) === 'saved') {
+        const status = await getGeminiKeyStatus()
+        if (!status.savedLabel) throw new Error('Salva prima la chiave Gemini aggiuntiva.')
+        if (!status.secureStorageAvailable) throw new Error('L’archiviazione cifrata non è disponibile su questo sistema.')
+      }
+      if (source === 'project' && !process.env.GEMINI_API_KEY_NEBVOICCLONE?.trim()) throw new Error('La seconda chiave Gemini non è configurata in questo ambiente.')
+      return setGeminiKeySource(source as GeminiKeySource)
+    })
   })
   ipcMain.handle('geminiKey:remove', async (event) => {
     assertTrusted(event.sender, event.senderFrame)
-    assertMutable()
-    if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di rimuovere la chiave Gemini.')
-    const settings = await setGeminiKeySource('environment')
-    await removeSavedGeminiKey()
-    await clearGeminiVoiceProfile('saved')
-    return settings
+    return mutateProfile(async () => {
+      const settings = await setGeminiKeySource('environment')
+      await removeSavedGeminiKey()
+      await clearGeminiVoiceProfile('saved')
+      return settings
+    })
   })
   ipcMain.handle('gemini:check', (event) => {
     assertTrusted(event.sender, event.senderFrame)
@@ -202,24 +208,25 @@ export function registerIpc(
   })
   ipcMain.handle('voiceProfile:import', async (event) => {
     assertTrusted(event.sender, event.senderFrame)
-    assertMutable()
-    const options: OpenDialogOptions = {
-      title: 'Import NEB voice profile',
-      properties: ['openFile'],
-      filters: [{ name: 'NEB voice profile', extensions: ['json'] }]
-    }
-    const owner = BrowserWindow.fromWebContents(event.sender)
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
-    if (result.canceled || !result.filePaths[0]) return null
-    let data: unknown
-    try {
-      data = JSON.parse(await readFile(result.filePaths[0], 'utf8'))
-    } catch {
-      throw new Error('The selected profile could not be read.')
-    }
-    const voice = parseVoiceProfile(data)
-    await gemini.verifyReplicatedVoice(voice.id)
-    return saveReplicatedVoice(voice)
+    return mutateProfile(async () => {
+      const options: OpenDialogOptions = {
+        title: 'Import NEB voice profile',
+        properties: ['openFile'],
+        filters: [{ name: 'NEB voice profile', extensions: ['json'] }]
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+      if (result.canceled || !result.filePaths[0]) return null
+      let data: unknown
+      try {
+        data = JSON.parse(await readFile(result.filePaths[0], 'utf8'))
+      } catch {
+        throw new Error('The selected profile could not be read.')
+      }
+      const voice = parseVoiceProfile(data)
+      await gemini.verifyReplicatedVoice(voice.id)
+      return saveReplicatedVoice(voice)
+    })
   })
   ipcMain.handle('speech:synthesize', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)

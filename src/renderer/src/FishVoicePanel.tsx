@@ -47,7 +47,7 @@ export function FishVoicePanel({settings,status,locked,onChanged,onBusy}:Props):
       {preview && <audio controls src={preview} aria-label="Anteprima campione Fish" />}
       <label>Trascrizione esatta del campione<textarea value={transcript} maxLength={10000} onChange={e=>setTranscript(e.target.value)} rows={4} /></label>
       <label className="fish-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} /><span>Autorizzo l'invio di questo campione e della trascrizione a OpenRouter/Fish a ogni generazione della voce Fish.</span></label>
-      <div className="inline-actions"><button type="button" disabled={!file || !name.trim() || !transcript.trim() || !consent} onClick={()=>void save()}><Save size={16}/> Salva riferimento Fish</button><button type="button" disabled={!settings.fishVoice} onClick={()=>void remove()}><Trash2 size={16}/> Rimuovi riferimento</button></div>
+      <div className="inline-actions action-row"><button className="primary" type="button" disabled={!file || !name.trim() || !transcript.trim() || !consent} onClick={()=>void save()}><Save size={16}/> Salva riferimento Fish</button><button type="button" disabled={!settings.fishVoice} onClick={()=>void remove()}><Trash2 size={16}/> Rimuovi riferimento</button></div>
     </fieldset>
     {notice && <p role="status">{notice}</p>}{error && <p role="alert" className="notice error">{error}</p>}
   </section>

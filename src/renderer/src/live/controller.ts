@@ -1,11 +1,12 @@
 import { DEFAULT_LIVE_LIMITS, MAX_LIVE_AUDIO_BYTES, liveReasoningTimeoutMs, parseLiveConfig, parseLiveLimits, type LiveLimits, type LiveConfig, type LiveDecision, type LiveHistoryItem, type LiveTurnRequest } from '../../../shared/live'
 import { parseLiveMaterials, type LiveMaterial } from '../../../shared/liveMaterials'
+import type { SpeechTimingMetadata } from '../../../shared/speechMetrics'
 
 export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing-voice' | 'speaking' | 'paused' | 'stopped' | 'completed'
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
 export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 2500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
-export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number }
+export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null }
 export interface LiveSnapshot {
   phase: LivePhase; message: string; turns: number; costUsd: number; costKnown: boolean; level: number; nextText: string
   history: LiveUtterance[]; log: LiveLog[]; startedAt: number
@@ -54,9 +55,9 @@ export class LiveController {
   get locked(): boolean { return this.active || this.snapshot.phase === 'paused' }
   get limits(): LiveLimits { return { durationMinutes: this.options.maxDurationMs / 60000, maxTurns: this.options.maxTurns, maxCostUsd: this.options.maxCostUsd } }
   get canRespond(): boolean { return this.snapshot.phase === 'listening' && (this.voiceVersion > 0 && this.bytes > 0 || this.snapshot.materials.length > 0) && this.audioMs - this.lastVoiceMs >= 300 }
-  recordTiming(kind: 'avatar-connect' | 'voice-first-chunk', durationMs: number): void {
+  recordTiming(kind: 'avatar-connect' | 'voice-first-chunk' | 'voice-generation', durationMs: number, metadata?: SpeechTimingMetadata): void {
     if (!this.active || !Number.isFinite(durationMs) || durationMs < 0) return
-    this.log(kind, kind === 'avatar-connect' ? 'Avatar collegato prima della conversazione.' : 'Primo blocco audio generato ricevuto.', { durationMs: Math.round(durationMs) }); this.publish()
+    this.log(kind, kind === 'avatar-connect' ? 'Avatar collegato prima della conversazione.' : kind === 'voice-generation' ? 'Generazione vocale completata.' : 'Primo blocco audio generato ricevuto.', { durationMs: Math.round(durationMs), ...(metadata ? {providerId:metadata.providerId,modelId:metadata.modelId,...(metadata.ttsEstimatedCostUsd !== undefined ? {ttsEstimatedCostUsd:metadata.ttsEstimatedCostUsd} : {})} : {}) }); this.publish()
   }
 
   respondNow(): void {

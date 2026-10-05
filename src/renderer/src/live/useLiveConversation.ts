@@ -11,6 +11,7 @@ import { streamS2SSpeech } from '../s2s/speechPlayer'
 import { LiveController, type LiveOptions } from './controller'
 import { LiveStartGate } from './startGate'
 import { buildLiveSpeechRequest } from './speechRequest'
+import { speechTimingMetadata } from '../../../shared/speechMetrics'
 
 interface Arguments { settings: AppSettings; avatar?: AvatarSession; available: boolean; unavailableReason: string; otherBusy(): boolean }
 const inactive: S2SAudioStatus = { state: 'inactive', captureId: null, target: null, message: 'Nel popup NEB: Collega questa scheda → Ascolta questa scheda.' }
@@ -53,7 +54,9 @@ export function useLiveConversation(args: Arguments) {
       engine.setVolume(settings.outputVolume)
       try {
         const preparingAt = performance.now()
-        await streamS2SSpeech(window.neb, engine, buildLiveSpeechRequest(settings, text, session.current?.language), settings.outputDeviceId, signal, onStarted, { drainOnError: true, onFirstChunk: () => controller.recordTiming('voice-first-chunk', performance.now() - preparingAt) })
+        const request = buildLiveSpeechRequest(settings, text, session.current?.language)
+        const metadata = speechTimingMetadata(request)
+        await streamS2SSpeech(window.neb, engine, request, settings.outputDeviceId, signal, onStarted, { drainOnError: true, onFirstChunk: () => controller.recordTiming('voice-first-chunk', performance.now() - preparingAt, metadata), onGenerated: (result) => controller.recordTiming('voice-generation', result.generationMs, {...metadata,ttsEstimatedCostUsd:result.ttsEstimatedCostUsd}) })
       } finally { engine.dispose() }
     }
   }))

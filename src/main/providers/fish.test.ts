@@ -6,6 +6,12 @@ const id='12345678-1234-4123-8123-123456789abc'
 const request:SynthesisRequest={providerId:'fish-openrouter',modelId:DEFAULT_SETTINGS.fishModel,text:'Hello',voice:{mode:'reference',voiceId:id}}
 const options=(fetchImpl:typeof fetch)=>({fetchImpl, resolveApiKey:async()=>'fixture', readReference:async()=>voiceInput(), readSettings:async()=>({...DEFAULT_SETTINGS,fishVoice:{id,displayName:'Test',createdAt:'2026-10-05T00:00:00Z'}})})
 afterEach(()=>vi.useRealTimers())
+it.each([0x7b,0x5b,0xfb,0xdb])('accepts ordinary PCM starting with byte %i',async(first)=>{
+  const provider=new FishTtsProvider(options(async()=>new Response(new Uint8Array([first,0,0,0,0,0]),{headers:{'content-type':'audio/pcm;rate=24000;channels=1'}})))
+  const chunks:Uint8Array[]=[]
+  await provider.synthesizeStream(request,new AbortController().signal,b=>chunks.push(b))
+  expect(Buffer.concat(chunks)).toEqual(Buffer.from([first,0,0,0,0,0]))
+})
 it('emits PCM before completion, uses the exact Free model/reference, and never exposes the key', async()=>{
   let end!:()=>void, body:Record<string,unknown>={}
   const provider=new FishTtsProvider(options(async(_url,init)=>{

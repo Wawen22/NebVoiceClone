@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 const require = createRequire(path.resolve('.superpowers/outlier-smoke/package.json'))
 const { chromium } = require('playwright')
 const root = path.resolve('out/renderer')
+const fishMode = process.env.NEB_FISH_SMOKE === '1'
 const server = createServer(async (req, res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
@@ -42,7 +43,7 @@ export class SimliClient {
 }` }))
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.addInitScript(() => {
+  await page.addInitScript((fishMode) => {
     const target = { tabId: 1, windowId: 2, documentId: 'fixture-1', url: 'https://fixture.invalid/s2s', title: 'Synthetic S2S' }
     const listeners = new Set()
     const insertionListeners = new Set()
@@ -63,7 +64,7 @@ export class SimliClient {
       }
     }
     const profile = { replicatedVoice: null, selectedVoiceId: 'Kore' }
-    const settings = { schemaVersion: 1, providerId: 'gemini', geminiModel: 'gemini-3.8-flash-tts', geminiKeySource: 'environment', geminiVoiceId: 'Kore', replicatedVoice: null,
+    const settings = { schemaVersion: 1, providerId: fishMode ? 'fish-openrouter' : 'gemini', fishModel:'fish-audio/s2.1-pro-free:free', fishVoice:null, geminiModel: 'gemini-3.8-flash-tts', geminiKeySource: 'environment', geminiVoiceId: 'Kore', replicatedVoice: null,
       voiceProfiles: { environment: profile, project: profile, saved: profile }, outputDeviceId: 'cable', outputVolume: 0.85, monitorDeviceId: '', saveScriptHistory: false }
     const noopSubscription = () => () => {}
     Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { value: async () => [{ kind: 'audiooutput', deviceId: 'cable', label: 'CABLE Input (fixture)' }, { kind: 'audiooutput', deviceId: 'headphones', label: 'Headphones Realtek (fixture)' }] })
@@ -94,9 +95,11 @@ export class SimliClient {
       getAppInfo: async () => ({ electron: 'fixture', node: 'fixture', platform: 'win32', geminiConfigured: true }),
       getSettings: async () => ({ ...settings }), updateSettings: async (patch) => ({ ...Object.assign(settings, patch) }),
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, environmentLabel: 'Fixture', projectLabel: 'Fixture', savedLabel: null, secureStorageAvailable: false }),
-      checkGemini: async () => ({ ready: true, message: 'Gemini connected' }),
-      getSpeechProviderStatus: async () => ({ready:true,message:'Fixture speech ready'}),
+      checkGemini: async () => ({ ready: !fishMode, message: fishMode ? 'Gemini unavailable (fixture)' : 'Gemini connected' }),
+      getSpeechProviderStatus: async (id) => ({ready:id==='fish-openrouter' ? Boolean(settings.fishVoice) : !fishMode,message:'Fixture speech ready'}),
       setSpeechSessionLock: async () => {},
+      importFishVoice: async () => ({...Object.assign(settings,{fishVoice:{id:'12345678-1234-4123-8123-123456789abc',displayName:'Synthetic Fish',createdAt:'2026-10-05T00:00:00Z'}})}),
+      removeFishVoice: async () => ({...Object.assign(settings,{fishVoice:null})}),
       getOutlierData: async () => ({ schemaVersion: 1, projects: [{ id: 's2s', name: 'S2S', notes: '', integration: 's2s', archived: false }], charactersPerMinute: 600 }),
       getInsertionStatus: async () => insertion,
       getOutlierSetup: async () => ({ installed: true, extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionPath: 'fixture' }),
@@ -166,8 +169,32 @@ export class SimliClient {
     api.captureLiveSource = async () => { fixture.captureCalls++; return { ...materialImage, name: 'Coding interview (fixture)' } }
     api.readLiveClipboardImage = async () => { if (fixture.holdClipboard) await new Promise((resolve) => { fixture.clipboardRelease = resolve }); return { ...materialImage, name: 'Screenshot dagli appunti' } }
     api.importLiveImage = async (_data, name) => ({ ...materialImage, name })
-  })
+  }, fishMode)
   await page.goto(`http://127.0.0.1:${server.address().port}`)
+  if (fishMode) {
+    await page.getByRole('button',{name:'Impostazioni',exact:true}).click()
+    const sample=Buffer.alloc(44+24000*2*5)
+    sample.write('RIFF');sample.writeUInt32LE(sample.length-8,4);sample.write('WAVEfmt ',8);sample.writeUInt32LE(16,16);sample.writeUInt16LE(1,20);sample.writeUInt16LE(1,22);sample.writeUInt32LE(24000,24);sample.writeUInt32LE(48000,28);sample.writeUInt16LE(2,32);sample.writeUInt16LE(16,34);sample.write('data',36);sample.writeUInt32LE(sample.length-44,40)
+    await page.getByLabel('Campione Fish WAV').setInputFiles({name:'synthetic.wav',mimeType:'audio/wav',buffer:sample})
+    await page.getByLabel('Trascrizione esatta del campione').fill('Synthetic reference transcript')
+    await page.getByRole('checkbox',{name:/Autorizzo l'invio/}).check()
+    await page.getByRole('button',{name:'Salva riferimento Fish',exact:true}).click()
+    await page.getByText('Riferimento Fish salvato cifrato.',{exact:true}).waitFor()
+    const artifacts=path.resolve('.superpowers/fish-smoke');await mkdir(artifacts,{recursive:true})
+    await page.screenshot({path:path.join(artifacts,'fish-settings-desktop.png'),fullPage:true})
+    await page.setViewportSize({width:980,height:720})
+    await page.screenshot({path:path.join(artifacts,'fish-settings-compact.png'),fullPage:true})
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Fish settings fit the compact window')
+    await page.setViewportSize({width:1260,height:850})
+    await page.getByRole('button',{name:'Console',exact:true}).click()
+    await page.getByRole('textbox',{name:'Testo da pronunciare'}).fill('Synthetic Fish Console test')
+    await page.getByRole('button',{name:/^Pronuncia/}).click()
+    await page.waitForFunction(()=>fixture.speechRequests?.length>0)
+    assert.equal(await page.evaluate(()=>fixture.speechRequests.at(-1).providerId),'fish-openrouter')
+    await page.waitForFunction(()=>document.querySelector('.console-composer button')?.textContent.includes('Pronuncia'))
+    await page.getByRole('button',{name:/^Riascolta/}).click()
+    await page.getByRole('button',{name:/^Stop/}).click()
+  }
   await page.getByRole('button', { name: 'NEB Live', exact: true }).click()
   const artifacts = path.resolve('.superpowers/live-smoke')
   await mkdir(artifacts, { recursive: true })
@@ -210,7 +237,8 @@ export class SimliClient {
   assert.equal(await page.locator('.neb-live-turn-interlocutor').count(), 1, 'remote transcript is visible while the voice has not started')
   assert.equal(await page.locator('.neb-live-turn-neb').count(), 0, 'NEB text is not presented as already spoken during preparation')
   assert.equal(await page.evaluate(() => fixture.speechRequests.at(-1).language), 'en')
-  assert(await page.evaluate(() => fixture.speechRequests.at(-1).style.includes('English only')))
+  if(fishMode) assert.equal(await page.evaluate(()=>fixture.speechRequests.at(-1).modelId),'fish-audio/s2.1-pro-free:free')
+  else assert(await page.evaluate(() => fixture.speechRequests.at(-1).style.includes('English only')))
   await page.evaluate(() => { fixture.holdLiveVoice = false; fixture.releaseLiveVoice() })
   await page.waitForFunction(() => document.querySelector('.neb-live-turn-neb')?.textContent.includes('Partirei dal problema concreto'), { timeout: 10000 })
   assert.equal(await page.evaluate(() => fixture.liveRequests[0].profile.name), 'Intervista personale')
@@ -437,8 +465,16 @@ export class SimliClient {
   assert((await page.locator('.neb-live-session-status').innerText()).includes('Avatar disconnesso'))
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   assert.equal(await video.evaluate((node) => node.srcObject), null)
+  if(fishMode) {
+    await page.getByRole('button',{name:'Impostazioni',exact:true}).click()
+    page.once('dialog',dialog=>dialog.accept())
+    await page.getByRole('button',{name:'Rimuovi riferimento',exact:true}).click()
+    await page.getByText('Riferimento locale rimosso.',{exact:true}).waitFor()
+    await page.getByRole('button',{name:'Console',exact:true}).click()
+    assert(await page.getByRole('button',{name:/^Pronuncia/}).isDisabled(),'missing Fish reference disables speech with no Gemini fallback')
+  }
   assert.deepEqual(errors, [])
-  console.log('NEB Live renderer smoke passed: materials, reasoning and playback, profiles, limits, recovery, locks, compact controls; synthetic avatar preconnect, two replies without reconnect, idle video, pause/resume, disconnect handling and Stop.')
+  console.log(`${fishMode ? 'Fish' : 'Gemini'} NEB Live renderer smoke passed: materials, reasoning and playback, profiles, limits, recovery, locks, compact controls; synthetic avatar preconnect, two replies without reconnect, idle video, pause/resume, disconnect handling and Stop.`)
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

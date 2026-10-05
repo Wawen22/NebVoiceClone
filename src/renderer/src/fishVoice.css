@@ -2,7 +2,7 @@
 .fish-voice-panel label:not(.file-button) { display: grid; gap: 6px; min-width: 0; }
 .fish-voice-panel input:not([type="checkbox"]):not([type="file"]),
 .fish-voice-panel textarea { width: 100%; box-sizing: border-box; }
-.fish-voice-panel textarea { min-height: 100px; resize: vertical; }
+.fish-voice-panel textarea { min-height: 100px; padding: 12px; border: 1px solid #3b5260; border-radius: 6px; background: var(--field); color: #f4fafb; line-height: 1.6; resize: vertical; }
 .fish-voice-panel audio { width: 100%; max-width: 420px; }
 .fish-voice-panel .fish-consent { display: flex !important; align-items: flex-start; gap: 10px; }
 .fish-consent input { flex: 0 0 auto; margin-top: 3px; }

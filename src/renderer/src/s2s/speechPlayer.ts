@@ -1,10 +1,10 @@
-import type { DesktopApi, SynthesisRequest } from '../../../shared/contracts'
+import type { DesktopApi, SynthesisRequest, StreamedAudioResult } from '../../../shared/contracts'
 import type { AudioEngine } from '../audio/AudioEngine'
 
 export async function streamS2SSpeech(
   api: Pick<DesktopApi, 'synthesizeStream' | 'stopGeneration'>,
   engine: Pick<AudioEngine, 'beginStream' | 'appendPcm' | 'finishStream' | 'onEnded' | 'stop' | 'onStarted' | 'onError'>,
-  request: SynthesisRequest, deviceId: string, signal: AbortSignal, onStarted: () => boolean, options: { drainOnError?: boolean; onFirstChunk?: () => void } = {}
+  request: SynthesisRequest, deviceId: string, signal: AbortSignal, onStarted: () => boolean, options: { drainOnError?: boolean; onFirstChunk?: () => void; onGenerated?: (result: StreamedAudioResult) => void } = {}
 ): Promise<void> {
   signal.throwIfAborted()
   let generating = false, cancelled = false
@@ -33,7 +33,7 @@ export async function streamS2SSpeech(
     engine.onStarted?.(start)
     let chunkError: unknown = null
     generating = true
-    try { await api.synthesizeStream(request, (pcm) => {
+    try { const result = await api.synthesizeStream(request, (pcm) => {
       if (signal.aborted || chunkError) return
       try {
         if (first && !engine.onStarted && !start()) throw new Error('Outlier ha ripreso a parlare: audio annullato.')
@@ -41,7 +41,7 @@ export async function streamS2SSpeech(
         if (!receivedAudio) options.onFirstChunk?.()
         receivedAudio = true
       } catch (error) { chunkError = error; engine.stop(); cancelGeneration() }
-    }) } catch (error) {
+    }); if (!signal.aborted && !chunkError) options.onGenerated?.(result) } catch (error) {
       // Live preserves queued speech on a provider failure. Explicit Stop always cancels immediately.
       if (options.drainOnError && receivedAudio && !chunkError && !signal.aborted) {
         engine.finishStream(); await playback
