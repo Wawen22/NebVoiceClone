@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Plug, Unplug, Play, Video, Maximize2, X } from 'lucide-react'
+import { Plug, Unplug, Play, Video, Maximize2, X, Copy } from 'lucide-react'
 import { AVATAR_PRESETS, parseAvatarFaceId } from '../../../shared/avatar'
 import type { AvatarSession } from './session'
+import type { AvatarOutputStatus } from '../../../shared/avatarOutput'
+import { AvatarOutputPublisher } from './outputPublisher'
 import './avatar.css'
 
 interface Props { session: AvatarSession; deviceId: string; volume: number; locked: boolean; ready: boolean; visible: boolean; onStop(): void; onTest(): void }
@@ -10,9 +12,29 @@ export function AvatarPanel({ session, deviceId, volume, locked, ready, visible,
   const video = useRef<HTMLVideoElement>(null), audio = useRef<HTMLAudioElement>(null)
   const preview = useRef<HTMLDialogElement>(null), expandButton = useRef<HTMLButtonElement>(null)
   const [expanded, setExpanded] = useState(false)
+  const publisher = useRef<AvatarOutputPublisher | null>(null)
+  const [output, setOutput] = useState<AvatarOutputStatus>({ enabled: false, available: false, viewers: 0 })
+  const [outputError, setOutputError] = useState('')
   const [enabled, setEnabled] = useState(session.enabled), [configured, setConfigured] = useState(false)
   const [faceId, setFaceId] = useState(session.faceId), [custom, setCustom] = useState(''), [error, setError] = useState(''), [now, setNow] = useState(Date.now())
   const connecting = snapshot.phase === 'connecting'
+  useEffect(() => {
+    if (!video.current || !window.neb.getAvatarOutputStatus) return
+    const instance = new AvatarOutputPublisher(window.neb, video.current)
+    publisher.current = instance; instance.start()
+    instance.setActive(session.snapshot.phase === 'ready' || session.snapshot.phase === 'speaking')
+    let mounted = true, polling = false
+    const refresh = async (): Promise<void> => {
+      if (polling) return
+      polling = true
+      try { const status = await window.neb.getAvatarOutputStatus(); if (mounted) setOutput(status) }
+      catch { if (mounted) setOutputError('Uscita OBS non disponibile.') }
+      finally { polling = false }
+    }
+    void refresh(); const timer = setInterval(() => void refresh(), 1000)
+    return () => { mounted = false; clearInterval(timer); instance.dispose(); publisher.current = null }
+  }, [session])
+  useEffect(() => { publisher.current?.setActive(snapshot.phase === 'ready' || snapshot.phase === 'speaking') }, [snapshot.phase])
   useEffect(() => {
     if (!expanded) return
     const closeOnEscape = (event: KeyboardEvent): void => {
@@ -60,6 +82,9 @@ export function AvatarPanel({ session, deviceId, volume, locked, ready, visible,
       </select>
       {preset === 'custom' && <input aria-label="Face ID Simli" value={custom} placeholder="Face ID" disabled={locked || connecting} onChange={(event) => setCustom(event.target.value)} onBlur={() => select(custom)} />}
       <span className="avatar-status" role="status">{!configured ? 'Chiave Simli non configurata' : error || snapshot.message}{snapshot.connectedAt !== null && ` · ${Math.max(0, Math.floor((now - snapshot.connectedAt) / 1000))} s`}</span>
+      <label className="avatar-toggle"><input type="checkbox" aria-label="Uscita OBS" checked={output.enabled} disabled={!output.available} onChange={(event) => { setOutputError(''); void window.neb.setAvatarOutputEnabled(event.target.checked).then(setOutput).catch(() => setOutputError('Impossibile aggiornare uscita OBS.')) }} /> Uscita OBS</label>
+      <span className="avatar-output-status" role="status">{outputError || output.error || (output.enabled ? output.viewers ? `OBS: ${output.viewers} collegato` : 'OBS in attesa' : '')}</span>
+      <button className="icon-button" aria-label="Copia URL OBS" title="Copia URL OBS" disabled={!output.available} onClick={() => { void window.neb.getAvatarOutputUrl().then((url) => navigator.clipboard.writeText(url)).then(() => setOutputError('URL OBS copiato')).catch(() => setOutputError('Copia URL non riuscita.')) }}><Copy size={17} /></button>
       <button className="icon-button" aria-label="Collega avatar" title="Collega avatar" disabled={!enabled || locked || connecting || snapshot.phase === 'ready' || snapshot.phase === 'speaking'} onClick={() => { setError(''); void session.connect(session.faceId, deviceId, volume).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Connessione Simli fallita.')) }}><Plug size={17} /></button>
       <button className="icon-button" aria-label="Test voce avatar" title="Test voce avatar" disabled={!enabled || !ready || locked || connecting} onClick={onTest}><Play size={17} /></button>
       <button ref={expandButton} className="icon-button" aria-label="Espandi avatar" title="Espandi avatar" disabled={!enabled} onClick={() => setExpanded(true)}><Maximize2 size={17} /></button>
