@@ -66,10 +66,10 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
   const profile = config?.profiles.find((item) => item.id === config.selectedProfileId)
   const output = outputs.find((item) => item.deviceId === settings.outputDeviceId)
   const routed = Boolean(output && /CABLE Input/i.test(output.label))
-  const voiceName = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
+  const voiceName = speechVoiceLabel(settings)
   const captureReady = live.audioStatus.state === 'active' && live.receiving
   const prerequisites = platform !== 'win32' ? 'Avvia NEB dall’app Windows per collegare il browser.'
-    : !geminiReady ? 'Configura la voce Gemini nelle Impostazioni.'
+    : !geminiReady ? 'Configura il provider vocale nelle Impostazioni.'
     : !stopAvailable ? 'Libera la scorciatoia Ctrl+Alt+S e riavvia NEB.'
     : !routed ? 'Seleziona CABLE Input come uscita NEB.'
     : !captureReady ? live.audioStatus.state === 'active' ? 'Attendo il flusso audio della scheda…' : live.audioStatus.message || 'Avvia l’ascolto della scheda dal popup NEB.'
@@ -273,7 +273,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
             <div className={`neb-live-capture ${captureReady ? 'neb-live-capture-ready' : ''}`}><span className={`status-dot ${captureReady ? 'green' : 'amber'}`} /><div><strong>{live.audioStatus.target?.title || 'Nessuna scheda in ascolto'}</strong><p>{captureReady ? 'Audio della scheda in ricezione' : live.audioStatus.message}</p>{live.audioStatus.target && <small title={live.audioStatus.target.url}>{live.audioStatus.target.url}</small>}</div></div>
             {!captureReady && <div className="neb-live-connect-guide"><strong>Dal popup NEB nel browser</strong><ol><li>Premi <b>Collega questa scheda</b>.</li><li>Attendi la conferma e premi <b>Ascolta questa scheda</b>.</li></ol></div>}
             <fieldset className="neb-live-fields" disabled={locked}><div className="neb-live-output-picker"><label htmlFor="neb-live-output">Uscita NEB<select id="neb-live-output" value={settings.outputDeviceId} onChange={(event) => onUpdate({ outputDeviceId: event.target.value })}>{!output && <option value={settings.outputDeviceId}>{settings.outputDeviceId === 'default' ? 'Predefinito di sistema' : 'Uscita salvata non disponibile'}</option>}{outputs.map((item) => <option key={item.deviceId} value={item.deviceId}>{item.label}</option>)}</select></label><button type="button" className="icon-button" onClick={onRefreshOutputs} aria-label="Aggiorna uscite audio" title="Aggiorna uscite audio"><RefreshCw size={15} /></button></div></fieldset>
-            <div className="neb-live-voice-summary"><Mic size={16} /><div><strong>{voiceName}</strong><small>{geminiReady ? 'Gemini disponibile' : 'Configura Gemini nelle Impostazioni'}</small></div></div>
+            <div className="neb-live-voice-summary"><Mic size={16} /><div><strong>{voiceName}</strong><small>{geminiReady ? settings.providerId === 'fish-openrouter' ? 'Fish disponibile' : 'Gemini disponibile' : 'Configura la voce nelle Impostazioni'}</small></div></div>
             <p className="neb-live-note">NEB → <strong>CABLE Input</strong><br />Microfono del sito → <strong>CABLE Output</strong><br />Audio del sito → le tue cuffie</p>
             <details className="neb-live-details"><summary>Configura Edge o Chrome{setup?.installed ? ' · host installato' : ''}</summary><ol><li>Apri <strong>edge://extensions</strong> o <strong>chrome://extensions</strong> e abilita la modalità sviluppatore.</li><li>Carica la cartella dell’estensione NEB e copia il suo ID.</li><li>Salva l’host qui sotto e collega la scheda dal popup.</li></ol><fieldset className="neb-live-fields" disabled={locked || setupBusy}><button type="button" className="secondary-button" onClick={() => void setupAction(() => window.neb.openOutlierExtensionFolder())}><FolderOpen size={14} />Apri cartella estensione</button><label htmlFor="neb-live-extension-id">ID estensione<input id="neb-live-extension-id" value={extensionId} onChange={(event) => setExtensionId(event.target.value)} maxLength={32} spellCheck={false} autoComplete="off" placeholder="32 lettere, da a a p" /></label><button type="button" className="secondary-button" disabled={platform !== 'win32' || !/^[a-p]{32}$/.test(extensionId.trim())} onClick={() => void setupAction(async () => { await window.neb.installOutlierHost(extensionId.trim()); const next = await window.neb.getOutlierSetup(); if (mounted.current) { setSetup(next); setExtensionId(next.extensionId ?? '') } })}>{setupBusy ? 'Configurazione…' : 'Salva host per Edge e Chrome'}</button></fieldset>{setup?.extensionPath && <p className="neb-live-path">{setup.extensionPath}</p>}{setupError && <p className="neb-live-error" role="alert">{setupError}</p>}</details>
           </section>
@@ -302,3 +302,4 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
     </div>
   </section>
 }
+import { speechVoiceLabel } from '../../../shared/speechRequest'

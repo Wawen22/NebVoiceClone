@@ -4,6 +4,7 @@ import { ListMusic, ChevronDown } from 'lucide-react'
 import type { AudioOutput } from './audio/AudioEngine'
 import type { AppSettings, ConversationModeStatus, ProviderStatus } from '../../shared/contracts'
 import { GEMINI_MODELS, GEMINI_PREBUILT_VOICES } from '../../shared/contracts'
+import { speechVoiceLabel } from '../../shared/speechRequest'
 import { conversationShortcutLabel, type RoutingStatus } from './conversationMode'
 
 export type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number }
@@ -44,7 +45,7 @@ const testPhrase = 'Questa è una prova audio di NEB Voice Console.'
 
 export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   const { settings, activeKeyName, gemini, script, readyLinesCount, onOpenReadyLines, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
-  const selectedVoice = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
+  const selectedVoice = speechVoiceLabel(settings)
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
 
@@ -55,12 +56,12 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
     </div>
     <details className="console-audio-settings">
       <summary><span className="console-audio-title"><Icon name="settings" /> Voce e audio</span><span className="console-audio-value"><small>VOCE</small><strong title={selectedVoice}>{selectedVoice}</strong></span><span className="console-audio-value"><small>USCITA</small><strong title={routing.label}><i className={routing.routed ? 'status-dot green' : 'status-dot amber'} />{routing.routed ? virtualName : routing.label}</strong></span><span className="console-audio-volume"><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> {Math.round(settings.outputVolume * 100)}%</span><ChevronDown className="console-audio-chevron" size={16} /></summary>
-      <div className="console-audio-grid" aria-label="Controlli voce e audio">
+      <fieldset className="console-audio-grid settings-session-lock" disabled={busy || playing} aria-label="Controlli voce e audio">
         <section className="control-card">
           <h3>Profilo vocale</h3>
-          <div className="field"><label htmlFor="console-voice">Voce</label><select id="console-voice" disabled={busy} value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></div>
+          {settings.providerId === 'fish-openrouter' ? <div className="field"><label htmlFor="console-voice">Voce Fish</label><select id="console-voice" disabled value={settings.fishVoice?.id ?? ''}><option value={settings.fishVoice?.id ?? ''}>{selectedVoice}</option></select></div> : <div className="field"><label htmlFor="console-voice">Voce</label><select id="console-voice" disabled={busy} value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></div>}
           <p className="field-note">Profilo associato a {activeKeyName}.</p>
-          <details className="console-model-details"><summary>Modello vocale</summary><div className="field"><label htmlFor="console-model">Modello</label><select id="console-model" disabled={busy} value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
+          <details className="console-model-details"><summary>Modello vocale</summary><div className="field"><label htmlFor="console-model">Modello</label>{settings.providerId === 'fish-openrouter' ? <select id="console-model" disabled value={settings.fishModel}><option value={settings.fishModel}>{settings.fishModel}</option></select> : <select id="console-model" disabled={busy} value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select>}</div>
           </details>
         </section>
 
@@ -81,7 +82,7 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
             <div className="local-test"><strong>Test WAV locale</strong><div className="file-row"><label className="file-button"><Icon name="upload" /> Scegli WAV<input type="file" accept=".wav,audio/wav" disabled={busy} onChange={(event) => { onLoadFile(event.target.files?.[0]); event.target.value = '' }} /></label><button className="secondary-button" onClick={onPlayFile} disabled={!fileName || busy}><Icon name="play" /> Riproduci</button></div><span className="file-name">{fileName || 'Nessun file selezionato'}{duration !== null ? ` · ${duration.toFixed(1)} s` : ''}</span></div>
           </details>
         </section>
-      </div>
+      </fieldset>
     </details>
     {!routing.routed && <div className="console-routing-hint"><span className="status-dot amber" /><p>Controlla l’uscita audio prima di inviare la voce a Edge.</p></div>}
     <section className="editor-card console-composer" aria-labelledby="script-heading">
@@ -101,7 +102,7 @@ interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'activeKeyNa
 
 export function ConversationView(props: ConversationProps): React.JSX.Element {
   const { settings, gemini, script, readyLinesCount, onOpenReadyLines, onScriptChange, scriptInput, routing, isLinux, busy, playing, hasAudio, status, error, metrics, onSpeak, onStop, onReplay, conversationStatus, onClose } = props
-  const voice = settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId
+  const voice = speechVoiceLabel(settings)
   return <main className="conversation-shell">
     <header className="conversation-header"><div><span className="eyebrow">NEB VOICE / CONVERSAZIONE</span><h1>Scrivi. Pronuncia.</h1></div><div className="conversation-header-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={15} /> Battute <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-exit" aria-label="Esci dalla modalità conversazione, Ctrl+Alt+V" aria-keyshortcuts="Control+Alt+V" onClick={onClose}><Icon name="close" /> Esci <kbd>Ctrl+Alt+V</kbd></button></div></header>
     <div className="conversation-statuses"><div><span>VOCE</span><strong>{voice}</strong></div><div><span>USCITA</span><strong><i className={routing.routed ? 'status-dot green' : 'status-dot amber'} />{routing.routed ? isLinux ? 'NEB Voice' : 'CABLE Input' : routing.label}</strong></div></div>

@@ -4,8 +4,12 @@ import { Icon } from './Icons'
 import { VoiceReplicationWizard } from './VoiceReplicationWizard'
 import type { AppInfo, AppSettings, GeminiKeySource, GeminiKeyStatus, ProviderStatus, SaveGeminiKeyRequest } from '../../shared/contracts'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
+import { FishVoicePanel } from './FishVoicePanel'
 
 interface SettingsProps {
+  fish: ProviderStatus
+  onUpdate: (patch: Partial<AppSettings>) => void
+  onFishBusy: (busy: boolean) => void
   gemini: ProviderStatus
   geminiMessage: string
   info: AppInfo | null
@@ -26,7 +30,7 @@ interface SettingsProps {
   onVoiceCreated: (settings: AppSettings) => void
 }
 
-export function SettingsPage({ gemini, geminiMessage, info, settings, keyStatus, keyBusy, keyMessage, keyError, voiceProfileBusy, voiceProfileMessage, voiceProfileError, onCheckGemini, onSaveGeminiKey, onSelectGeminiKey, onRemoveGeminiKey, onExportVoiceProfile, onImportVoiceProfile, onVoiceCreated }: SettingsProps): React.JSX.Element {
+export function SettingsPage({ fish, onUpdate, onFishBusy, gemini, geminiMessage, info, settings, keyStatus, keyBusy, keyMessage, keyError, voiceProfileBusy, voiceProfileMessage, voiceProfileError, onCheckGemini, onSaveGeminiKey, onSelectGeminiKey, onRemoveGeminiKey, onExportVoiceProfile, onImportVoiceProfile, onVoiceCreated }: SettingsProps): React.JSX.Element {
   const [keyLabel, setKeyLabel] = useState('Chiave aggiuntiva')
   const [keyDraft, setKeyDraft] = useState('')
   const activeKeyName = geminiKeyLabel(settings.geminiKeySource, keyStatus)
@@ -36,6 +40,15 @@ export function SettingsPage({ gemini, geminiMessage, info, settings, keyStatus,
   }
   return <div className="content settings-page">
     <div className="page-intro"><span className="eyebrow">CONFIGURAZIONE</span><h2>Impostazioni</h2><p>La voce personale segue la chiave selezionata. Modello e audio sono condivisi.</p></div>
+    <section className="panel"><h3>Voce per Console e NEB Live</h3>
+      <label>Provider vocale<select aria-label="Provider vocale" value={settings.providerId} disabled={keyBusy || voiceProfileBusy} onChange={e=>onUpdate({providerId:e.target.value as AppSettings['providerId']})}><option value="gemini">Gemini</option><option value="fish-openrouter">Fish · OpenRouter</option></select></label>
+      {settings.providerId === 'fish-openrouter' && <label>Modello Fish<select aria-label="Modello Fish" value={settings.fishModel} disabled={keyBusy || voiceProfileBusy} onChange={e=>{
+        const model=e.target.value as AppSettings['fishModel']
+        if(model==='fish-audio/s2.1-pro' && !window.confirm('Fish Pro e a pagamento in base all\'utilizzo. Autorizzi l\'uso di questo modello per le prossime generazioni?')) return
+        onUpdate({fishModel:model})
+      }}><option value="fish-audio/s2.1-pro-free:free">Fish S2.1 Pro Free · gratuito</option><option value="fish-audio/s2.1-pro">Fish S2.1 Pro · a pagamento</option></select></label>}
+    </section>
+    <FishVoicePanel settings={settings} status={fish} locked={keyBusy || voiceProfileBusy} onChanged={onVoiceCreated} onBusy={onFishBusy} />
     <section className="settings-scope-overview" aria-label="Quali impostazioni cambiano con la chiave">
       <div className="scope-card scope-card-active"><span className="scope-tag">Solo chiave attiva</span><strong>{activeKeyName}</strong><span>Voce personale: {activeVoiceName}</span><p>La voce scelta in Console, il profilo esportato o importato e una nuova clonazione riguardano questa chiave.</p></div>
       <div className="scope-card"><span className="scope-tag scope-tag-shared">Condivise tra le chiavi</span><strong>Modello e uscita audio</strong><span>{settings.geminiModel}</span><p>Modello, dispositivo di uscita e volume restano uguali quando cambi chiave. Li regoli in Console.</p></div>
@@ -69,7 +82,7 @@ export function SettingsPage({ gemini, geminiMessage, info, settings, keyStatus,
       {voiceProfileError && <p className="notice error" role="alert">{voiceProfileError}</p>}
     </section>
     <VoiceReplicationWizard gemini={{ ...gemini, message: geminiMessage }} settings={settings} activeKeyName={activeKeyName} onCreated={onVoiceCreated} />
-    <section className="panel"><span className="eyebrow">PRIVACY</span><h3>Testo e audio</h3><p>Il testo resta in memoria durante la sessione e viene inviato a Gemini solo quando premi Pronuncia. Le registrazioni della voce vengono inviate solo quando avvii la creazione della voce.</p></section>
+    <section className="panel"><span className="eyebrow">PRIVACY</span><h3>Testo e audio</h3><p>La generazione invia il testo al provider selezionato. Fish invia anche campione e trascrizione a ogni richiesta; il riferimento locale resta cifrato. La rimozione locale non cancella eventuali dati conservati dai provider remoti.</p></section>
   </div>
 }
 

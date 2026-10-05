@@ -1,0 +1,10 @@
+.fish-voice-panel fieldset { display: grid; gap: 14px; min-width: 0; }
+.fish-voice-panel label:not(.file-button) { display: grid; gap: 6px; min-width: 0; }
+.fish-voice-panel input:not([type="checkbox"]):not([type="file"]),
+.fish-voice-panel textarea { width: 100%; box-sizing: border-box; }
+.fish-voice-panel textarea { min-height: 100px; resize: vertical; }
+.fish-voice-panel audio { width: 100%; max-width: 420px; }
+.fish-voice-panel .fish-consent { display: flex !important; align-items: flex-start; gap: 10px; }
+.fish-consent input { flex: 0 0 auto; margin-top: 3px; }
+.fish-consent span, .fish-voice-panel .file-name { overflow-wrap: anywhere; }
+.fish-voice-panel .inline-actions { flex-wrap: wrap; }

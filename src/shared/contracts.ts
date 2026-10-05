@@ -152,6 +152,10 @@ export interface DesktopApi extends OutlierApi, S2SApi, LiveApi, AvatarApi, Avat
   selectGeminiKey(source: GeminiKeySource): Promise<AppSettings>
   removeGeminiKey(): Promise<AppSettings>
   checkGemini(): Promise<ProviderStatus>
+  getSpeechProviderStatus(providerId: ProviderId): Promise<ProviderStatus>
+  importFishVoice(request: FishVoiceImport): Promise<AppSettings>
+  removeFishVoice(): Promise<AppSettings>
+  setSpeechSessionLock(locked: boolean, sessionId: string): Promise<void>
   createReplicatedVoice(request: CreateReplicatedVoiceRequest): Promise<AppSettings>
   exportVoiceProfile(): Promise<VoiceProfileExportResult | null>
   importVoiceProfile(): Promise<AppSettings | null>

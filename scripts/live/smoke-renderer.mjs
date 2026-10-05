@@ -95,6 +95,8 @@ export class SimliClient {
       getSettings: async () => ({ ...settings }), updateSettings: async (patch) => ({ ...Object.assign(settings, patch) }),
       getGeminiKeyStatus: async () => ({ activeSource: 'environment', environmentConfigured: true, projectConfigured: false, environmentLabel: 'Fixture', projectLabel: 'Fixture', savedLabel: null, secureStorageAvailable: false }),
       checkGemini: async () => ({ ready: true, message: 'Gemini connected' }),
+      getSpeechProviderStatus: async () => ({ready:true,message:'Fixture speech ready'}),
+      setSpeechSessionLock: async () => {},
       getOutlierData: async () => ({ schemaVersion: 1, projects: [{ id: 's2s', name: 'S2S', notes: '', integration: 's2s', archived: false }], charactersPerMinute: 600 }),
       getInsertionStatus: async () => insertion,
       getOutlierSetup: async () => ({ installed: true, extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', extensionPath: 'fixture' }),

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../../../shared/contracts'
 import { parseSynthesisRequest } from '../../../shared/geminiRequest'
+import { parseSpeechRequest } from '../../../shared/speechRequest'
 import { buildLiveSpeechRequest } from './speechRequest'
 
 it('builds a voice request accepted by the real main-process validator', () => {
@@ -21,3 +22,7 @@ for (const language of ['en', 'it', 'ar', 'auto'] as const) {
     if (language === 'en') expect(request.style).toContain('English only')
   })
 }
+it('selects Fish Free in Live while Gemini profiles remain unchanged',()=>{
+  const settings={...DEFAULT_SETTINGS,providerId:'fish-openrouter' as const,fishVoice:{id:'12345678-1234-4123-8123-123456789abc',displayName:'Test',createdAt:'2026-10-05T00:00:00Z'}}
+  expect(parseSpeechRequest(buildLiveSpeechRequest(settings,'Ciao','it'))).toMatchObject({providerId:'fish-openrouter',modelId:settings.fishModel,language:'it',voice:{mode:'reference',voiceId:settings.fishVoice.id}})
+})

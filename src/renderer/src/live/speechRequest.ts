@@ -1,5 +1,6 @@
 import type { AppSettings, SynthesisRequest } from '../../../shared/contracts'
 import type { LiveProfile } from '../../../shared/live'
+import { buildSpeechRequest } from '../../../shared/speechRequest'
 
 const styles = {
   en: 'English only. Read the supplied text verbatim; no translation or additions. Natural pace and short pauses.',
@@ -9,9 +10,5 @@ const styles = {
 }
 
 export function buildLiveSpeechRequest(settings: AppSettings, text: string, language: LiveProfile['language'] = 'auto'): SynthesisRequest {
-  return { providerId: 'gemini', modelId: settings.geminiModel, text,
-    voice: settings.replicatedVoice?.id === settings.geminiVoiceId
-      ? { mode: 'stateful', voiceId: settings.geminiVoiceId }
-      : { mode: 'prebuilt', voiceId: settings.geminiVoiceId },
-    ...(language !== 'auto' ? { language } : {}), style: styles[language] }
+  return { ...buildSpeechRequest(settings, text, language !== 'auto' ? language : undefined), ...(settings.providerId === 'gemini' ? {style: styles[language]} : {}) }
 }

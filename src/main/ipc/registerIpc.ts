@@ -1,10 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, type WebContents } from 'electron'
 import { basename, join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
-import { clearGeminiVoiceProfile, readSettings, saveReplicatedVoice, setGeminiKeySource, updateSettings } from '../config/settingsStore'
+import { clearGeminiVoiceProfile, readSettings, saveReplicatedVoice, setGeminiKeySource, setFishVoiceRecord, updateSettings } from '../config/settingsStore'
 import { getGeminiKeyStatus, removeSavedGeminiKey, resolveGeminiApiKey, saveGeminiKey } from '../config/geminiKeyStore'
 import { GeminiTtsProvider } from '../providers/gemini'
-import { parseSynthesisRequest } from '../../shared/geminiRequest'
+import { parseSpeechRequest } from '../../shared/speechRequest'
+import { FishTtsProvider } from '../providers/fish'
+import { SpeechProviderRouter } from '../providers/speech'
+import { saveFishVoice, readFishVoice, removeFishVoice } from '../config/fishVoiceStore'
 import type { AppInfo, GeminiKeySource } from '../../shared/contracts'
 import { parseCreateReplicatedVoiceRequest } from '../../shared/voiceReplication'
 import { parseVoiceProfile, serializeVoiceProfile } from '../../shared/voiceProfile'
@@ -27,7 +30,10 @@ export function registerIpc(
   avatarOutput?: AvatarOutputRelay
 ): void {
   const gemini = new GeminiTtsProvider(resolveGeminiApiKey)
+  const speech = new SpeechProviderRouter(gemini, new FishTtsProvider({resolveApiKey: async () => process.env.OPENROUTER_API_KEY ?? '', readReference: readFishVoice, readSettings}))
   let activeGeneration: AbortController | null = null
+  let activeProfileMutation = false
+  let speechSessionLocked: string | null = null
   let activeVoiceCreation = false
   let activeAdaptation: { id: string; controller: AbortController } | null = null
   let activeSimulation: { id: string; controller: AbortController } | null = null
@@ -36,6 +42,34 @@ export function registerIpc(
   function assertTrusted(sender: WebContents, frame: Electron.WebFrameMain | null): void {
     if (sender !== getWebContents() || frame !== sender.mainFrame) throw new Error('Untrusted window.')
   }
+  function assertMutable(): void {
+    if (activeGeneration || activeVoiceCreation || activeProfileMutation || speechSessionLocked || activeLiveTurn) throw new Error('Attendi la fine dell\'operazione o premi Stop prima di cambiare la voce.')
+  }
+  ipcMain.handle('speech:sessionLock', (event, locked: unknown, sessionId: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (typeof locked !== 'boolean' || typeof sessionId !== 'string' || !sessionId || sessionId.length > 100) throw new Error('Blocco sessione non valido.')
+    if (locked && (activeGeneration || activeProfileMutation || activeVoiceCreation)) throw new Error('Attendi la fine dell\'operazione vocale.')
+    if (locked && speechSessionLocked && speechSessionLocked !== sessionId) throw new Error('Sessione vocale gia attiva.')
+    if (locked) speechSessionLocked = sessionId
+    else if (speechSessionLocked === sessionId) speechSessionLocked = null
+  })
+  ipcMain.handle('speech:providerStatus', (event, providerId: unknown) => {
+    assertTrusted(event.sender, event.senderFrame)
+    if (providerId !== 'gemini' && providerId !== 'fish-openrouter') throw new Error('Provider vocale non disponibile.')
+    return speech.validateConfiguration(providerId)
+  })
+  ipcMain.handle('fishVoice:import', async (event, value: unknown) => {
+    assertTrusted(event.sender, event.senderFrame); assertMutable()
+    activeProfileMutation = true
+    try { return await setFishVoiceRecord(await saveFishVoice(value)) }
+    finally { activeProfileMutation = false }
+  })
+  ipcMain.handle('fishVoice:remove', async (event) => {
+    assertTrusted(event.sender, event.senderFrame); assertMutable()
+    activeProfileMutation = true
+    try { await removeFishVoice(); return await setFishVoiceRecord(null) }
+    finally { activeProfileMutation = false }
+  })
   if (avatarOutput) registerAvatarOutputIpc<Electron.IpcMainInvokeEvent>(
     (channel, handler) => ipcMain.handle(channel, handler),
     (event) => assertTrusted(event.sender, event.senderFrame), avatarOutput
@@ -95,9 +129,11 @@ export function registerIpc(
     assertTrusted(event.sender, event.senderFrame)
     return readSettings()
   })
-  ipcMain.handle('settings:update', (event, patch: unknown) => {
+  ipcMain.handle('settings:update', async (event, patch: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
-    return updateSettings(patch)
+    assertMutable(); activeProfileMutation = true
+    try { return await updateSettings(patch) }
+    finally { activeProfileMutation = false }
   })
   ipcMain.handle('geminiKey:getStatus', (event) => {
     assertTrusted(event.sender, event.senderFrame)
@@ -105,6 +141,7 @@ export function registerIpc(
   })
   ipcMain.handle('geminiKey:save', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
+    assertMutable()
     if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
     const status = await saveGeminiKey(value)
     await clearGeminiVoiceProfile('saved')
@@ -112,6 +149,7 @@ export function registerIpc(
   })
   ipcMain.handle('geminiKey:select', async (event, source: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
+    assertMutable()
     if (source !== 'environment' && source !== 'project' && source !== 'saved') throw new Error('Selezione della chiave Gemini non valida.')
     if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di cambiare chiave Gemini.')
     if ((source as GeminiKeySource) === 'saved') {
@@ -124,6 +162,7 @@ export function registerIpc(
   })
   ipcMain.handle('geminiKey:remove', async (event) => {
     assertTrusted(event.sender, event.senderFrame)
+    assertMutable()
     if (activeGeneration || activeVoiceCreation) throw new Error('Attendi la fine dell’operazione prima di rimuovere la chiave Gemini.')
     const settings = await setGeminiKeySource('environment')
     await removeSavedGeminiKey()
@@ -136,6 +175,7 @@ export function registerIpc(
   })
   ipcMain.handle('gemini:createReplicatedVoice', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
+    assertMutable()
     if (activeVoiceCreation) throw new Error('La creazione della voce è già in corso.')
     const request = parseCreateReplicatedVoiceRequest(value)
     activeVoiceCreation = true
@@ -162,6 +202,7 @@ export function registerIpc(
   })
   ipcMain.handle('voiceProfile:import', async (event) => {
     assertTrusted(event.sender, event.senderFrame)
+    assertMutable()
     const options: OpenDialogOptions = {
       title: 'Import NEB voice profile',
       properties: ['openFile'],
@@ -182,13 +223,15 @@ export function registerIpc(
   })
   ipcMain.handle('speech:synthesize', async (event, value: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
-    const request = parseSynthesisRequest(value)
-    if (request.voice.mode === 'stateful' && request.voice.voiceId !== (await readSettings()).replicatedVoice?.id) throw new Error('Select a voice saved in this application.')
+    const request = parseSpeechRequest(value)
+    if (activeProfileMutation || activeVoiceCreation) throw new Error('Attendi la fine dell\'operazione vocale.')
     if (activeGeneration) throw new Error('Generation is already in progress.')
     const controller = new AbortController()
     activeGeneration = controller
     try {
-      return await gemini.synthesize(request, controller.signal)
+      if (request.voice.mode === 'stateful' && request.voice.voiceId !== (await readSettings()).replicatedVoice?.id) throw new Error('Select a voice saved in this application.')
+      controller.signal.throwIfAborted()
+      return await speech.synthesize(request, controller.signal)
     } finally {
       if (activeGeneration === controller) activeGeneration = null
     }
@@ -196,13 +239,15 @@ export function registerIpc(
   ipcMain.handle('speech:synthesizeStream', async (event, value: unknown, streamId: unknown) => {
     assertTrusted(event.sender, event.senderFrame)
     if (!Number.isSafeInteger(streamId) || Number(streamId) < 0) throw new Error('Invalid audio stream.')
-    const request = parseSynthesisRequest(value)
-    if (request.voice.mode === 'stateful' && request.voice.voiceId !== (await readSettings()).replicatedVoice?.id) throw new Error('Select a voice saved in this application.')
+    const request = parseSpeechRequest(value)
+    if (activeProfileMutation || activeVoiceCreation) throw new Error('Attendi la fine dell\'operazione vocale.')
     if (activeGeneration) throw new Error('Generation is already in progress.')
     const controller = new AbortController()
     activeGeneration = controller
     try {
-      return await gemini.synthesizeStream(request, controller.signal, (chunk) => {
+      if (request.voice.mode === 'stateful' && request.voice.voiceId !== (await readSettings()).replicatedVoice?.id) throw new Error('Select a voice saved in this application.')
+      controller.signal.throwIfAborted()
+      return await speech.synthesizeStream(request, controller.signal, (chunk) => {
         if (!controller.signal.aborted && !event.sender.isDestroyed()) event.sender.send('speech:chunk', streamId, chunk)
       })
     } finally {

@@ -23,6 +23,11 @@ export function useLiveConversation(args: Arguments) {
   const startup = useRef(new LiveStartGate())
   const materialEpoch = useRef(0)
   const session = useRef<{ capture: S2SAudioStatus; settings: AppSettings; profileName: string; language: LiveProfile['language'] } | null>(null)
+  const speechLock = useRef<string | null>(null)
+  function unlockSpeech(): void {
+    const id = speechLock.current; speechLock.current = null
+    if (id) void window.neb.setSpeechSessionLock(false, id).catch(() => undefined)
+  }
   const [audioStatus, setAudioStatus] = useState(inactive)
   const [receiving, setReceiving] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +36,7 @@ export function useLiveConversation(args: Arguments) {
     now: () => performance.now(), changed: (next) => {
       setSnapshot(next)
       if (next.phase === 'paused' || next.phase === 'stopped' || next.phase === 'completed') latest.current.avatar?.endLive()
+      if (next.phase === 'stopped' || next.phase === 'completed') unlockSpeech()
     },
     decide: async (request, signal) => {
       signal.throwIfAborted()
@@ -74,7 +80,7 @@ export function useLiveConversation(args: Arguments) {
       setReceiving(capture.current.state === 'active' && performance.now() - lastPcmAt.current < 1500)
       controller.tick()
     }, 100)
-    return () => { mounted = false; materialEpoch.current++; startup.current.cancel(); clearInterval(timer); unsubscribe(); controller.stop() }
+    return () => { mounted = false; materialEpoch.current++; startup.current.cancel(); clearInterval(timer); unsubscribe(); controller.stop(); unlockSpeech() }
   }, [controller])
 
   useEffect(() => {
@@ -93,11 +99,21 @@ export function useLiveConversation(args: Arguments) {
   async function start(config: LiveConfig, opening: boolean, save?: () => Promise<LiveConfig | null>, options: Partial<LiveOptions> = {}): Promise<void> {
     if (controller.locked || startup.current.pending) return
     setStarting(true); setError('')
+    const lockId = crypto.randomUUID()
+    let committed = false
     try {
       await startup.current.run(async (signal) => {
         const current = latest.current
         if (!current.available) throw new Error(current.unavailableReason)
         if (current.otherBusy()) throw new Error('Ferma la voce, l’automatico S2S o l’inserimento prima di avviare NEB Live.')
+        speechLock.current = lockId
+        await window.neb.setSpeechSessionLock(true, lockId)
+        signal.throwIfAborted()
+        if (current.settings.providerId === 'fish-openrouter') {
+          const voiceStatus = await window.neb.getSpeechProviderStatus(current.settings.providerId)
+          signal.throwIfAborted()
+          if (!voiceStatus.ready) throw new Error(voiceStatus.message)
+        }
         const source = requireCapture()
         const saved = save ? await save() : config
         signal.throwIfAborted()
@@ -128,10 +144,17 @@ export function useLiveConversation(args: Arguments) {
         if (!prepared) return
         session.current = { capture: prepared.source, settings: prepared.settings, profileName: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)?.name ?? 'Conversazione', language: prepared.config.profiles.find((profile) => profile.id === prepared.config.selectedProfileId)!.language }
         controller.start(prepared.config, opening, options)
+        committed = true
         if (prepared.avatarConnectMs !== null) controller.recordTiming('avatar-connect', prepared.avatarConnectMs)
       })
     } catch (reason) { latest.current.avatar?.endLive(); if (!(reason instanceof DOMException && reason.name === 'AbortError')) setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { if (!startup.current.pending) setStarting(false) }
+    finally {
+      if (!committed) {
+        if (speechLock.current === lockId) speechLock.current = null
+        void window.neb.setSpeechSessionLock(false, lockId).catch(() => undefined)
+      }
+      if (!startup.current.pending) setStarting(false)
+    }
   }
   async function resume(): Promise<void> {
     if (startup.current.pending || controller.snapshot.phase !== 'paused') return
@@ -158,7 +181,7 @@ export function useLiveConversation(args: Arguments) {
     } catch (reason) { latest.current.avatar?.endLive(); setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { if (!startup.current.pending) setStarting(false) }
   }
-  function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop(); latest.current.avatar?.endLive() }
+  function stop(): void { startup.current.cancel(); setStarting(false); setError(''); controller.stop(); unlockSpeech(); latest.current.avatar?.endLive() }
   function respondNow(): void {
     setError('')
     try {
@@ -181,7 +204,7 @@ export function useLiveConversation(args: Arguments) {
     await addImage(async () => window.neb.importLiveImage(new Uint8Array(await file.arrayBuffer()), file.name.slice(0, 160)))
   }
   function addSnippet(text: string): void { controller.addMaterial({ id: crypto.randomUUID(), name: 'Snippet di codice', kind: 'text', text, addedAt: Date.now() }) }
-  function newConversation(): void { materialEpoch.current++; startup.current.cancel(); setStarting(false); controller.reset(); latest.current.avatar?.endLive(); session.current = null; setError('') }
+  function newConversation(): void { materialEpoch.current++; startup.current.cancel(); setStarting(false); controller.reset(); unlockSpeech(); latest.current.avatar?.endLive(); session.current = null; setError('') }
   function applyLimits(limits: LiveLimits): void { if (controller.snapshot.phase === 'paused') controller.updateLimits(limits) }
   function exportLog(): void {
     const snapshotForExport = { ...controller.snapshot, materials: controller.snapshot.materials.map((item) => item.kind === 'image' ? { id: item.id, kind: item.kind, name: item.name, addedAt: item.addedAt } : item) }
