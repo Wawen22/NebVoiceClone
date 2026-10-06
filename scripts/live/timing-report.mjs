@@ -89,7 +89,7 @@ async function main(args) {
       sessions.push(await readExport(canonical))
     } catch (error) {
       // Do not print file contents or full paths from filesystem/parser errors.
-      const detail = error.code ? `Errore file (${error.code}).` : error.message
+      const detail = error.code === 'ENOENT' ? 'File non trovato. Premi Esporta JSON in NEB Live e usa il percorso del file salvato; i nomi negli esempi sono segnaposto.' : error.code ? `Errore file (${error.code}).` : error.message
       throw new Error(`${safeText(basename(path))}: ${detail}`)
     }
   }

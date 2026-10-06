@@ -31,6 +31,7 @@ test('reports independent sessions and provider/model groups without exposing tr
   await withFiles({ 'rapid.json': exported([...response('same', 1000), ...response('b', 3000), ...response('c', 2000, 'fish-openrouter', 'fish'), ...response('d', 4000, 'gemini', 'model-b')]), 'natural.json': exported(response('same', 5000)) }, async paths => {
     const result = run('--json', ...paths)
     assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stderr, '', 'successful reports must not emit module warnings')
     const report = JSON.parse(result.stdout)
     assert.equal(report.sessions.length, 2)
     const group = report.sessions[0].groups[0]
@@ -89,7 +90,10 @@ test('rejects invalid exports and duplicate files without partial output or priv
       assert.ok(!result.stderr.includes('PRIVATE'))
     }
     assert.equal(run(paths[0], paths[0]).status, 1)
-    assert.equal(run(join(paths[0], '..', 'absent.json')).status, 1)
+    const missing = run(join(paths[0], '..', 'absent.json'))
+    assert.equal(missing.status, 1)
+    assert.match(missing.stderr, /File non trovato/)
+    assert.match(missing.stderr, /Esporta JSON/)
   })
 })
 

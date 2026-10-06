@@ -60,6 +60,10 @@ Da Windows PowerShell, nella cartella del progetto, con Node 22.18+ o 24+:
 npm run live:timings -- "C:\percorso\rapida.json" "C:\percorso\naturale.json"
 ```
 
+I percorsi dell'esempio sono segnaposto: prima usa **Esporta JSON** in NEB Live,
+poi passa il percorso del file effettivamente salvato. Basta anche un solo file.
+`ENOENT` significa che il file indicato non esiste, non che una sessione è fallita.
+
 Il comando legge solo i file locali e non invia richieste ai provider. Ogni
 export resta una sessione separata, nell'ordine dei file passati. All'interno di
 ogni sessione i turni sono raggruppati per provider e modello, usando gli stessi
