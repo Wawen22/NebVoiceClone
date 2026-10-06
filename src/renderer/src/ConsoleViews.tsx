@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { Icon } from './Icons'
 import { ListMusic, ChevronDown } from 'lucide-react'
 import type { AudioOutput } from './audio/AudioEngine'
@@ -10,6 +10,7 @@ import { conversationShortcutLabel, type RoutingStatus } from './conversationMod
 export type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number; modelId?: string; ttsEstimatedCostUsd?: number | null }
 
 interface ConsoleProps {
+  audioSettingsRequest?: number
   settings: AppSettings
   activeKeyName: string
   gemini: ProviderStatus
@@ -48,13 +49,19 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   const selectedVoice = speechVoiceLabel(settings)
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
+  const audioSettings = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!props.audioSettingsRequest || !audioSettings.current) return
+    audioSettings.current.open = true
+    audioSettings.current.querySelector('summary')?.focus()
+  }, [props.audioSettingsRequest])
 
   return <div className="console-page console-clean">
     <div className="console-heading">
       <div><h2>Scrivi e pronuncia.</h2><p>La tua voce, sul dispositivo scelto.</p></div>
       <div className="console-heading-actions"><button className="secondary-button" onClick={onOpenReadyLines}><ListMusic size={16} /> Battute pronte <span className="ready-count">{readyLinesCount}</span></button><button className="conversation-trigger" aria-keyshortcuts="Control+Alt+V" onClick={onOpenConversation}><Icon name="external" /> Modalità conversazione</button></div>
     </div>
-    <details className="console-audio-settings">
+    <details ref={audioSettings} className="console-audio-settings">
       <summary><span className="console-audio-title"><Icon name="settings" /> Voce e audio</span><span className="console-audio-value"><small>VOCE</small><strong title={selectedVoice}>{selectedVoice}</strong></span><span className="console-audio-value"><small>USCITA</small><strong title={routing.label}><i className={routing.routed ? 'status-dot green' : 'status-dot amber'} />{routing.routed ? virtualName : routing.label}</strong></span><span className="console-audio-volume"><Icon name={settings.outputVolume === 0 ? 'mute' : 'speaker'} /> {Math.round(settings.outputVolume * 100)}%</span><ChevronDown className="console-audio-chevron" size={16} /></summary>
       <fieldset className="console-audio-grid settings-session-lock" disabled={busy || playing} aria-label="Controlli voce e audio">
         <section className="control-card">

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import type { AudioOutput } from './audio/AudioEngine'
 import { Icon } from './Icons'
 import { VoiceReplicationWizard } from './VoiceReplicationWizard'
 import type { AppInfo, AppSettings, GeminiKeySource, GeminiKeyStatus, ProviderStatus, SaveGeminiKeyRequest } from '../../shared/contracts'
@@ -86,34 +85,4 @@ export function SettingsPage({ fish, onUpdate, onFishBusy, gemini, geminiMessage
   </div>
 }
 
-interface DiagnosticsProps {
-  info: AppInfo | null
-  geminiMessage: string
-  settings: AppSettings
-  outputs: AudioOutput[]
-  isLinux: boolean
-  virtualOutput: AudioOutput | undefined
-}
-
-export function DiagnosticsPage({ info, geminiMessage, settings, outputs, isLinux, virtualOutput }: DiagnosticsProps): React.JSX.Element {
-  const outputLabel = outputs.find((output) => output.deviceId === settings.outputDeviceId)?.label ?? (settings.outputDeviceId === 'default' ? 'Predefinito di sistema' : 'Dispositivo salvato non disponibile')
-  return <div className="content settings-page">
-    <div className="page-intro"><span className="eyebrow">SUPPORTO</span><h2>Diagnostica</h2><p>Informazioni locali utili per verificare connessione e dispositivi.</p></div>
-    <section className="panel diagnostics">
-      <Row name="Electron" value={info?.electron || 'Caricamento'} />
-      <Row name="Node" value={info?.node || 'Caricamento'} />
-      <Row name="Piattaforma" value={info?.platform || 'Caricamento'} />
-      <Row name="Chiave Gemini" value={info?.geminiConfigured ? 'Presente' : 'Assente'} />
-      <Row name="Gemini API" value={geminiMessage} />
-      <Row name="Modello selezionato" value={settings.geminiModel} />
-      <Row name="Voce selezionata" value={settings.geminiVoiceId} />
-      <Row name="Uscite audio" value={String(outputs.length)} />
-      <Row name={isLinux ? 'Uscita virtuale PipeWire' : 'VB-CABLE'} value={virtualOutput ? 'Rilevata' : 'Non rilevata'} />
-      <Row name="Uscita selezionata" value={outputLabel} />
-    </section>
-  </div>
-}
-
-function Row({ name, value }: { name: string; value: string }): React.JSX.Element {
-  return <div className="diag-row"><span>{name}</span><strong>{value}</strong></div>
-}
+export { DiagnosticsPage } from './DiagnosticsPage'

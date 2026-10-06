@@ -27,7 +27,9 @@ For audible playback on Windows while editing this WSL checkout, launch the nati
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$PWD/scripts/run-windows.ps1")"
 ```
 
-The script copies source to `%LOCALAPPDATA%\NEBVoiceConsole\dev`, installs Windows dependencies, and opens Windows Electron. It reads the ignored `.env.local` into the launch process without copying the key into that build directory. Run it again after source changes.
+The script copies source and the ignored `.env.local`, when present, to `%LOCALAPPDATA%\NEBVoiceConsole\dev`, installs Windows dependencies, builds and opens Windows Electron. The staging directory is local development data and can contain credentials from that file. Run it again after source changes.
+
+Open **Diagnostica**, or **NEB Live → Verifica sessione**, to check the selected speech provider, voice, output, browser audio and optional avatar/video output. Console and Live have separate preparation checks and actions that open the relevant controls. Site microphone and camera selection remain manual checks. See [diagnostics and session preparation](docs/diagnostics.md).
 
 ## Build and checks
 
@@ -80,7 +82,7 @@ Hover over a shortened line or focus its text with the keyboard to expand the co
 
 Open **Outlier** for reusable projects, personal notes, and the existing Conversation/Battute controls. Projects can be edited, archived and restored. The separate Rationale draft stays in memory and is never sent to an AI provider.
 
-The optional Windows/Edge connector transfers the exact draft into a manually associated, initially empty S2S field. It has explicit start, pause/resume, global stop and final text verification; task submission remains manual. See [setup, controls and verification limits](docs/outlier-s2s.md). Full typing through the installed extension still needs an interactive local demo test.
+The optional Windows/Edge connector transfers the exact draft into a manually associated, initially empty S2S field. It has explicit start, pause/resume, global stop and final text verification; task submission remains manual. See [browser setup](docs/neb-live.md) and [S2S automation](docs/s2s-automation.md). Full typing through the installed extension still needs an interactive local demo test.
 
 ## Troubleshooting
 

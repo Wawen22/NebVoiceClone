@@ -1,0 +1,30 @@
+.diagnostics-selection { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 20px; }
+.diagnostics-selection > div { display: grid; gap: 8px; min-width: 0; }
+.diagnostics-selection span, .diagnostics-footer small { color: var(--muted); font-size: 12px; }
+.diagnostics-selection strong { overflow-wrap: anywhere; }
+.diagnostics-toolbar, .diagnostics-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.diagnostics-modes { display: flex; gap: 8px; }
+.diagnostics-modes button { padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.diagnostics-modes button[aria-pressed="true"] { background: #183c37; border-color: #58b59c; color: #abf4df; }
+.diagnostics-summary { display: grid; gap: 8px; padding: 18px; margin: 18px 0; background: #312918; border: 1px solid #887243; border-radius: 10px; }
+.diagnostics-summary.ready { background: #183c37; border-color: #58b59c; }
+.diagnostics-summary span { font-size: 13px; line-height: 1.6; }
+.diagnostics-checks { list-style: none; margin: 0; padding: 0; }
+.diagnostics-check { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.diagnostics-check > div { min-width: 0; }
+.diagnostics-check-heading { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.diagnostics-check p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.diagnostics-check > button { flex-shrink: 0; }
+.diagnostics-badge { border: 1px solid var(--border); padding: 3px 8px; border-radius: 6px; font-size: 11px; }
+.check-ready .diagnostics-badge { color: #abf4df; border-color: #58b59c; }
+.check-blocked .diagnostics-badge, .check-manual .diagnostics-badge { color: #f3d08c; border-color: #887243; }
+.diagnostics-footer { margin-top: 18px; }
+.diagnostics-system summary { cursor: pointer; }
+.diagnostics-system dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.diagnostics-system dd { margin: 8px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .diagnostics-selection { grid-template-columns: 1fr 1fr; }
+  .diagnostics-selection > div:last-child { grid-column: 1 / -1; }
+  .diagnostics-check { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .diagnostics-system dl { grid-template-columns: 1fr 1fr; }
+}

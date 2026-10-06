@@ -23,6 +23,7 @@ import { routingStatus } from './conversationMode'
 import { geminiKeyLabel } from '../../shared/geminiKeyLabels'
 import { buildSpeechRequest } from '../../shared/speechRequest'
 import { addReadyLine, completeReadyLine, createReadyLinesFromTexts, editReadyLine, moveReadyLine, removeReadyLine, restoreReadyLine, toggleReadyLineDone, type ReadyLine, type ReadyLinesTab } from './readyLines'
+import type { CheckAction } from './sessionReadiness'
 
 type Page = 'console' | 'outlier' | 'live' | 'settings' | 'guide' | 'diagnostics'
 
@@ -30,6 +31,8 @@ export function App(): React.JSX.Element {
   const outlierWorkspace = useOutlierWorkspace()
   const [page, setPage] = useState<Page>('console')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [audioSettingsRequest, setAudioSettingsRequest] = useState(0)
+  const [browserSetupRequest, setBrowserSetupRequest] = useState(0)
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [gemini, setGemini] = useState<ProviderStatus>({ ready: false, message: 'Verifica Gemini…' })
@@ -73,6 +76,8 @@ export function App(): React.JSX.Element {
   const audio = useRef(consoleAudio)
   const requestId = useRef(0)
   const geminiCheckId = useRef(0)
+  const fishCheckId = useRef(0)
+  const outputCheckId = useRef(0)
   const playbackStartedAt = useRef<number | null>(null)
   const playbackMs = useRef<number | null>(null)
   const playbackActive = useRef(false)
@@ -224,8 +229,9 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     let current = true
+    const check = ++fishCheckId.current
     setFish({ready:false,message:'Verifica Fish...'})
-    void window.neb.getSpeechProviderStatus('fish-openrouter').then(status=>{if(current)setFish(status)}).catch(()=>{if(current)setFish({ready:false,message:'Fish non disponibile.'})})
+    void window.neb.getSpeechProviderStatus('fish-openrouter').then(status=>{if(current && check === fishCheckId.current)setFish(status)}).catch(()=>{if(current && check === fishCheckId.current)setFish({ready:false,message:'Fish non disponibile.'})})
     return ()=>{current=false}
   }, [settings.fishVoice?.id, settings.providerId])
 
@@ -291,13 +297,40 @@ export function App(): React.JSX.Element {
   }
 
   async function refreshOutputs(): Promise<void> {
+    const current = ++outputCheckId.current
     try {
       const found = await audio.current.listOutputs()
+      if (current !== outputCheckId.current) return
       setOutputs(found)
       if (found.length === 0) setError('Nessuna uscita audio disponibile. Apri l’app Windows nativa per ascoltare l’audio.')
     } catch (reason) {
+      if (current !== outputCheckId.current) return
+      setOutputs([])
       setError(`Impossibile elencare le uscite audio: ${message(reason)}`)
     }
+  }
+
+  async function refreshDiagnostics(): Promise<void> {
+    const provider = settings.providerId
+    const providerCheck = provider === 'gemini' ? ++geminiCheckId.current : ++fishCheckId.current
+    const outputCheck = ++outputCheckId.current
+    const results = await Promise.allSettled([window.neb.getSpeechProviderStatus(provider), window.neb.getAppInfo(), audio.current.listOutputs()])
+    const [voice, appInfo, devices] = results
+    const nextVoice = voice.status === 'fulfilled' ? voice.value : { ready: false, message: 'Impossibile verificare il provider vocale. Riprova.' }
+    if (providerCheck === (provider === 'gemini' ? geminiCheckId.current : fishCheckId.current)) {
+      if (provider === 'gemini') setGemini(nextVoice)
+      else setFish(nextVoice)
+      setInfo(appInfo.status === 'fulfilled' ? appInfo.value : null)
+    }
+    if (outputCheck === outputCheckId.current) setOutputs(devices.status === 'fulfilled' ? devices.value : [])
+    if (results.some(result => result.status === 'rejected')) throw new Error('Alcuni controlli non sono disponibili.')
+  }
+
+  function openDiagnosticAction(action: CheckAction): void {
+    if (action === 'settings') setPage('settings')
+    else if (action === 'guide') setPage('guide')
+    else if (action === 'browser') { setBrowserSetupRequest(value => value + 1); setPage('live') }
+    else { if (action === 'audio') setAudioSettingsRequest(value => value + 1); setPage('console') }
   }
 
   async function update(patch: Partial<AppSettings>): Promise<void> {
@@ -535,7 +568,7 @@ export function App(): React.JSX.Element {
   const activeKeyName = settings.providerId === 'fish-openrouter' ? settings.fishModel.endsWith(':free') ? 'Fish Free · OpenRouter' : 'Fish Pro · OpenRouter' : geminiKeyLabel(settings.geminiKeySource, keyStatus)
   const setLines = activeReadyTab === 'modelA' ? setReadyLinesA : setReadyLinesB
   const common = {
-    settings, gemini: speechStatus, script, scriptInput, routing, isLinux, busy: busy || keyBusy || voiceProfileBusy || automation.locked || live.locked,
+    settings, audioSettingsRequest, gemini: speechStatus, script, scriptInput, routing, isLinux, busy: busy || keyBusy || voiceProfileBusy || automation.locked || live.locked,
     playing: playing || automation.snapshot.phase === 'speaking', hasAudio,
     status: automation.locked ? automation.snapshot.message : status, error: automation.error || error, metrics, activeKeyName,
     readyLinesCount: readyLinesA.length + readyLinesB.length, onOpenReadyLines: () => live.locked ? setPage('live') : automation.locked ? setAutomationOpen(true) : setReadyOpen(true),
@@ -614,10 +647,10 @@ export function App(): React.JSX.Element {
       {avatarPanel}
       {page === 'console' && <ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />}
       {page === 'outlier' && <fieldset className="settings-session-lock" disabled={live.locked}><OutlierPage workspace={outlierWorkspace} voice={<ConsoleView {...common} outputs={outputs} virtualOutput={virtualOutput} fileName={fileName} duration={duration} onUpdate={(patch) => void update(patch)} onPreviewVolume={previewOutputVolume} onRefreshOutputs={() => void refreshOutputs()} onLoadFile={(file) => void loadFile(file)} onPlayFile={() => void play()} onOpenConversation={() => void toggleConversationMode()} />} /></fieldset>}
-      <div className="neb-live-page" hidden={page !== 'live'}><fieldset className="settings-session-lock" disabled={automation.locked || busy || playing || keyBusy || voiceProfileBusy || outlierWorkspace.locked}><LivePage live={live} settings={settings} outputs={outputs} onUpdate={(patch) => void update(patch)} onRefreshOutputs={() => void refreshOutputs()} platform={info?.platform} geminiReady={speechStatus.ready} stopAvailable={Boolean(outlierWorkspace.status?.stopAvailable)} /></fieldset></div>
+      <div className="neb-live-page" hidden={page !== 'live'}><fieldset className="settings-session-lock" disabled={automation.locked || busy || playing || keyBusy || voiceProfileBusy || outlierWorkspace.locked}><LivePage live={live} settings={settings} outputs={outputs} onUpdate={(patch) => void update(patch)} onRefreshOutputs={() => void refreshOutputs()} platform={info?.platform} geminiReady={speechStatus.ready} stopAvailable={Boolean(outlierWorkspace.status?.stopAvailable)} browserSetupRequest={browserSetupRequest} onOpenDiagnostics={() => setPage('diagnostics')} /></fieldset></div>
       {page === 'settings' && <fieldset className="settings-session-lock" disabled={automation.locked || live.locked || busy || playing}><SettingsPage fish={fish} onUpdate={(patch)=>void update(patch)} onFishBusy={setVoiceProfileBusy} gemini={gemini} geminiMessage={geminiMessage} info={info} settings={settings} keyStatus={keyStatus} keyBusy={keyBusy || busy || automation.locked || live.locked} keyMessage={keyMessage} keyError={keyError} voiceProfileBusy={voiceProfileBusy || automation.locked || live.locked} voiceProfileMessage={voiceProfileMessage} voiceProfileError={voiceProfileError} onCheckGemini={() => void checkGemini()} onSaveGeminiKey={saveGeminiKey} onSelectGeminiKey={selectGeminiKey} onRemoveGeminiKey={removeGeminiKey} onExportVoiceProfile={() => void exportVoiceProfile()} onImportVoiceProfile={() => void importVoiceProfile()} onVoiceCreated={setSettings} /></fieldset>}
       {page === 'guide' && <SetupGuide />}
-      {page === 'diagnostics' && <DiagnosticsPage info={info} geminiMessage={geminiMessage} settings={settings} outputs={outputs} isLinux={isLinux} virtualOutput={virtualOutput} />}
+      {page === 'diagnostics' && <DiagnosticsPage info={info} settings={settings} outputs={outputs} speech={speechStatus} browser={outlierWorkspace.status} audio={live.audioStatus} receiving={live.receiving} avatar={avatar} operationBusy={busy || playing || live.locked || automation.locked || keyBusy || voiceProfileBusy || outlierWorkspace.locked || generatingModelB || Boolean(singleRegeneratingId)} onRefresh={refreshDiagnostics} onNavigate={openDiagnosticAction} onOpenLive={() => setPage('live')} />}
     </main>
     {readyPanel}
     {automationPanel}

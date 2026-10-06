@@ -19,6 +19,8 @@ interface LivePageProps {
   platform: string | undefined
   geminiReady: boolean
   stopAvailable: boolean
+  browserSetupRequest?: number
+  onOpenDiagnostics?: () => void
 }
 
 // Preserve an unsaved draft when navigating to another section of the app.
@@ -34,7 +36,7 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
 }
 
-export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, platform, geminiReady, stopAvailable }: LivePageProps): React.JSX.Element {
+export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, platform, geminiReady, stopAvailable, browserSetupRequest, onOpenDiagnostics }: LivePageProps): React.JSX.Element {
   const [config, setConfig] = useState<LiveConfig | null>(() => draftCache?.config ?? null)
   const [saved, setSaved] = useState(() => draftCache?.saved ?? '')
   const [loading, setLoading] = useState(!draftCache)
@@ -77,6 +79,10 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
     : live.unavailableReason
   const canStart = Boolean(config && profile?.name.trim() && !loading && !loadError && !prerequisites && !locked && !limitsError)
   const canResume = live.snapshot.phase === 'paused' && !prerequisites && !live.starting && !saving && !limitsDirty
+
+  useEffect(() => {
+    if (browserSetupRequest) { setConfigOpen(true); setSettingsTab('audio') }
+  }, [browserSetupRequest])
 
   useEffect(() => {
     mounted.current = true
@@ -200,6 +206,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
     <header className="neb-live-heading">
       <div className="neb-live-title"><span className="eyebrow">NEB LIVE</span><h2>Conversazione</h2></div>
       <div className="neb-live-heading-actions">
+        {onOpenDiagnostics && <button type="button" className="secondary-button" onClick={onOpenDiagnostics}>Verifica sessione</button>}
         <span className={`neb-live-state neb-live-state-${live.snapshot.phase}`}><span className="status-dot" />{phaseLabels[live.snapshot.phase]}</span>
         <button type="button" className="secondary-button neb-live-new" onClick={newConversation} title="Ferma il turno e pulisci la sessione; profilo, voce e collegamento restano disponibili"><Plus size={16} />Nuova conversazione</button>
         <button ref={configToggle} type="button" className={`secondary-button neb-live-config-toggle ${configOpen ? 'active' : ''}`} aria-expanded={configOpen} aria-controls="neb-live-configuration" onClick={() => setConfigOpen((value) => !value)}><Settings2 size={16} />Configura{dirty && <span className="neb-live-unsaved-dot" title="Modifiche da salvare" />}</button>
