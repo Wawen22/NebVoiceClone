@@ -1,0 +1,29 @@
+.neb-live-timings { flex: none; min-height: 0; max-height: 45%; overflow: auto; border-bottom: 1px solid #253843; background: #101d26; scrollbar-color: #3b5661 transparent; scrollbar-width: thin; }
+.neb-live-timings > summary { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 11px 20px; background: #101d26; color: #b4d0d4; font-size: 11px; cursor: pointer; }
+.neb-live-timings > summary strong::before { content: '▸'; margin-right: 8px; }
+.neb-live-timings[open] > summary strong::before { content: '▾'; }
+.neb-live-timings > summary > span { color: #90aaa9; font-variant-numeric: tabular-nums; }
+.neb-live-timings-content { padding: 0 20px 14px; }
+.neb-live-timings-note, .neb-live-timings-empty { margin: 9px 0; color: #91aab5; font-size: 11px; line-height: 1.6; }
+.neb-live-timings-note strong { color: #badfd5; }
+.neb-live-timing-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.neb-live-timing-stats > div { padding: 10px 12px; border: 1px solid #30454e; border-radius: 8px; background: #14252c; }
+.neb-live-timing-stats dt { font-size: 10px; color: #8ea7b2; }
+.neb-live-timing-stats dd { margin: 6px 0 0; color: #c5eddf; font-size: 17px; font-variant-numeric: tabular-nums; }
+.neb-live-timing-stats small, .neb-live-timing-table th small { display: block; margin-top: 4px; color: #90aab5; font-size: 10px; font-weight: 400; }
+.neb-live-timing-table-wrap { max-width: 100%; overflow: auto; }
+.neb-live-timing-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; font-variant-numeric: tabular-nums; }
+.neb-live-timing-table caption { padding: 8px 0; color: #a4bfc6; text-align: left; font-size: 11px; }
+.neb-live-timing-table th, .neb-live-timing-table td { min-width: 90px; padding: 10px 8px; vertical-align: top; border-bottom: 1px solid #2b414a; }
+.neb-live-timing-table th { color: #acc4cc; font-weight: 500; }
+.neb-live-timing-table td { color: #c3d8dc; }
+.neb-live-timing-table details { margin-top: 6px; }
+.neb-live-timing-table summary { cursor: pointer; color: #8cceba; }
+.neb-live-timing-table dl { min-width: 150px; margin: 8px 0; font-size: 10px; }
+.neb-live-timing-table dd { margin: 3px 0 8px; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .neb-live-timings > summary { padding: 10px 14px; }
+  .neb-live-timings-content { padding: 0 14px 12px; }
+  .neb-live-timing-stats { gap: 6px; }
+  .neb-live-timing-stats > div { padding: 8px; }
+}

@@ -10,6 +10,7 @@ const require = createRequire(path.resolve('.superpowers/outlier-smoke/package.j
 const { chromium } = require('playwright')
 const root = path.resolve('out/renderer')
 const fishMode = process.env.NEB_FISH_SMOKE === '1'
+const timingOnly = process.env.NEB_TIMING_SMOKE === '1'
 const server = createServer(async (req, res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
@@ -201,6 +202,46 @@ export class SimliClient {
   const start = page.getByRole('button', { name: 'Avvia conversazione', exact: true })
   await start.waitFor()
   await page.waitForFunction(() => { const button = document.querySelector('.neb-live-start'); return button && !button.disabled })
+  if (timingOnly) {
+    const panel = page.locator('.neb-live-timings')
+    await panel.locator('summary').first().click()
+    await panel.getByText('Nessun turno misurato', { exact: true }).waitFor()
+    await start.click()
+    for (let count = 1; count <= 3; count++) {
+      await page.evaluate(() => fixture.voice(3))
+      await page.waitForFunction(expected => document.querySelectorAll('.neb-live-timing-table tbody tr').length === expected, count)
+      await page.waitForFunction(() => document.querySelector('.neb-live-state')?.textContent.includes('In ascolto'))
+    }
+    const latest = panel.locator('tbody tr').first()
+    assert.match(await latest.innerText(), fishMode ? /Fish/ : /Gemini/)
+    await latest.getByText('Dettagli', { exact: true }).click()
+    assert.match(await latest.innerText(), /Primo blocco audio/)
+    assert.doesNotMatch(await latest.innerText(), /Non disponibile/)
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Esporta JSON', exact: true }).click()
+    const download = await downloadPromise
+    const exported = JSON.parse(await readFile(await download.path(), 'utf8'))
+    const responses = exported.snapshot.log.filter(item => item.kind === 'turn-response')
+    assert.equal(responses.length, 3)
+    assert.equal(new Set(responses.map(item => item.responseId)).size, 3)
+    for (const response of responses) {
+      assert.equal(Object.values(response.breakdown).reduce((sum, value) => sum + value, 0), response.durationMs)
+      const chunk = exported.snapshot.log.find(item => item.kind === 'voice-first-chunk' && item.responseId === response.responseId)
+      assert.equal(chunk.providerId, fishMode ? 'fish-openrouter' : 'gemini')
+    }
+    await page.setViewportSize({ width: 980, height: 680 })
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'timings fit compact window')
+    assert((await page.locator('.neb-live-transcript').boundingBox()).height > 40, 'expanded timings leave conversation visible')
+    const panelBounds = await panel.boundingBox(), summaryBounds = await panel.locator('summary').first().boundingBox()
+    assert(summaryBounds.y >= panelBounds.y && summaryBounds.y < panelBounds.y + panelBounds.height, 'timing summary remains visible when details scroll')
+    await page.screenshot({ path: path.join(artifacts, `timings-${fishMode ? 'fish' : 'gemini'}.png`) })
+    await page.getByRole('button', { name: 'Stop', exact: true }).click()
+    assert.equal(await panel.locator('tbody tr').count(), 3, 'Stop retains timing data')
+    await page.getByRole('button', { name: 'Nuova conversazione', exact: true }).click()
+    await panel.getByText('Nessun turno misurato', { exact: true }).waitFor()
+    assert.deepEqual(errors, [])
+    console.log(`${fishMode ? 'Fish' : 'Gemini'} Live timing smoke passed: three correlated turns, stream details, additive stages, JSON export, compact layout, Stop and reset.`)
+  } else {
   assert.equal(await page.locator('#neb-live-configuration').count(), 0, 'configuration starts collapsed')
   await page.screenshot({ path: path.join(artifacts, 'neb-live-empty.png') })
   await page.getByRole('button', { name: 'Configura', exact: true }).click()
@@ -478,6 +519,7 @@ export class SimliClient {
   }
   assert.deepEqual(errors, [])
   console.log(`${fishMode ? 'Fish' : 'Gemini'} NEB Live renderer smoke passed: materials, reasoning and playback, profiles, limits, recovery, locks, compact controls; synthetic avatar preconnect, two replies without reconnect, idle video, pause/resume, disconnect handling and Stop.`)
+  }
 } catch (error) {
   if (page) {
     console.error(await page.locator('body').innerText())

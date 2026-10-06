@@ -4,6 +4,8 @@ Local, manually controlled desktop console for synthetic speech. Gemini 3.8 Flas
 
 **NEB Live** adds free browser conversations alongside Outlier: it listens to the connected tab, generates responses with Qwen using editable personal background and conversation profiles, and streams the selected Gemini voice. No prepared lines are required. See the [NEB Live Windows guide](docs/neb-live.md) for browser setup, controls and limitations.
 
+In NEB Live, expand **Tempi della conversazione** for per-turn response latency, median, slowest response and the measured stages through local playback. Missing details stay unknown; stream metrics are not added to the total. See [timing definitions and limits](docs/live-latency.md).
+
 ## Architecture
 
 Electron's main process owns settings, the Gemini key, and provider API calls. A sandboxed renderer owns the interface and local audio playback. A narrow, typed preload bridge carries validated operations. See [architecture](docs/architecture.md).

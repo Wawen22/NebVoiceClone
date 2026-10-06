@@ -46,7 +46,7 @@ export function useLiveConversation(args: Arguments) {
       try { return await window.neb.generateLiveTurn(request) }
       finally { signal.removeEventListener('abort', abort) }
     },
-    speak: async (text, signal, onStarted) => {
+    speak: async (text, signal, onStarted, timing) => {
       const settings = session.current?.settings
       if (!settings) throw new Error('Sessione vocale non disponibile.')
       const localEngine = new BrowserAudioEngine({ scheduled: () => undefined, suspended: () => controller.pause('Audio NEB sospeso: verifica l’uscita prima di riprendere.') }, { retainRecording: false })
@@ -56,7 +56,7 @@ export function useLiveConversation(args: Arguments) {
         const preparingAt = performance.now()
         const request = buildLiveSpeechRequest(settings, text, session.current?.language)
         const metadata = speechTimingMetadata(request)
-        await streamS2SSpeech(window.neb, engine, request, settings.outputDeviceId, signal, onStarted, { drainOnError: true, onFirstChunk: () => controller.recordTiming('voice-first-chunk', performance.now() - preparingAt, metadata), onGenerated: (result) => controller.recordTiming('voice-generation', result.generationMs, {...metadata,ttsEstimatedCostUsd:result.ttsEstimatedCostUsd}) })
+        await streamS2SSpeech(window.neb, engine, request, settings.outputDeviceId, signal, onStarted, { drainOnError: true, onFirstChunk: () => timing('voice-first-chunk', performance.now() - preparingAt, metadata), onGenerated: (result) => timing('voice-generation', result.generationMs, {...metadata,ttsEstimatedCostUsd:result.ttsEstimatedCostUsd}) })
       } finally { engine.dispose() }
     }
   }))

@@ -6,6 +6,7 @@ import type { OutlierSetup } from '../../../shared/outlier'
 import type { AudioOutput } from '../audio/AudioEngine'
 import type { LiveConversation } from './useLiveConversation'
 import { LiveTranscript, liveTimestamp } from './LiveTranscript'
+import { LiveTimingPanel } from './LiveTimingPanel'
 import { LiveMaterials } from './LiveMaterials'
 import { DEFAULT_LIVE_OPTIONS } from './controller'
 import './live.css'
@@ -225,6 +226,7 @@ export function LivePage({ live, settings, outputs, onUpdate, onRefreshOutputs, 
           <button type="button" className="neb-live-voice-chip" onClick={showAudio} title={`Voce: ${voiceName}. Uscita: ${output?.label || 'Da configurare'}`}><Headphones size={14} /><span>{geminiReady && routed ? 'Voce pronta' : 'Configura la voce'}</span></button>
         </div>
         <LiveMaterials live={live} />
+        <LiveTimingPanel log={live.snapshot.log} />
         {loading && <p className="neb-live-inline-note" role="status">Caricamento dei profili…</p>}
         {loadError && <div className="neb-live-error" role="alert"><p>{loadError}</p><button type="button" className="secondary-button" onClick={() => setLoadAttempt((value) => value + 1)}>Riprova caricamento</button></div>}
         {(actionError || live.error) && <p className="neb-live-error" role="alert">{actionError || live.error}</p>}

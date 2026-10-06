@@ -1,5 +1,59 @@
 # NEB Live: Riduzione Delle Attese
 
+## Pannello Tempi della conversazione
+
+In NEB Live, espandi **Tempi della conversazione** sopra la trascrizione.
+Il riepilogo mostra ultima risposta, mediana, numero di turni misurati e risposta
+più lenta. La tabella mostra gli ultimi dieci turni disponibili e la voce usata.
+Le misure non avviano nuove richieste ai provider e non modificano la pausa o i modelli.
+
+Il totale va dall'ultimo pacchetto di parlato rilevato all'avvio della riproduzione
+locale. Non misura l'arrivo al sito remoto, la catena VB-CABLE o ciò che sente
+l'interlocutore. Sono incluse risposte interrotte dopo l'avvio, ma sono escluse
+aperture, risposte ai soli allegati e tentativi annullati prima della riproduzione.
+
+Quattro intervalli consecutivi compongono il totale:
+
+1. **Prima di Qwen**: fine del parlato → avvio dell'ultima richiesta Qwen accettata.
+   Include la pausa osservata, eventuali gap di consegna e precedenti tentativi
+   di elaborazione/recupero sulla stessa domanda.
+2. **Qwen · ultima richiesta**: avvio → risultato accettato nel renderer.
+   Include IPC, elaborazione remota, correzioni interne e recupero del costo.
+   È il tempo locale osservato, distinto dal `qwenMs` dichiarato dal provider nei log.
+3. **Attesa prima della voce**: risultato Qwen → ultimo tentativo vocale avviato.
+   Include la guardia finale e precedenti tentativi vocali falliti/attese di recupero.
+4. **Preparazione audio/avatar**: ultimo tentativo vocale → avvio riproduzione.
+
+In **Dettagli** sono disponibili modello, primo blocco audio e durata della
+generazione vocale. Queste misure si sovrappongono alla riproduzione: non vengono
+sommate al totale. Il primo blocco è osservato nel percorso di elaborazione PCM;
+non è una misura acustica. Una misura assente è **Non disponibile**, non zero.
+
+Le righe sono collegate al tentativo vocale tramite `responseId`. Callback di
+tentativi annullati o sessioni precedenti non alimentano le misure della sessione
+corrente. Il JSON esportato include `turnNumber` e `breakdown` negli eventi
+`turn-response`; gli eventi vocali correlati portano lo stesso `responseId`.
+I dettagli aggiuntivi non cambiano i campi esistenti dell'esportazione.
+
+Il riepilogo usa i log ancora disponibili (ultimi 500 eventi). La tabella mostra
+gli ultimi dieci turni, mentre mediana e massimo usano tutti i turni misurati
+ancora conservati. Nelle sessioni lunghe i turni iniziali possono non esserci più.
+Esporta JSON prima di iniziare una nuova conversazione per conservarli.
+
+Prova renderer con IPC e PCM sintetici, senza richieste ai provider, da Windows
+nel worktree sincronizzato (usa il Playwright delle altre prove renderer in
+`.superpowers/outlier-smoke`):
+
+```powershell
+$env:NEB_TIMING_SMOKE = '1'
+node .\scripts\live\smoke-renderer.mjs
+$env:NEB_FISH_SMOKE = '1'
+node .\scripts\live\smoke-renderer.mjs
+Remove-Item Env:NEB_TIMING_SMOKE, Env:NEB_FISH_SMOKE
+```
+
+## Ottimizzazione precedente
+
 Modifica approvata il 2026-10-05. Gemini, Fish, il modello Qwen, Simli e OBS non cambiano.
 
 - Pausa iniziale Rapida: 1500 ms di silenzio audio osservato invece di 2500 ms. Configura > Audio > Pausa prima di rispondere mantiene Naturale (2500 ms) e Riflessiva (3500 ms). La ripresa del parlato annulla ancora una risposta non iniziata.

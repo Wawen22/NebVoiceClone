@@ -1,12 +1,14 @@
 import { DEFAULT_LIVE_LIMITS, MAX_LIVE_AUDIO_BYTES, liveReasoningTimeoutMs, parseLiveConfig, parseLiveLimits, type LiveLimits, type LiveConfig, type LiveDecision, type LiveHistoryItem, type LiveTurnRequest } from '../../../shared/live'
 import { parseLiveMaterials, type LiveMaterial } from '../../../shared/liveMaterials'
 import type { SpeechTimingMetadata } from '../../../shared/speechMetrics'
+import { responseBreakdown, type TimingBreakdown } from './timingMetrics'
 
 export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing-voice' | 'speaking' | 'paused' | 'stopped' | 'completed'
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
 export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 1500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
-export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null }
+export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null; responseId?: string; turnNumber?: number; breakdown?: TimingBreakdown | null }
+export type LiveTimingRecorder = (kind: 'voice-first-chunk' | 'voice-generation', durationMs: number, metadata?: SpeechTimingMetadata) => void
 export interface LiveSnapshot {
   phase: LivePhase; message: string; turns: number; costUsd: number; costKnown: boolean; level: number; nextText: string
   history: LiveUtterance[]; log: LiveLog[]; startedAt: number
@@ -15,7 +17,7 @@ export interface LiveSnapshot {
 interface Dependencies {
   now(): number
   decide(request: LiveTurnRequest, signal: AbortSignal): Promise<LiveDecision>
-  speak(text: string, signal: AbortSignal, onStarted: () => boolean): Promise<void>
+  speak(text: string, signal: AbortSignal, onStarted: () => boolean, timing: LiveTimingRecorder): Promise<void>
   changed(snapshot: LiveSnapshot): void
 }
 
@@ -50,15 +52,16 @@ export class LiveController {
   private waitingAt: number | null = null
   private waitRechecked = false
   private retryableAudio = false
+  private decisionTiming: { startedAt: number; completedAt: number } | null = null
 
   constructor(private readonly dependencies: Dependencies) {}
   get active(): boolean { return ['listening', 'thinking', 'ready', 'preparing-voice', 'speaking'].includes(this.snapshot.phase) }
   get locked(): boolean { return this.active || this.snapshot.phase === 'paused' }
   get limits(): LiveLimits { return { durationMinutes: this.options.maxDurationMs / 60000, maxTurns: this.options.maxTurns, maxCostUsd: this.options.maxCostUsd } }
   get canRespond(): boolean { return this.snapshot.phase === 'listening' && (this.voiceVersion > 0 && this.bytes > 0 || this.snapshot.materials.length > 0) && this.audioMs - this.lastVoiceMs >= 300 }
-  recordTiming(kind: 'avatar-connect' | 'voice-first-chunk' | 'voice-generation', durationMs: number, metadata?: SpeechTimingMetadata): void {
+  recordTiming(kind: 'avatar-connect' | 'voice-first-chunk' | 'voice-generation', durationMs: number, metadata?: SpeechTimingMetadata, responseId?: string): void {
     if (!this.active || !Number.isFinite(durationMs) || durationMs < 0) return
-    this.log(kind, kind === 'avatar-connect' ? 'Avatar collegato prima della conversazione.' : kind === 'voice-generation' ? 'Generazione vocale completata.' : 'Primo blocco audio generato ricevuto.', { durationMs: Math.round(durationMs), ...(metadata ? {providerId:metadata.providerId,modelId:metadata.modelId,...(metadata.ttsEstimatedCostUsd !== undefined ? {ttsEstimatedCostUsd:metadata.ttsEstimatedCostUsd} : {})} : {}) }); this.publish()
+    this.log(kind, kind === 'avatar-connect' ? 'Avatar collegato prima della conversazione.' : kind === 'voice-generation' ? 'Generazione vocale completata.' : 'Primo blocco audio generato ricevuto.', { durationMs: Math.round(durationMs), ...(responseId ? { responseId } : {}), ...(metadata ? {providerId:metadata.providerId,modelId:metadata.modelId,...(metadata.ttsEstimatedCostUsd !== undefined ? {ttsEstimatedCostUsd:metadata.ttsEstimatedCostUsd} : {})} : {}) }); this.publish()
   }
 
   respondNow(): void {
@@ -201,6 +204,8 @@ export class LiveController {
   }
 
   private async reason(opening: boolean, endOfTurn = false, visualOnly = false): Promise<void> {
+    const startedAt = this.dependencies.now()
+    this.decisionTiming = null
     const token = ++this.serial, session = this.session
     const operation = new AbortController(); this.operation = operation
     // End-of-turn silence is useful locally, but only a short tail is needed by Qwen.
@@ -251,6 +256,7 @@ export class LiveController {
       }
       if (result.action !== 'speak' || !result.text.trim() || !opening && !visualOnly && !result.transcript.trim()) { this.pause('Risposta Qwen non valida.'); return }
       this.voiceRetries = 0
+      this.decisionTiming = { startedAt, completedAt: this.dependencies.now() }
       this.proposal = result; this.proposalAt = this.dependencies.now(); this.snapshot.nextText = result.text
       this.phase('ready', 'Risposta pronta · verifico che l’interlocutore abbia finito.')
     } catch (error) {
@@ -261,25 +267,31 @@ export class LiveController {
   private async speak(decision: LiveDecision): Promise<void> {
     if (!this.withinLimits()) return
     const token = ++this.serial
+    const session = this.session
+    const responseId = `response-${session}-${token}`
+    const decisionTiming = this.decisionTiming
     const operation = new AbortController(); this.operation = operation
     this.proposal = decision
     this.snapshot.nextText = decision.text
     this.phase('preparing-voice', 'Preparo la tua voce…')
     const preparingAt = this.dependencies.now()
-    this.log('voice-preparing', 'Avvio generazione della voce.')
+    this.log('voice-preparing', 'Avvio generazione della voce.', { responseId })
     try {
       await this.dependencies.speak(decision.text, operation.signal, () => {
         if (token !== this.serial || operation.signal.aborted || !this.active) return false
         if (this.audioMs - this.lastVoiceMs < this.options.silenceMs) { this.cancel(); this.phase('listening', 'L’interlocutore sta parlando · attendo.'); return false }
         this.playing = this.addHistory('neb', decision.text)
         this.snapshot.turns++
-        this.log('voice-start', 'Primo audio in riproduzione.', { durationMs: Math.round(this.dependencies.now() - preparingAt) })
+        const playbackAt = this.dependencies.now()
+        this.log('voice-start', 'Primo audio in riproduzione.', { durationMs: Math.round(playbackAt - preparingAt), responseId })
         if (decision.transcript.trim() && this.voiceVersion > 0 && this.lastSpeechAt !== null) {
-          this.log('turn-response', 'Fine del parlato rilevato → primo audio in riproduzione.', { durationMs: Math.round(this.dependencies.now() - this.lastSpeechAt) })
+          this.log('turn-response', 'Fine del parlato rilevato → primo audio in riproduzione.', { durationMs: Math.round(playbackAt - this.lastSpeechAt), responseId, turnNumber: this.snapshot.turns, breakdown: decisionTiming ? responseBreakdown(this.lastSpeechAt, decisionTiming.startedAt, decisionTiming.completedAt, preparingAt, playbackAt) : null })
         }
         this.resetAudio()
         this.phase('speaking', 'NEB parla · ascolto eventuali interruzioni.')
         return true
+      }, (kind, durationMs, metadata) => {
+        if (session === this.session && token === this.serial && !operation.signal.aborted) this.recordTiming(kind, durationMs, metadata, responseId)
       })
       if (token !== this.serial || operation.signal.aborted) return
       this.playing = null; this.operation = null; this.proposal = null; this.snapshot.nextText = ''

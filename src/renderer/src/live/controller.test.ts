@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LiveController } from './controller'
+import { LiveController, type LiveTimingRecorder } from './controller'
 import type { LiveConfig, LiveDecision, LiveTurnRequest } from '../../../shared/live'
 import type { LiveMaterial } from '../../../shared/liveMaterials'
 
@@ -16,10 +16,10 @@ function setup() {
   let now = 0
   const requests: LiveTurnRequest[] = [], signals: AbortSignal[] = []
   const replies: ReturnType<typeof deferred<LiveDecision>>[] = []
-  const plays: { text: string; signal: AbortSignal; start: () => boolean; done: ReturnType<typeof deferred<void>> }[] = []
+  const plays: { text: string; signal: AbortSignal; start: () => boolean; timing: LiveTimingRecorder; done: ReturnType<typeof deferred<void>> }[] = []
   const controller = new LiveController({ now: () => now, changed: () => undefined,
     decide: (request, signal) => { requests.push(request); signals.push(signal); const next = deferred<LiveDecision>(); replies.push(next); return next.promise },
-    speak: (text, signal, start) => { const done = deferred<void>(); plays.push({ text, signal, start, done }); return done.promise }
+    speak: (text, signal, start, timing) => { const done = deferred<void>(); plays.push({ text, signal, start, timing, done }); return done.promise }
   })
   const feed = (count: number, voice = false) => { for (let i = 0; i < count; i++) { now += 100; controller.feed(frame(voice)); controller.tick() } }
   return { controller, requests, signals, replies, plays, feed, jump: (ms: number) => { now += ms }, advance: (ms: number) => { now += ms; controller.tick() } }
@@ -37,8 +37,20 @@ describe('NEB Live free conversation', () => {
     const h = setup(); h.controller.start(config, false, { silenceMs: 1500 }); h.feed(10, true); h.jump(700); h.feed(15)
     h.replies[0].resolve(decision()); await settle(); h.feed(3); h.feed(8)
     expect(h.plays[0].start()).toBe(true)
-    expect(h.controller.snapshot.log.find(item => item.kind === 'turn-response')).toMatchObject({ durationMs: 3300 })
+    expect(h.controller.snapshot.log.find(item => item.kind === 'turn-response')).toMatchObject({ durationMs: 3300, turnNumber: 1, breakdown: { beforeQwenMs: 2200, qwenMs: 0, beforeVoiceMs: 300, voiceStartMs: 800 } })
     expect(h.controller.snapshot.log.find(item => item.kind === 'voice-start')).toMatchObject({ durationMs: 800 })
+  })
+  it('correlates voice metrics and rejects late callbacks from a stopped session', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(15)
+    h.replies[0].resolve(decision()); await settle(); h.feed(3)
+    h.plays[0].timing('voice-first-chunk', 100, { providerId: 'gemini', modelId: 'gemini-test' })
+    h.feed(2); h.plays[0].start()
+    const response = h.controller.snapshot.log.find(item => item.kind === 'turn-response')!
+    expect(response.responseId).toBeTruthy()
+    expect(h.controller.snapshot.log.find(item => item.kind === 'voice-first-chunk')?.responseId).toBe(response.responseId)
+    h.controller.stop(); h.controller.start(config, false)
+    h.plays[0].timing('voice-generation', 9999, { providerId: 'fish-openrouter', modelId: 'stale' })
+    expect(h.controller.snapshot.log.some(item => item.modelId === 'stale')).toBe(false)
   })
   it('never records response latency for an opening or cancelled playback', async () => {
     const opening = setup(); opening.controller.start(config, true)
@@ -99,6 +111,7 @@ describe('NEB Live free conversation', () => {
     expect(h.controller.snapshot.phase).toBe('listening')
     expect(h.controller.snapshot.turns).toBe(1)
     expect(h.controller.snapshot.history).toHaveLength(2)
+    expect(h.controller.snapshot.log.find(item => item.kind === 'turn-response')).toMatchObject({ durationMs: 4600, breakdown: { beforeQwenMs: 1500, qwenMs: 1000, beforeVoiceMs: 2100, voiceStartMs: 0 } })
   })
 
   it('bounds voice failures, preserves the question, and lets Stop cancel a queued recovery', async () => {
