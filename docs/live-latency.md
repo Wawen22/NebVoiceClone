@@ -52,6 +52,43 @@ node .\scripts\live\smoke-renderer.mjs
 Remove-Item Env:NEB_TIMING_SMOKE, Env:NEB_FISH_SMOKE
 ```
 
+## Analizzare e confrontare gli export
+
+Da Windows PowerShell, nella cartella del progetto, con Node 22.18+ o 24+:
+
+```powershell
+npm run live:timings -- "C:\percorso\rapida.json" "C:\percorso\naturale.json"
+```
+
+Il comando legge solo i file locali e non invia richieste ai provider. Ogni
+export resta una sessione separata, nell'ordine dei file passati. All'interno di
+ogni sessione i turni sono raggruppati per provider e modello, usando gli stessi
+`responseId` del pannello. I file duplicati e gli export non validi vengono
+rifiutati prima di stampare un report parziale. Il limite per file è 16 MiB.
+
+Per ogni gruppo sono mostrati numero di turni, mediana, P95 e massimo del totale,
+mediane delle quattro fasi e fase con mediana maggiore. Primo blocco e generazione
+riportano anche il numero di misure disponibili. Dati mancanti, vecchi o incompleti
+restano sconosciuti. Il report non contiene trascrizioni, allegati o chiavi API.
+
+Il P95 usa il rango più vicino: elemento `ceil(0,95 × n)` dei tempi ordinati.
+Con pochi turni coincide spesso con il massimo; non dimostra da solo la stabilità
+di un provider. Le mediane delle fasi non sono additive. Il report riassume solo
+gli eventi ancora conservati nell'export, inclusi i turni interrotti dopo l'avvio.
+
+Per ottenere un JSON del report, senza i messaggi di npm nell'output:
+
+```powershell
+node .\scripts\live\timing-report.mjs --json "C:\percorso\rapida.json" "C:\percorso\naturale.json"
+```
+
+Confronta sessioni con le stesse domande, voce, avatar e uscita audio. Cambia una
+sola impostazione alla volta, ad esempio Rapida/Naturale, e ripeti più turni.
+Le misure reali richiedono gli export delle conversazioni: le prove sintetiche
+verificano il calcolo e il flusso, non le prestazioni del cloud.
+
+Regressioni del comando: `npm run test:live-timings` (Node nativo, WSL o Windows).
+
 ## Ottimizzazione precedente
 
 Modifica approvata il 2026-10-05. Gemini, Fish, il modello Qwen, Simli e OBS non cambiano.

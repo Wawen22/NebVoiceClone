@@ -6,6 +6,8 @@ Local, manually controlled desktop console for synthetic speech. Gemini 3.8 Flas
 
 In NEB Live, expand **Tempi della conversazione** for per-turn response latency, median, slowest response and the measured stages through local playback. Missing details stay unknown; stream metrics are not added to the total. See [timing definitions and limits](docs/live-latency.md).
 
+Compare exported sessions locally with `npm run live:timings -- session-a.json session-b.json` (Node 22.18+ or 24+). The report separates provider/model groups and includes median, P95 and stage timings without transcripts or provider requests.
+
 ## Architecture
 
 Electron's main process owns settings, the Gemini key, and provider API calls. A sandboxed renderer owns the interface and local audio playback. A narrow, typed preload bridge carries validated operations. See [architecture](docs/architecture.md).

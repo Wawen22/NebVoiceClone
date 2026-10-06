@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "gemini:check": "node scripts/check-gemini.mjs"
+    "gemini:check": "node scripts/check-gemini.mjs",
+    "live:timings": "node scripts/live/timing-report.mjs",
+    "test:live-timings": "node --test scripts/live/timing-report.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
