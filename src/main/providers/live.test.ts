@@ -21,6 +21,55 @@ it('requests only speech-critical output and accepts a decision without an inter
   expect(payload.response_format.json_schema.schema).not.toHaveProperty('properties.reason')
 })
 
+it.each([30, 30.1])('isolates recognition only above thirty seconds of audio: %s', async seconds => {
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const payload = JSON.parse(String(init.body)); payloads.push(payload)
+    return reply(payload.response_format.json_schema.schema.required.length === 1 ? { transcript: 'Domanda lunga riconosciuta.' } : decision)
+  })
+  const result = await generateLiveTurn({ ...request, audioPcm: new Uint8Array(seconds * 32000) }, { apiKey: 'test' })
+  expect(result.action).toBe('speak')
+  expect(payloads).toHaveLength(seconds > 30 ? 2 : 1)
+  if (seconds > 30) {
+    expect(result.transcript).toBe('Domanda lunga riconosciuta.')
+    expect(result.qwenSteps?.map(step => step.kind)).toEqual(['transcription', 'decision'])
+    expect(payloads[0].response_format.json_schema.schema.required).toEqual(['transcript'])
+    expect(JSON.stringify(payloads[1])).not.toContain('input_audio')
+    expect(JSON.parse(payloads[1].messages[1].content as string).transcript).toBe('Domanda lunga riconosciuta.')
+  }
+})
+
+it('does not answer long audio without recognized speech', async () => {
+  const fetcher = vi.fn(async () => reply({ transcript: '' }))
+  vi.stubGlobal('fetch', fetcher)
+  expect(await generateLiveTurn({ ...request, audioPcm: new Uint8Array(35 * 32000) }, { apiKey: 'test' })).toMatchObject({ action: 'wait', text: '', transcript: '', costUsd: 0.002 })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('repairs a long-audio answer from recognized text without another audio upload', async () => {
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    payloads.push(JSON.parse(String(init.body)))
+    return reply(payloads.length === 1 ? { transcript: decision.transcript } : payloads.length === 2 ? { ...decision, text: '' } : decision)
+  })
+  const result = await generateLiveTurn({ ...request, audioPcm: new Uint8Array(35 * 32000) }, { apiKey: 'test' })
+  expect(result).toMatchObject({ action: 'speak', transcript: decision.transcript, costUsd: 0.006, repairAttempted: true })
+  expect(result.qwenSteps?.map(step => step.kind)).toEqual(['transcription', 'decision', 'repair'])
+  expect(payloads).toHaveLength(3)
+  expect(JSON.stringify(payloads.slice(1))).not.toContain('input_audio')
+})
+
+it('does not start a long-audio answer after Stop cancels preliminary recognition', async () => {
+  const abort = new AbortController()
+  const fetcher = vi.fn(async () => {
+    abort.abort()
+    return reply({ transcript: decision.transcript }, 0.003)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  expect(await generateLiveTurn({ ...request, audioPcm: new Uint8Array(35 * 32000) }, { apiKey: 'test', signal: abort.signal })).toMatchObject({ action: 'pause', text: '', costUsd: 0.003 })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
 it('separates decision, isolated recognition and repair timing without adding calls', async () => {
   let now = 0, calls = 0
   vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -68,16 +117,18 @@ it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted 
 
 it('gives long questions more transcription time and tokens and passes explicit end-of-turn context', async () => {
   const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(new AbortController().signal)
-  let payload!: Payload
-  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payload = JSON.parse(String(init.body)); return reply() })
+  const payloads: Payload[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payloads.push(JSON.parse(String(init.body))); return reply() })
   const result = await generateLiveTurn({ ...request, audioPcm: new Uint8Array(60 * 32000), endOfTurn: true }, { apiKey: 'test' })
   expect(result.action).toBe('speak')
   expect(timeout).toHaveBeenCalledWith(65000)
-  expect(payload.max_tokens).toBe(6000)
-  const user = payload.messages[1].content
+  expect(payloads).toHaveLength(2)
+  expect(payloads[0].max_tokens).toBe(6000)
+  const user = payloads[0].messages[1].content
   if (typeof user === 'string') throw new Error('Expected audio message')
-  expect(JSON.parse(user[0].text).endOfTurn).toBe(true)
-  expect(payload.messages[0].content).toContain('breve domanda di chiarimento')
+  expect(user[1].input_audio.data).toBeTruthy()
+  expect(JSON.parse(payloads[1].messages[1].content as string).endOfTurn).toBe(true)
+  expect(payloads[1].messages[0].content).toContain('breve domanda di chiarimento')
 })
 
 it('reports a truncated long response explicitly instead of losing it in a generic parse error', async () => {

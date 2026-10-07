@@ -132,6 +132,30 @@ Le caratteristiche del vocoder e del trasporto realtime non descrivono la catena
 attuale Qwen → Gemini/Fish. Misurare il beneficio con nuovi turni comparabili;
 le regressioni locali verificano il payload e i tempi, non la latenza cloud.
 
+## Riconoscimento preliminare per domande lunghe
+
+Per audio **oltre 30 secondi** (PCM mono 16 kHz, più di 960000 byte), NEB ora
+riconosce prima le parole con Qwen, poi genera la decisione dalla trascrizione
+verificata. L'audio viene inviato solo al riconoscimento; decisione ed eventuale
+correzione successiva usano il testo. A 30 secondi esatti o meno resta la chiamata
+audio/decisione unica, salvo immagini allegate che già richiedevano isolamento.
+Immagini e audio lungo insieme non avviano due trascrizioni.
+
+Motivazione: nel nuovo export reale, la domanda da 35,6 s ha ricevuto una prima
+risposta vuota dopo 8,72 s, poi è stata riconosciuta in 7,72 s e corretta in 2,62 s.
+Il percorso preliminare evita di iniziare con la chiamata audio/decisione che in
+quel caso è fallita. Non è una stima garantita del risparmio: una domanda lunga
+che prima riusciva al primo tentativo ora richiede comunque due chiamate, con
+possibile aumento di latenza e costo. Confrontare i nuovi export per decidere
+se mantenere questa soglia, separando domande brevi e lunghe.
+
+La trascrizione non può essere riscritta dalla decisione. Silenzio riconosciuto
+produce attesa senza risposta; trascrizione non valida o rete non disponibile
+mantengono il recupero limitato; Stop impedisce chiamate successive e conserva
+i costi ricevuti. I timeout, il modello e i limiti della risposta non cambiano.
+`qwenSteps` mostra il nuovo ordine `transcription` → `decision` → eventuale
+`repair`, rendendo verificabile il comportamento senza contenuti audio nei log.
+
 ## Ottimizzazione precedente
 
 Modifica approvata il 2026-10-05. Gemini, Fish, il modello Qwen, Simli e OBS non cambiano.

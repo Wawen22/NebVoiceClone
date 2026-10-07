@@ -137,9 +137,10 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
     if (typeof raw.transcript !== 'string' || raw.transcript.length > 16000) throw new LiveDecisionError('trascrizione separata mancante o troppo lunga.')
     transcript = raw.transcript.trim()
   }
-  // Vision can distract the omni model from emitting its audio transcript.
-  // Recognize speech alone first; image analysis then consumes authoritative text.
-  if (wav && request.materials?.some((item) => item.kind === 'image')) {
+  // Long audio and mixed vision/audio can omit both transcript and answer.
+  // Recognize speech once first, then answer from authoritative text. Short
+  // audio retains the single-call path; the 30s boundary matches its token budget.
+  if (wav && ((request.audioPcm?.length ?? 0) > 30 * 32000 || request.materials?.some((item) => item.kind === 'image'))) {
     try { await transcribe() }
     catch (error) {
       if (error instanceof LiveDecisionError) { repairIssue = error.message; return recover() }
