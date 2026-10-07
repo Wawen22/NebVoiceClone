@@ -13,13 +13,45 @@ interface Payload {
 }
 function reply(content: unknown = decision, cost: number | null = 0.002): Response { return new Response(JSON.stringify({ choices: [{ message: { content: typeof content === 'string' ? content : JSON.stringify(content) }, finish_reason: 'stop' }], usage: { cost } })) }
 
+it('requests only speech-critical output and accepts a decision without an internal explanation', async () => {
+  let payload!: Payload
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payload = JSON.parse(String(init.body)); return reply({ action: 'speak', transcript: decision.transcript, text: decision.text }) })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ action: 'speak', text: decision.text, reason: 'Decisione Qwen ricevuta.' })
+  expect(payload.response_format.json_schema.schema.required).not.toContain('reason')
+  expect(payload.response_format.json_schema.schema).not.toHaveProperty('properties.reason')
+})
+
+it('separates decision, isolated recognition and repair timing without adding calls', async () => {
+  let now = 0, calls = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  vi.stubGlobal('fetch', async () => { calls++; now += calls * 1000; return reply(calls === 1 ? { ...decision, transcript: '' } : calls === 2 ? { transcript: decision.transcript } : decision) })
+  const result = await generateLiveTurn(request, { apiKey: 'test' })
+  expect(result).toMatchObject({ qwenMs: 6000, qwenSteps: [
+    { kind: 'decision', durationMs: 1000, costLookupMs: 0 },
+    { kind: 'transcription', durationMs: 2000, costLookupMs: 0 },
+    { kind: 'repair', durationMs: 3000, costLookupMs: 0 }
+  ] })
+  expect(calls).toBe(3)
+})
+
+it('records accounting lookup as a subset of the request duration and retains reported tokens', async () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.includes('/generation?')) { now += 200; return new Response(JSON.stringify({ data: { total_cost: 0.003 } })) }
+    now += 300
+    return new Response(JSON.stringify({ id: 'gen-test', choices: [{ message: { content: JSON.stringify(decision) }, finish_reason: 'stop' }], usage: { completion_tokens: 120 } }))
+  })
+  expect(await generateLiveTurn(request, { apiKey: 'test' })).toMatchObject({ costUsd: 0.003, qwenMs: 500, qwenSteps: [{ kind: 'decision', durationMs: 500, costLookupMs: 200, completionTokens: 120 }] })
+})
+
 it('uploads mono 16kHz WAV, grounds first-person facts, and separates untrusted conversation', async () => {
   let payload!: Payload
   vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => { payload = JSON.parse(String(init.body)); return reply() })
   const result = await generateLiveTurn(request, { apiKey: 'test' })
   expect(result).toMatchObject({ action: 'speak', text: decision.text, costUsd: 0.002 })
   expect(payload.model).toBe('qwen/qwen3.8-omni-flash')
-  expect(payload.response_format).toMatchObject({ type: 'json_schema', json_schema: { strict: true, schema: { additionalProperties: false, required: ['action', 'transcript', 'text', 'reason'] } } })
+  expect(payload.response_format).toMatchObject({ type: 'json_schema', json_schema: { strict: true, schema: { additionalProperties: false, required: ['action', 'transcript', 'text'] } } })
   expect(payload.messages[0].content).toContain('BACKGROUND VERIFIED')
   expect(payload.messages[0].content).toContain('PERSONA STYLE')
   expect(payload.messages[0].content).toMatch(/non inventare/i)
@@ -78,7 +110,7 @@ it('repairs missing transcription by recognizing only the original audio, then a
   expect(payloads[1].response_format.json_schema.schema.required).toEqual(['transcript'])
   expect(payloads[1].messages[0].content).not.toContain('BACKGROUND VERIFIED')
   expect(JSON.parse(payloads[2].messages[1].content as string).transcript).toBe(decision.transcript)
-  expect(payloads[2].response_format.json_schema.schema.required).toEqual(['action', 'text', 'reason'])
+  expect(payloads[2].response_format.json_schema.schema.required).toEqual(['action', 'text'])
   expect(JSON.stringify(payloads[2])).not.toContain('input_audio')
 })
 

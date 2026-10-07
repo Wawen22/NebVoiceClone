@@ -27,6 +27,11 @@ function setup() {
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('NEB Live free conversation', () => {
+  it('preserves per-request Qwen timings in exported decision logs', async () => {
+    const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(15)
+    h.replies[0].resolve({ ...decision(), qwenSteps: [{ kind: 'decision', durationMs: 100, costLookupMs: 0 }] }); await settle()
+    expect(h.controller.snapshot.log.find(item => item.kind === 'decision')).toMatchObject({ qwenSteps: [{ kind: 'decision', durationMs: 100, costLookupMs: 0 }] })
+  })
   it('starts reasoning after 1.5 seconds of observed silence by default', () => {
     const h = setup(); h.controller.start(config, false); h.feed(10, true); h.feed(14)
     expect(h.requests).toHaveLength(0)

@@ -93,6 +93,45 @@ verificano il calcolo e il flusso, non le prestazioni del cloud.
 
 Regressioni del comando: `npm run test:live-timings` (Node nativo, WSL o Windows).
 
+## Ottimizzazione Qwen del 2026-10-07
+
+Il riferimento reale fornito dall'utente contiene cinque risposte: mediana totale
+16,04 s, Qwen 10,70 s e preparazione voce 3,35 s. Nel turno da 32,15 s Qwen
+occupa 27,39 s e il log segnala una correzione per trascrizione mancante.
+Questi sono i dati prima della modifica, non una misura del risparmio successivo.
+
+La richiesta strutturata Qwen ora contiene soltanto `action`, `transcript` e
+`text` (senza transcript quando già fornita o per aperture/allegati senza audio).
+Non richiede più la generazione della motivazione interna `reason`, che nel log
+reale era spesso lunga. Il campo necessario al contratto locale viene completato
+dal sistema; eventuali motivazioni ancora restituite sono accettate come prima.
+Questo riduce l'output richiesto, senza abbassare i limiti del testo pronunciato,
+rimuovere i controlli sulla domanda o anticipare voce da JSON incompleto.
+
+Ogni evento `decision` o `discarded` può ora includere `qwenSteps`:
+
+- `kind`: `decision` (prima decisione), `transcription` (riconoscimento isolato,
+  preliminare con immagini o di recupero), `repair` (decisione corretta).
+- `durationMs`: durata locale di quella chiamata, compresa risposta HTTP,
+  lettura JSON, eventuale recupero costi e parsing. Sono registrate anche le
+  chiamate iniziate e poi fallite o annullate.
+- `costLookupMs`: porzione di durata usata dal recupero costi, già compresa
+  in `durationMs`; non si somma al totale.
+- `completionTokens`: token di output dichiarati dal provider, se disponibili.
+
+Il report locale riepiloga queste richieste per sessione, includendo elaborazioni
+che producono attesa o sono scartate. Mostra quante elaborazioni hanno i dettagli:
+gli export precedenti restano **Non disponibile**, senza ricostruzioni stimate.
+Il riconoscimento isolato su trascrizione mancante resta necessario prima della
+rigenerazione da testo verificato; questa modifica non introduce nuove chiamate.
+
+Il modello resta `qwen/qwen3.8-omni-flash`, con reasoning già disabilitato.
+L'integrazione OpenRouter accetta audio e restituisce testo:
+[scheda ufficiale](https://openrouter.ai/qwen/qwen3.8-omni-flash/).
+Le caratteristiche del vocoder e del trasporto realtime non descrivono la catena
+attuale Qwen → Gemini/Fish. Misurare il beneficio con nuovi turni comparabili;
+le regressioni locali verificano il payload e i tempi, non la latenza cloud.
+
 ## Ottimizzazione precedente
 
 Modifica approvata il 2026-10-05. Gemini, Fish, il modello Qwen, Simli e OBS non cambiano.

@@ -4,6 +4,8 @@ import { summarizeLiveTimings } from '../../src/renderer/src/live/timingMetrics.
 
 const stageKeys = ['beforeQwenMs', 'qwenMs', 'beforeVoiceMs', 'voiceStartMs']
 const stageNames = ['Prima di Qwen', 'Qwen · ultima richiesta', 'Attesa prima della voce', 'Preparazione audio/avatar']
+const qwenKinds = ['decision', 'transcription', 'repair']
+const qwenNames = ['Decisione iniziale', 'Trascrizione di recupero o preliminare', 'Correzione della decisione']
 const validDuration = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const help = 'Uso: node scripts/live/timing-report.mjs [--json] sessione.json [altra-sessione.json ...]\nRichiede Node 22.18+ o 24+. Legge gli export NEB Live localmente, senza richieste ai provider.'
@@ -47,7 +49,13 @@ async function readExport(path) {
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key).push(row)
     }
-    return { file: basename(path), groups: [...groups.values()].map(rows => ({ providerId: rows[0].providerId, modelId: rows[0].modelId, count: rows.length,
+    const decisions = data.snapshot.log.filter(item => ['decision', 'discarded'].includes(item.kind))
+    const measured = decisions.filter(item => Array.isArray(item.qwenSteps) && item.qwenSteps.every(step => object(step) && qwenKinds.includes(step.kind) && validDuration(step.durationMs) && validDuration(step.costLookupMs) && step.costLookupMs <= step.durationMs))
+    const requests = measured.flatMap(item => item.qwenSteps)
+    const qwenRequests = measured.length ? { loggedDecisions: decisions.length, measuredDecisions: measured.length,
+      stages: Object.fromEntries(qwenKinds.map(kind => [kind, stats(requests.filter(step => step.kind === kind).map(step => step.durationMs))])),
+      costLookup: stats(requests.map(step => step.costLookupMs)) } : null
+    return { file: basename(path), qwenRequests, groups: [...groups.values()].map(rows => ({ providerId: rows[0].providerId, modelId: rows[0].modelId, count: rows.length,
       total: stats(rows.map(row => row.totalMs)), stages: Object.fromEntries(stageKeys.map(key => [key, stats(rows.map(row => row.breakdown?.[key]))])),
       firstChunk: stats(rows.map(row => row.firstChunkMs)), generation: stats(rows.map(row => row.generationMs)) })) }
   } finally { await file.close() }
@@ -59,6 +67,12 @@ function render(report) {
   const lines = ['Tempi NEB Live · dalla fine del parlato rilevato al playback locale']
   for (const session of report.sessions) {
     lines.push(`\n${safeText(session.file)}`)
+    if (session.qwenRequests) {
+      const qwen = session.qwenRequests
+      lines.push(`  Dettaglio Qwen: ${qwen.measuredDecisions}/${qwen.loggedDecisions} elaborazioni misurate, incluse attese e decisioni scartate.`)
+      qwenKinds.forEach((kind, index) => lines.push(`  ${qwenNames[index]}: ${qwen.stages[kind].count} richieste · mediana ${duration(qwen.stages[kind].medianMs)}`))
+      lines.push(`  Recupero costi: mediana ${duration(qwen.costLookup.medianMs)} per richiesta, già incluso nella durata.`)
+    } else lines.push('  Dettaglio richieste Qwen: Non disponibile in questo export.')
     if (!session.groups.length) lines.push('  Nessun turno misurato.')
     for (const group of session.groups) {
       lines.push(`  ${group.providerId ?? 'Provider non disponibile'} / ${safeText(group.modelId ?? 'Modello non disponibile')} · ${group.count} turni`,

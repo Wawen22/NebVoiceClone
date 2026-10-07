@@ -30,7 +30,8 @@ export interface LiveTurnRequest {
   materials?: LiveMaterial[]
   visualOnly?: boolean
 }
-export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number; knownCostUsd?: number; repairAttempted?: boolean; retryable?: boolean; validationIssue?: string }
+export interface LiveQwenStep { kind: 'decision' | 'transcription' | 'repair'; durationMs: number; costLookupMs: number; completionTokens?: number }
+export interface LiveDecision { action: 'speak' | 'wait' | 'pause' | 'complete'; transcript: string; text: string; reason: string; costUsd: number | null; qwenMs: number; knownCostUsd?: number; repairAttempted?: boolean; retryable?: boolean; validationIssue?: string; qwenSteps?: LiveQwenStep[] }
 export interface LiveApi {
   getLiveConfig(): Promise<LiveConfig>
   saveLiveConfig(config: LiveConfig): Promise<LiveConfig>

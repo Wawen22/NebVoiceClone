@@ -7,7 +7,7 @@ export type LivePhase = 'idle' | 'listening' | 'thinking' | 'ready' | 'preparing
 export interface LiveOptions { silenceMs: number; responseTimeoutMs: number; maxDurationMs: number; maxTurns: number; maxCostUsd: number }
 export const DEFAULT_LIVE_OPTIONS: LiveOptions = { silenceMs: 1500, responseTimeoutMs: 60000, maxDurationMs: DEFAULT_LIVE_LIMITS.durationMinutes * 60000, maxTurns: DEFAULT_LIVE_LIMITS.maxTurns, maxCostUsd: DEFAULT_LIVE_LIMITS.maxCostUsd }
 export interface LiveUtterance extends LiveHistoryItem { id: string; atMs: number }
-export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null; responseId?: string; turnNumber?: number; breakdown?: TimingBreakdown | null }
+export interface LiveLog { atMs: number; kind: string; text: string; costUsd?: number | null; qwenMs?: number; qwenSteps?: LiveDecision['qwenSteps']; durationMs?: number; providerId?: SpeechTimingMetadata['providerId']; modelId?: string; ttsEstimatedCostUsd?: number | null; responseId?: string; turnNumber?: number; breakdown?: TimingBreakdown | null }
 export type LiveTimingRecorder = (kind: 'voice-first-chunk' | 'voice-generation', durationMs: number, metadata?: SpeechTimingMetadata) => void
 export interface LiveSnapshot {
   phase: LivePhase; message: string; turns: number; costUsd: number; costKnown: boolean; level: number; nextText: string
@@ -233,7 +233,7 @@ export class LiveController {
       }
       else this.snapshot.costUsd += result.costUsd
       const accepted = token === this.serial && !operation.signal.aborted
-      this.log(accepted ? 'decision' : 'discarded', result.reason, { costUsd: result.costUsd, qwenMs: result.qwenMs })
+      this.log(accepted ? 'decision' : 'discarded', result.reason, { costUsd: result.costUsd, qwenMs: result.qwenMs, ...(result.qwenSteps ? { qwenSteps: result.qwenSteps } : {}) })
       if (result.repairAttempted) this.log('repair', `Decisione Qwen incompleta: ${result.validationIssue ?? 'correzione tentata sulla stessa domanda.'}`)
       if (!accepted) { if (this.active) this.withinLimits(); this.publish(); return }
       this.operation = null

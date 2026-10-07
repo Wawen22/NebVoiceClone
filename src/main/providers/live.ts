@@ -1,4 +1,4 @@
-import { LiveDecisionError, liveReasoningTimeoutMs, parseLiveDecision, parseLiveTurnRequest, type LiveDecision, type LiveTurnRequest } from '../../shared/live'
+import { LiveDecisionError, liveReasoningTimeoutMs, parseLiveDecision, parseLiveTurnRequest, type LiveDecision, type LiveTurnRequest, type LiveQwenStep } from '../../shared/live'
 import { S2S_QWEN_MODEL } from './qwen'
 import { liveLanguageInstruction, liveSpeechLanguageIssue } from '../../shared/liveLanguage'
 
@@ -44,16 +44,15 @@ Trascrivi fedelmente il nuovo audio senza inventare parole. action=wait quando l
 Con endOfTurn=true il sistema ha osservato silenzio prolungato o l'utente ha indicato fine domanda: se nell'audio c'è parlato intelligibile, rispondi adesso. Se la richiesta resta incompleta o ambigua, formula una breve domanda di chiarimento con action=speak invece di aspettare altro audio. Non inventare parole mancanti. Solo se non c'è alcun parlato usa wait con transcript vuota.
 Se una battuta NEB nella cronologia è partial, l'interlocutore potrebbe averne sentito solo una parte: non assumere che sia stata completata, non ripeterla automaticamente da capo. Rispondi all'ultimo intervento e mantieni il filo.
 La lingua esplicita del profilo ha priorità su persona, background, esempi e lingua dell'interlocutore: language=en significa text esclusivamente in inglese, language=it italiano, language=ar arabo. Non mescolare lingue e non riprendere intercalari italiani dal profilo quando rispondi in inglese o arabo. transcript resta sempre fedele alla lingua originale dell'audio. Solo con language=auto segui la lingua dell'interlocutore, italiano se ancora ignota. Rispetta il tono del profilo. Usa risposte concise, naturali, con intercalari sparsi e pause significative; evita elenchi letti, formalità artificiale, didascalie, istruzioni vocali e markdown.
-Rispondi esclusivamente con un oggetto JSON: {"action":"speak|wait|pause|complete","transcript":"trascrizione interlocutore","text":"solo le parole NEB da pronunciare","reason":"breve motivazione interna"}. text è vuoto per wait/pause/complete. reason non va pronunciata. Massimo 4000 caratteri per text, 16000 per transcript, 1000 per reason. Per un'apertura non c'è audio: genera un breve saluto pertinente, transcript vuota, senza inventare contesto.`
+Rispondi esclusivamente con un oggetto JSON: {"action":"speak|wait|pause|complete","transcript":"trascrizione interlocutore","text":"solo le parole NEB da pronunciare"}. text è vuoto per wait/pause/complete. Non generare reason, motivazioni interne o commenti: il sistema registra lo stato localmente. Massimo 4000 caratteri per text, 16000 per transcript. Per un'apertura non c'è audio: genera un breve saluto pertinente, transcript vuota, senza inventare contesto.`
 
 const responseFormat = (withTranscript: boolean, language: LiveTurnRequest['profile']['language']) => ({ type: 'json_schema', json_schema: { name: 'neb_live_turn', strict: true, schema: {
   type: 'object', additionalProperties: false,
   properties: {
     action: { type: 'string', enum: ['speak', 'wait', 'pause', 'complete'] },
     ...(withTranscript ? { transcript: { type: 'string', description: 'Parole effettivamente pronunciate dall’interlocutore nel nuovo audio. Con speak deve contenere la domanda ascoltata. Massimo 16000 caratteri.' } } : {}),
-    text: { type: 'string', description: `Risposta NEB da pronunciare, non vuota con speak; vuota per wait/pause/complete. Massimo 4000 caratteri. ${liveLanguageInstruction(language)}` },
-    reason: { type: 'string', description: 'Breve motivazione interna non vuota, massimo 1000 caratteri.' }
-  }, required: ['action', ...(withTranscript ? ['transcript'] : []), 'text', 'reason']
+    text: { type: 'string', description: `Risposta NEB da pronunciare, non vuota con speak; vuota per wait/pause/complete. Massimo 4000 caratteri. ${liveLanguageInstruction(language)}` }
+  }, required: ['action', ...(withTranscript ? ['transcript'] : []), 'text']
 } } })
 
 function decisionObject(content: unknown): Record<string, unknown> {
@@ -80,8 +79,9 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
   let knownCostUsd = 0, costKnown = true, chargedResponses = 0
   let transcript = request.transcript?.trim() ?? ''
   let repairIssue = ''
+  const qwenSteps: LiveQwenStep[] = []
   const metadata = () => ({ costUsd: costKnown && chargedResponses > 0 ? knownCostUsd : null,
-    ...(!costKnown && knownCostUsd > 0 ? { knownCostUsd } : {}), ...(repairIssue ? { repairAttempted: true, validationIssue: repairIssue } : {}), qwenMs: Math.round(performance.now() - started) })
+    ...(!costKnown && knownCostUsd > 0 ? { knownCostUsd } : {}), ...(repairIssue ? { repairAttempted: true, validationIssue: repairIssue } : {}), qwenMs: Math.round(performance.now() - started), qwenSteps: qwenSteps.map(step => ({ ...step })) })
   const pause = (reason: string): LiveDecision => ({ action: 'pause', transcript, text: '', reason, ...metadata() })
   const recover = (): LiveDecision => ({ action: 'wait', transcript, text: '', retryable: true,
     reason: `Qwen non ha prodotto una decisione completa dopo la correzione. La domanda è conservata: premi Rispondi ora oppure continua a parlare. ${repairIssue}`, ...metadata() })
@@ -93,7 +93,10 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
   }
   const wav = request.audioPcm ? encodeWav(request.audioPcm) : undefined
 
-  const completion = async (body: unknown): Promise<Record<string, unknown>> => {
+  const completion = async (body: unknown, kind: LiveQwenStep['kind']): Promise<Record<string, unknown>> => {
+    signal.throwIfAborted()
+    const callStarted = performance.now()
+    let costLookupMs = 0, completionTokens: number | undefined
     let recorded = false
     try {
       signal.throwIfAborted()
@@ -102,9 +105,15 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'NEB Voice Console Live' },
         body: JSON.stringify(body)
       })
-      const result = await response.json() as { id?: unknown; error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: unknown } }[]; usage?: { cost?: unknown } }
+      const result = await response.json() as { id?: unknown; error?: unknown; choices?: { finish_reason?: string; error?: unknown; message?: { content?: unknown } }[]; usage?: { cost?: unknown; completion_tokens?: unknown } }
+      const tokens = result.usage?.completion_tokens
+      if (typeof tokens === 'number' && Number.isSafeInteger(tokens) && tokens >= 0) completionTokens = tokens
       let cost = validCost(result.usage?.cost)
-      if (cost === null && !signal.aborted) cost = await generationCost(result.id, apiKey, signal)
+      if (cost === null && !signal.aborted) {
+        const lookupStarted = performance.now()
+        cost = await generationCost(result.id, apiKey, signal)
+        costLookupMs = Math.max(0, Math.round(performance.now() - lookupStarted))
+      }
       chargedResponses++; recorded = true
       if (cost === null) costKnown = false
       else knownCostUsd += cost
@@ -114,6 +123,7 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
       if (choice?.finish_reason === 'length') throw new LiveProviderError('Risposta Qwen troncata dal provider.', true)
       return decisionObject(choice?.message?.content)
     } catch (error) { if (!recorded) costKnown = false; throw error }
+    finally { qwenSteps.push({ kind, durationMs: Math.max(0, Math.round(performance.now() - callStarted)), costLookupMs, ...(completionTokens !== undefined ? { completionTokens } : {}) }) }
   }
 
   const transcribe = async (): Promise<void> => {
@@ -123,7 +133,7 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
       } } }, messages: [
         { role: 'system', content: 'Trascrivi esclusivamente le parole effettivamente pronunciate nell’audio allegato, nella lingua originale. Non rispondere alla domanda e non aggiungere commenti, speaker, spiegazioni o testo dedotto. Rumori, musica, risate e silenzio senza parole intelligibili producono transcript vuota. Restituisci solo il JSON con transcript, massimo 16000 caratteri.' },
         { role: 'user', content: [{ type: 'text', text: 'Trascrivi questo audio.' }, { type: 'input_audio', input_audio: { data: wav, format: 'wav' } }] }
-      ] })
+      ] }, 'transcription')
     if (typeof raw.transcript !== 'string' || raw.transcript.length > 16000) throw new LiveDecisionError('trascrizione separata mancante o troppo lunga.')
     transcript = raw.transcript.trim()
   }
@@ -155,9 +165,9 @@ export async function generateLiveTurn(value: LiveTurnRequest, options: { apiKey
       for (const item of request.materials ?? []) if (item.kind === 'image') userContent.push({ type: 'image_url', image_url: { url: item.dataUrl } })
       if (wav && suppliedTranscript === undefined) userContent.push({ type: 'input_audio', input_audio: { data: wav, format: 'wav' } })
       const raw = await completion({ model: S2S_QWEN_MODEL, max_tokens: (request.audioPcm?.length ?? 0) > 30 * 32000 ? 6000 : 2500, reasoning: { enabled: false }, provider: { require_parameters: true }, response_format: responseFormat(!omitTranscript, request.profile.language), messages: [
-          { role: 'system', content: instructions + (omitTranscript ? '\nPer questa richiesta il formato contiene solo action, text e reason: NON generare transcript. La trascrizione fornita è già riconosciuta e viene conservata dal sistema senza riscritture; rispondi a quelle parole e agli allegati. Per opening/visualOnly non ci sono nuove parole dell’interlocutore.' : '') + (attempt > 0 ? '\nCorreggi la decisione incompleta: con action=speak serve text non vuoto. Usa la trascrizione riconosciuta senza inventare parole mancanti.' : '') + '\nConfigurazione autorizzata dall’utente:\n' + JSON.stringify({ background: request.background, persona: request.persona, profile: request.profile }) + '\n' + liveLanguageInstruction(request.profile.language) },
+          { role: 'system', content: instructions + (omitTranscript ? '\nPer questa richiesta il formato contiene solo action e text: NON generare transcript. La trascrizione fornita è già riconosciuta e viene conservata dal sistema senza riscritture; rispondi a quelle parole e agli allegati. Per opening/visualOnly non ci sono nuove parole dell’interlocutore.' : '') + (attempt > 0 ? '\nCorreggi la decisione incompleta: con action=speak serve text non vuoto. Usa la trascrizione riconosciuta senza inventare parole mancanti.' : '') + '\nConfigurazione autorizzata dall’utente:\n' + JSON.stringify({ background: request.background, persona: request.persona, profile: request.profile }) + '\n' + liveLanguageInstruction(request.profile.language) },
           { role: 'user', content: userContent.length > 1 ? userContent : JSON.stringify(context) }
-        ] })
+        ] }, attempt > 0 ? 'repair' : 'decision')
       // For text input the supplied transcript, not a model rewrite, is authoritative.
       if (omitTranscript) raw.transcript = request.visualOnly || request.opening ? '' : suppliedTranscript
       // These fields cannot authorize speech; tolerate omissions without another paid call.

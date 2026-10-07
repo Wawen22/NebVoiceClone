@@ -112,6 +112,26 @@ test('uses the nearest-rank P95 across more than twenty turns', async () => {
   })
 })
 
+test('reports Qwen subrequests without treating old decisions as measured', async () => {
+  await withFiles({ 'qwen.json': exported([
+    { kind: 'decision', atMs: 1, qwenSteps: [{ kind: 'decision', durationMs: 1000, costLookupMs: 200 }, { kind: 'transcription', durationMs: 2000, costLookupMs: 0 }, { kind: 'repair', durationMs: 3000, costLookupMs: 100 }] },
+    { kind: 'decision', atMs: 2, qwenMs: 9999 },
+    { kind: 'discarded', atMs: 3, qwenSteps: [{ kind: 'decision', durationMs: 500, costLookupMs: 0 }] }
+  ]) }, async paths => {
+    const result = run('--json', ...paths)
+    assert.equal(result.status, 0, result.stderr)
+    const qwen = JSON.parse(result.stdout).sessions[0].qwenRequests
+    assert.equal(qwen.loggedDecisions, 3)
+    assert.equal(qwen.measuredDecisions, 2)
+    assert.equal(qwen.stages.decision.count, 2)
+    assert.equal(qwen.stages.decision.medianMs, 750)
+    assert.equal(qwen.stages.transcription.medianMs, 2000)
+    assert.equal(qwen.stages.repair.medianMs, 3000)
+    assert.equal(qwen.costLookup.medianMs, 50)
+    assert.match(run(...paths).stdout, /Trascrizione di recupero/)
+  })
+})
+
 test('rejects oversized files and directories before parsing', async () => {
   await withFiles({ 'large.json': '' }, async paths => {
     await truncate(paths[0], 16 * 1024 * 1024 + 1)
