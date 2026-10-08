@@ -1,10 +1,11 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Icon } from './Icons'
 import { ListMusic, ChevronDown } from 'lucide-react'
 import type { AudioOutput } from './audio/AudioEngine'
 import type { AppSettings, ConversationModeStatus, ProviderStatus } from '../../shared/contracts'
 import { GEMINI_MODELS, GEMINI_PREBUILT_VOICES } from '../../shared/contracts'
 import { speechVoiceLabel } from '../../shared/speechRequest'
+import { MAX_SPEECH_STYLE_LENGTH, SPEECH_STYLES } from '../../shared/speechStyles'
 import { conversationShortcutLabel, type RoutingStatus } from './conversationMode'
 
 export type Metrics = { firstChunkMs: number; generationMs: number; durationSeconds: number; playbackMs?: number; modelId?: string; ttsEstimatedCostUsd?: number | null }
@@ -47,6 +48,7 @@ const testPhrase = 'Questa è una prova audio di NEB Voice Console.'
 export function ConsoleView(props: ConsoleProps): React.JSX.Element {
   const { settings, activeKeyName, gemini, script, readyLinesCount, onOpenReadyLines, onScriptChange, scriptInput, outputs, routing, isLinux, virtualOutput, busy, playing, hasAudio, status, error, metrics, fileName, duration, onSpeak, onStop, onReplay, onUpdate, onPreviewVolume, onRefreshOutputs, onLoadFile, onPlayFile, onOpenConversation } = props
   const selectedVoice = speechVoiceLabel(settings)
+  const selectedStyle = SPEECH_STYLES.find(style => style.id === settings.speechStyle) ?? SPEECH_STYLES[0]
   const estimatedSeconds = script.trim() ? Math.max(1, Math.ceil(script.trim().split(/\s+/).length / 2.5)) : 0
   const virtualName = isLinux ? 'NEB Voice' : 'CABLE Input'
   const audioSettings = useRef<HTMLDetailsElement>(null)
@@ -69,6 +71,14 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
           {settings.providerId === 'fish-openrouter' ? <div className="field"><label htmlFor="console-voice">Voce Fish</label><select id="console-voice" disabled value={settings.fishVoice?.id ?? ''}><option value={settings.fishVoice?.id ?? ''}>{selectedVoice}</option></select></div> : <div className="field"><label htmlFor="console-voice">Voce</label><select id="console-voice" disabled={busy} value={settings.geminiVoiceId} onChange={(event) => onUpdate({ geminiVoiceId: event.target.value })}>{GEMINI_PREBUILT_VOICES.map((voice) => <option key={voice} value={voice}>{voice} · predefinita</option>)}{settings.replicatedVoice && <option value={settings.replicatedVoice.id}>{settings.replicatedVoice.displayName} · personale</option>}</select></div>}
           <p className="field-note">Profilo associato a {activeKeyName}.</p>
           <details className="console-model-details"><summary>Modello vocale</summary><div className="field"><label htmlFor="console-model">Modello</label>{settings.providerId === 'fish-openrouter' ? <select id="console-model" disabled value={settings.fishModel}><option value={settings.fishModel}>{settings.fishModel}</option></select> : <select id="console-model" disabled={busy} value={settings.geminiModel} onChange={(event) => onUpdate({ geminiModel: event.target.value as AppSettings['geminiModel'] })}>{GEMINI_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}</select>}</div>
+            <div className="field">
+              <label htmlFor="console-style">Stile di parlato</label>
+              <select id="console-style" aria-describedby="console-style-note" disabled={busy || settings.providerId !== 'gemini'} value={settings.speechStyle} onChange={(event) => onUpdate({ speechStyle: event.target.value as AppSettings['speechStyle'] })}>
+                {SPEECH_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+              </select>
+              <p id="console-style-note" className="field-note">{settings.providerId === 'gemini' ? selectedStyle.description : 'Gli stili sono disponibili con Gemini. Il collegamento Fish attuale usa la resa del riferimento vocale.'}</p>
+            </div>
+            {settings.providerId === 'gemini' && settings.speechStyle === 'custom' && <CustomSpeechStyle key={settings.customSpeechStyle} value={settings.customSpeechStyle} busy={busy} onSave={(customSpeechStyle) => onUpdate({ customSpeechStyle })} />}
           </details>
         </section>
 
@@ -105,6 +115,16 @@ export function ConsoleView(props: ConsoleProps): React.JSX.Element {
 interface ConversationProps extends Pick<ConsoleProps, 'settings' | 'activeKeyName' | 'gemini' | 'script' | 'readyLinesCount' | 'onOpenReadyLines' | 'onScriptChange' | 'scriptInput' | 'routing' | 'isLinux' | 'busy' | 'playing' | 'hasAudio' | 'status' | 'error' | 'metrics' | 'onSpeak' | 'onStop' | 'onReplay'> {
   conversationStatus: ConversationModeStatus | null
   onClose: () => void
+}
+
+function CustomSpeechStyle({ value, busy, onSave }: { value: string; busy: boolean; onSave: (value: string) => void }): React.JSX.Element {
+  const [draft, setDraft] = useState(value)
+  return <div className="field">
+    <label htmlFor="console-custom-style">Come vuoi parlare</label>
+    <input id="console-custom-style" type="text" maxLength={MAX_SPEECH_STYLE_LENGTH} disabled={busy} value={draft} placeholder="Naturale, ritmo normale, un po’ di energia. Non recitare." aria-describedby="console-custom-style-note" onChange={(event) => setDraft(event.target.value)} />
+    <p id="console-custom-style-note" className="field-note">{draft.length}/{MAX_SPEECH_STYLE_LENGTH} caratteri · {draft !== value ? 'Salva per applicare le indicazioni.' : 'Vale dalla prossima generazione. “Riascolta” riproduce l’audio già creato.'}</p>
+    <button className="secondary-button" disabled={busy || draft === value} onClick={() => onSave(draft)}>Salva stile</button>
+  </div>
 }
 
 export function ConversationView(props: ConversationProps): React.JSX.Element {

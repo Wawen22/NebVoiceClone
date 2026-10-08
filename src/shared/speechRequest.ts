@@ -1,6 +1,7 @@
 import { FISH_MODELS, type AppSettings, type SynthesisRequest } from './contracts'
 import { parseSynthesisRequest } from './geminiRequest'
 import { isFishVoiceId } from './fishVoice'
+import { SPEECH_STYLES } from './speechStyles'
 
 export function parseSpeechRequest(value: unknown): SynthesisRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Richiesta vocale non valida.')
@@ -20,7 +21,8 @@ export function buildSpeechRequest(settings: AppSettings, text: string, language
     return {providerId:'fish-openrouter',modelId:settings.fishModel,text,voice:{mode:'reference',voiceId:settings.fishVoice.id},...(language ? {language} : {})}
   }
   if (settings.providerId !== 'gemini') throw new Error('Provider vocale non disponibile.')
-  return {providerId:'gemini',modelId:settings.geminiModel,text,voice:settings.replicatedVoice?.id === settings.geminiVoiceId ? {mode:'stateful',voiceId:settings.geminiVoiceId} : {mode:'prebuilt',voiceId:settings.geminiVoiceId},...(language ? {language} : {})}
+  const style = settings.speechStyle === 'custom' ? settings.customSpeechStyle.trim() : SPEECH_STYLES.find(preset => preset.id === settings.speechStyle)?.direction
+  return {providerId:'gemini',modelId:settings.geminiModel,text,voice:settings.replicatedVoice?.id === settings.geminiVoiceId ? {mode:'stateful',voiceId:settings.geminiVoiceId} : {mode:'prebuilt',voiceId:settings.geminiVoiceId},...(language ? {language} : {}),...(style ? {style} : {})}
 }
 export function speechVoiceLabel(settings: AppSettings): string {
   return settings.providerId === 'fish-openrouter' ? settings.fishVoice?.displayName ?? 'Profilo Fish mancante' : settings.replicatedVoice?.id === settings.geminiVoiceId ? settings.replicatedVoice.displayName : settings.geminiVoiceId

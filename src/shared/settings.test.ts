@@ -3,6 +3,22 @@ import { DEFAULT_SETTINGS } from './contracts'
 import { parseSettings, validateSettingsPatch } from './settings'
 
 describe('settings boundary', () => {
+  it('persists speaking direction and migrates older settings to the original delivery', () => {
+    const patch = validateSettingsPatch({speechStyle: 'social', customSpeechStyle: 'Naturale, senza recitare'})
+    const saved = parseSettings({...DEFAULT_SETTINGS, ...patch})
+    expect(saved.speechStyle).toBe('social')
+    expect(saved.customSpeechStyle).toBe('Naturale, senza recitare')
+    expect(parseSettings({}).speechStyle).toBe('original')
+    expect(parseSettings({speechStyle: 'unknown', customSpeechStyle: 42}).customSpeechStyle).toBe('')
+    expect(parseSettings({speechStyle: 'unknown'}).speechStyle).toBe('original')
+  })
+
+  it('rejects invalid direction updates before saving them', () => {
+    expect(() => validateSettingsPatch({speechStyle: 'unknown'})).toThrow()
+    expect(() => validateSettingsPatch({customSpeechStyle: 42})).toThrow()
+    expect(() => validateSettingsPatch({customSpeechStyle: 'x'.repeat(121)})).toThrow()
+    expect(parseSettings({customSpeechStyle: 'x'.repeat(121)}).customSpeechStyle).toBe('')
+  })
   it('keeps defaults when persisted data is invalid', () => {
     expect(parseSettings({ geminiModel: 'unknown', outputDeviceId: 7 })).toEqual(DEFAULT_SETTINGS)
   })

@@ -1,6 +1,7 @@
 import { DEFAULT_SETTINGS, FISH_MODELS, GEMINI_MODELS, GEMINI_PREBUILT_VOICES, type AppSettings, type GeminiKeySource, type GeminiVoiceProfiles, type ReplicatedVoiceRecord } from './contracts'
 import { parseFishVoiceRecord } from './fishVoice'
 import { isReplicatedVoiceId } from './voiceReplication'
+import { MAX_SPEECH_STYLE_LENGTH, SPEECH_STYLES } from './speechStyles'
 
 function parseReplicatedVoice(value: unknown): ReplicatedVoiceRecord | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
@@ -33,6 +34,8 @@ export function parseSettings(value: unknown): AppSettings {
     geminiModel: GEMINI_MODELS.find((model) => model === candidate.geminiModel) ?? DEFAULT_SETTINGS.geminiModel,
     geminiKeySource,
     geminiVoiceId,
+    speechStyle: SPEECH_STYLES.find(style => style.id === candidate.speechStyle)?.id ?? DEFAULT_SETTINGS.speechStyle,
+    customSpeechStyle: typeof candidate.customSpeechStyle === 'string' && candidate.customSpeechStyle.length <= MAX_SPEECH_STYLE_LENGTH ? candidate.customSpeechStyle : '',
     replicatedVoice,
     voiceProfiles,
     outputDeviceId: typeof candidate.outputDeviceId === 'string' ? candidate.outputDeviceId : 'default',
@@ -45,9 +48,11 @@ export function parseSettings(value: unknown): AppSettings {
 export function validateSettingsPatch(value: unknown): Partial<AppSettings> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid settings update.')
   const candidate = value as Record<string, unknown>
-  const allowed = new Set(['providerId', 'fishModel', 'geminiModel', 'geminiVoiceId', 'outputDeviceId', 'outputVolume', 'monitorDeviceId', 'saveScriptHistory'])
+  const allowed = new Set(['providerId', 'fishModel', 'geminiModel', 'geminiVoiceId', 'speechStyle', 'customSpeechStyle', 'outputDeviceId', 'outputVolume', 'monitorDeviceId', 'saveScriptHistory'])
   for (const [key, entry] of Object.entries(candidate)) {
     if (!allowed.has(key)) throw new Error(`Unsupported setting: ${key}`)
+    if (key === 'speechStyle' && !SPEECH_STYLES.some(style => style.id === entry)) throw new Error('Invalid speech style.')
+    if (key === 'customSpeechStyle' && (typeof entry !== 'string' || entry.length > MAX_SPEECH_STYLE_LENGTH)) throw new Error('Invalid custom speech style.')
     if (key === 'providerId' && entry !== 'gemini' && entry !== 'azure' && entry !== 'fish-openrouter') throw new Error('Invalid provider.')
     if (key === 'fishModel' && !FISH_MODELS.some(model => model === entry)) throw new Error('Invalid Fish model.')
     if (key === 'geminiModel' && !GEMINI_MODELS.some((model) => model === entry)) throw new Error('Invalid Gemini model.')

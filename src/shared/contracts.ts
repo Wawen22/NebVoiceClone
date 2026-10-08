@@ -3,6 +3,7 @@ import type { S2SApi } from './s2s'
 import type { LiveApi } from './live'
 import type { AvatarApi } from './avatar'
 import type { AvatarOutputApi } from './avatarOutput'
+import type { SpeechStyle } from './speechStyles'
 
 export const GEMINI_MODELS = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts'] as const
 export const GEMINI_PREBUILT_VOICES = ['Kore', 'Puck'] as const
@@ -95,6 +96,8 @@ export interface AppSettings {
   geminiModel: GeminiModel
   geminiKeySource: GeminiKeySource
   geminiVoiceId: string
+  speechStyle: SpeechStyle
+  customSpeechStyle: string
   replicatedVoice: ReplicatedVoiceRecord | null
   voiceProfiles: GeminiVoiceProfiles
   outputDeviceId: string
@@ -111,6 +114,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   geminiModel: 'gemini-3.8-flash-tts',
   geminiKeySource: 'environment',
   geminiVoiceId: 'Kore',
+  speechStyle: 'original',
+  customSpeechStyle: '',
   replicatedVoice: null,
   voiceProfiles: {
     environment: { replicatedVoice: null, selectedVoiceId: 'Kore' },
